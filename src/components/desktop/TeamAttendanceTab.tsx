@@ -331,7 +331,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
     const existing = dateRecordMap.get(emp.id);
 
     if (action === 'in') {
-      const isLate = isLateArrival(nowTime, shift.startTime, shift.graceMinutes);
+      const isLate = isLateArrival(nowTime, shift);
       const updated: AttendanceRecord = {
         ...(existing || {
           id: `att-${selectedDate}-${emp.id}`,
@@ -342,6 +342,8 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         }),
         timeIn: nowTime,
         timeOut: undefined,
+        clearTimeOut: true,
+        isAutoPunchedOut: false,
         totalWorkedMinutes: 0,
         regularMinutes: 0,
         overtimeMinutes: 0,
@@ -357,10 +359,15 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         alert('Cannot punch out: Employee has no punch-in recorded for today.');
         return;
       }
-      const worked = calculateWorkedMinutes(existing.timeIn, nowTime, existing.breaks || [], shift.expectedHours);
+      const closedBreaks = (existing.breaks || []).map((b) =>
+        !b.end ? { ...b, end: nowTime } : b
+      );
+      const worked = calculateWorkedMinutes(existing.timeIn, nowTime, closedBreaks, shift.expectedHours);
       const updated: AttendanceRecord = {
         ...existing,
         timeOut: nowTime,
+        clearTimeOut: false,
+        breaks: closedBreaks,
         totalWorkedMinutes: worked.totalWorkedMinutes,
         regularMinutes: worked.regularMinutes,
         overtimeMinutes: worked.overtimeMinutes,
@@ -383,32 +390,55 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
     }
 
     const shift = shiftMap.get(editingEmployee.shiftId) || shifts[0];
+    const nowTime = new Date().toTimeString().slice(0, 8);
 
-    // Determine final timeIn and timeOut based on separate options
+    // Determine final timeIn, timeOut, breaks, and clearTimeOut flag
     let finalTimeIn: string = '';
     let finalTimeOut: string | undefined = undefined;
     let finalStatus: AttendanceRecord['status'] = editStatus;
+    let updatedBreaks = [...(editingRecord?.breaks || [])];
+    let shouldClearTimeOut = false;
 
     if (editWorkingStatus === 'absent' || !hasPunchIn) {
       finalTimeIn = '';
       finalTimeOut = undefined;
       finalStatus = 'absent';
+      updatedBreaks = [];
+      shouldClearTimeOut = true;
     } else {
       finalTimeIn = editTimeIn.trim() || shift.startTime;
 
-      if (editWorkingStatus === 'working' || !hasPunchOut) {
+      if (editWorkingStatus === 'working') {
         finalTimeOut = undefined;
+        shouldClearTimeOut = true;
+        updatedBreaks = updatedBreaks.map((b) => (!b.end ? { ...b, end: nowTime } : b));
+        if (finalStatus === 'absent') finalStatus = 'present';
+      } else if (editWorkingStatus === 'break') {
+        finalTimeOut = undefined;
+        shouldClearTimeOut = true;
+        if (!updatedBreaks.some((b) => !b.end)) {
+          updatedBreaks.push({
+            id: `brk-${Date.now()}`,
+            start: nowTime,
+            type: 'lunch',
+          });
+        }
         if (finalStatus === 'absent') finalStatus = 'present';
       } else if (editWorkingStatus === 'completed' || hasPunchOut) {
         finalTimeOut = editTimeOut.trim() || shift.endTime;
+        updatedBreaks = updatedBreaks.map((b) => (!b.end ? { ...b, end: finalTimeOut } : b));
+        if (finalStatus === 'absent') finalStatus = 'present';
+      } else {
+        finalTimeOut = undefined;
+        shouldClearTimeOut = true;
         if (finalStatus === 'absent') finalStatus = 'present';
       }
     }
 
     const worked = finalTimeIn && finalTimeOut
-      ? calculateWorkedMinutes(finalTimeIn, finalTimeOut, editingRecord?.breaks || [], shift.expectedHours)
+      ? calculateWorkedMinutes(finalTimeIn, finalTimeOut, updatedBreaks, shift.expectedHours)
       : finalTimeIn
-      ? calculateWorkedMinutes(finalTimeIn, undefined, editingRecord?.breaks || [], shift.expectedHours)
+      ? calculateWorkedMinutes(finalTimeIn, undefined, updatedBreaks, shift.expectedHours)
       : { totalWorkedMinutes: 0, regularMinutes: 0, overtimeMinutes: 0 };
 
     const updated: AttendanceRecord = {
@@ -421,6 +451,9 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       }),
       timeIn: finalTimeIn,
       timeOut: finalTimeOut,
+      clearTimeOut: shouldClearTimeOut,
+      isAutoPunchedOut: shouldClearTimeOut ? false : editingRecord?.isAutoPunchedOut,
+      breaks: updatedBreaks,
       totalWorkedMinutes: worked.totalWorkedMinutes,
       regularMinutes: worked.regularMinutes,
       overtimeMinutes: worked.overtimeMinutes,

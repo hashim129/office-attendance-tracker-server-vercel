@@ -54,6 +54,7 @@ export interface AttendanceRecord {
   isDeviceMismatch?: boolean;
   deviceMismatchReason?: string;
   isAutoPunchedOut?: boolean;
+  clearTimeOut?: boolean;
   adminVerification?: VerificationInfo;
   accountsVerification?: VerificationInfo;
 }

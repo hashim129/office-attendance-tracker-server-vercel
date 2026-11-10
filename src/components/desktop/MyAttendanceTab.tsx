@@ -340,19 +340,23 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
               )}
             </div>
 
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <div className="text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
               {currentUser.registeredDeviceId ? (
-                <>
+                <p>
                   Bound Device: <strong className="text-slate-700 dark:text-slate-200">{currentUser.registeredDeviceName || currentUser.registeredDeviceId}</strong> · Approved by {currentUser.deviceBoundApprovedBy || 'Administrator'}
-                </>
-              ) : currentUser.pendingDeviceRequest?.status === 'pending' ? (
-                <>
-                  Approval requested for: <strong className="text-amber-700 dark:text-amber-300">{currentUser.pendingDeviceRequest.deviceName}</strong> (Reason: "{currentUser.pendingDeviceRequest.reason}")
-                </>
-              ) : (
-                'No personal phone bound. Please submit a device binding request for Admin approval to punch attendance.'
+                </p>
+              ) : currentUser.pendingDeviceRequest?.status !== 'pending' ? (
+                <p>
+                  No personal phone bound. Please submit a device binding request for Admin approval to punch attendance.
+                </p>
+              ) : null}
+              {currentUser.pendingDeviceRequest?.status === 'pending' && (
+                <p className="text-amber-700 dark:text-amber-300 font-medium">
+                  ⏳ Pending Admin Approval: <strong>{currentUser.pendingDeviceRequest.requestedDeviceName}</strong>
+                  {currentUser.pendingDeviceRequest.reason ? ` (Reason: "${currentUser.pendingDeviceRequest.reason}")` : ''}
+                </p>
               )}
-            </p>
+            </div>
           </div>
         </div>
 

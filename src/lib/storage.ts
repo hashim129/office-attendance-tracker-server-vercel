@@ -132,45 +132,167 @@ export function generateInitialAttendanceRecords(): AttendanceRecord[] {
 
 // Server Sync Helper (for standalone .exe, Express server, and Vercel Gist DB)
 let isSyncingFromServer = false;
+let pendingPushCount = 0;
+let pushQueue: Promise<void> = Promise.resolve();
+let cloudSyncListener: (() => void) | null = null;
 
 const STORAGE_KEY_UPDATED_AT = 'office_attend_updated_at_v1';
 
-export async function pushDatabaseToServer(): Promise<void> {
-  if (isSyncingFromServer) return;
-  try {
-    const nowIso = new Date().toISOString();
-    const payload = {
-      version: '1.0',
-      updatedAt: nowIso,
-      settings: JSON.parse(localStorage.getItem(STORAGE_KEY_SETTINGS) || 'null') || INITIAL_SETTINGS,
-      shifts: JSON.parse(localStorage.getItem(STORAGE_KEY_SHIFTS) || 'null') || INITIAL_SHIFTS,
-      employees: JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEES) || 'null') || INITIAL_EMPLOYEES,
-      attendance: JSON.parse(localStorage.getItem(STORAGE_KEY_ATTENDANCE) || 'null') || [],
-      leaves: JSON.parse(localStorage.getItem(STORAGE_KEY_LEAVES) || 'null') || [],
-      ceoComments: JSON.parse(localStorage.getItem(STORAGE_KEY_CEO_COMMENTS) || 'null') || [],
-    };
-    const res = await fetch(`/api/db?t=${Date.now()}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.updatedAt) {
-        localStorage.setItem(STORAGE_KEY_UPDATED_AT, data.updatedAt);
-      } else {
-        localStorage.setItem(STORAGE_KEY_UPDATED_AT, nowIso);
-      }
+export function registerCloudSyncListener(listener: (() => void) | null): void {
+  cloudSyncListener = listener;
+}
+
+export function hasPendingCloudWrites(): boolean {
+  return pendingPushCount > 0;
+}
+
+export type DbMutationPayload =
+  | { scope: 'attendance'; changedRecord?: AttendanceRecord }
+  | {
+      scope: 'employee_upsert';
+      employee: Employee;
+      allowClearDevice?: boolean;
+      clearPendingRequest?: boolean;
     }
-  } catch {
-    // Graceful fallback if running without backend API
+  | { scope: 'employee_delete'; deletedEmployeeId: string }
+  | { scope: 'shifts' }
+  | { scope: 'leaves'; changedLeave?: LeaveRequest }
+  | { scope: 'ceoComments'; changedComment?: CeoComment }
+  | { scope: 'settings' }
+  | { scope: 'full_restore' };
+
+function applyServerDbToLocal(data: {
+  updatedAt?: string;
+  settings?: OfficeSettings;
+  shifts?: ShiftSchedule[];
+  employees?: Employee[];
+  attendance?: AttendanceRecord[];
+  leaves?: LeaveRequest[];
+  ceoComments?: CeoComment[];
+}): void {
+  isSyncingFromServer = true;
+  try {
+    if (data.updatedAt) {
+      localStorage.setItem(STORAGE_KEY_UPDATED_AT, data.updatedAt);
+    }
+    if (data.settings) localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(data.settings));
+    if (data.shifts) localStorage.setItem(STORAGE_KEY_SHIFTS, JSON.stringify(data.shifts));
+    if (data.employees) localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(data.employees));
+    if (data.attendance) localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(data.attendance));
+    if (data.leaves) localStorage.setItem(STORAGE_KEY_LEAVES, JSON.stringify(data.leaves));
+    if (data.ceoComments) localStorage.setItem(STORAGE_KEY_CEO_COMMENTS, JSON.stringify(data.ceoComments));
+  } finally {
+    isSyncingFromServer = false;
   }
 }
 
+export function pushDatabaseToServer(mutation?: DbMutationPayload): Promise<void> {
+  if (isSyncingFromServer) return Promise.resolve();
+
+  pendingPushCount += 1;
+
+  const task = pushQueue.then(async () => {
+    try {
+      const nowIso = new Date().toISOString();
+      const scope = mutation?.scope || 'legacy_bulk';
+
+      let payload: Record<string, unknown> = {
+        version: '1.0',
+        updatedAt: nowIso,
+        scope,
+      };
+
+      if (mutation?.scope === 'attendance') {
+        payload.changedRecord = mutation.changedRecord;
+        if (!mutation.changedRecord) {
+          payload.attendance =
+            JSON.parse(localStorage.getItem(STORAGE_KEY_ATTENDANCE) || 'null') || [];
+        }
+      } else if (mutation?.scope === 'employee_upsert') {
+        payload.employee = mutation.employee;
+        payload.allowClearDevice = Boolean(mutation.allowClearDevice);
+        payload.clearPendingRequest = Boolean(mutation.clearPendingRequest);
+      } else if (mutation?.scope === 'employee_delete') {
+        payload.deletedEmployeeId = mutation.deletedEmployeeId;
+      } else if (mutation?.scope === 'shifts') {
+        payload.shifts =
+          JSON.parse(localStorage.getItem(STORAGE_KEY_SHIFTS) || 'null') || INITIAL_SHIFTS;
+      } else if (mutation?.scope === 'settings') {
+        payload.settings =
+          JSON.parse(localStorage.getItem(STORAGE_KEY_SETTINGS) || 'null') || INITIAL_SETTINGS;
+      } else if (mutation?.scope === 'leaves') {
+        payload.changedLeave = mutation.changedLeave;
+        if (!mutation.changedLeave) {
+          payload.leaves = JSON.parse(localStorage.getItem(STORAGE_KEY_LEAVES) || 'null') || [];
+        }
+      } else if (mutation?.scope === 'ceoComments') {
+        payload.changedComment = mutation.changedComment;
+        if (!mutation.changedComment) {
+          payload.ceoComments =
+            JSON.parse(localStorage.getItem(STORAGE_KEY_CEO_COMMENTS) || 'null') || [];
+        }
+      } else {
+        // full_restore or legacy_bulk
+        payload = {
+          ...payload,
+          settings:
+            JSON.parse(localStorage.getItem(STORAGE_KEY_SETTINGS) || 'null') || INITIAL_SETTINGS,
+          shifts:
+            JSON.parse(localStorage.getItem(STORAGE_KEY_SHIFTS) || 'null') || INITIAL_SHIFTS,
+          employees:
+            JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEES) || 'null') || INITIAL_EMPLOYEES,
+          attendance: JSON.parse(localStorage.getItem(STORAGE_KEY_ATTENDANCE) || 'null') || [],
+          leaves: JSON.parse(localStorage.getItem(STORAGE_KEY_LEAVES) || 'null') || [],
+          ceoComments:
+            JSON.parse(localStorage.getItem(STORAGE_KEY_CEO_COMMENTS) || 'null') || [],
+        };
+      }
+
+      const res = await fetch(`/api/db?t=${Date.now()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        // Only apply authoritative server DB once no newer local writes are queued behind this one
+        if (pendingPushCount === 1 && data && data.db) {
+          applyServerDbToLocal(data.db);
+          if (cloudSyncListener) {
+            cloudSyncListener();
+          }
+        } else if (data && data.updatedAt) {
+          localStorage.setItem(STORAGE_KEY_UPDATED_AT, data.updatedAt);
+        } else {
+          localStorage.setItem(STORAGE_KEY_UPDATED_AT, nowIso);
+        }
+      }
+    } catch {
+      // Graceful fallback if running offline
+    } finally {
+      pendingPushCount = Math.max(0, pendingPushCount - 1);
+    }
+  });
+
+  pushQueue = task;
+  return task;
+}
+
 export async function syncDatabaseFromServer(forceAccept = false): Promise<boolean> {
+  if (pendingPushCount > 0 || isSyncingFromServer) {
+    return false;
+  }
   try {
     const res = await fetch(`/api/db?t=${Date.now()}`, { cache: 'no-store' });
     if (!res.ok) return false;
+
+    // Abort applying poll result if a local write started while GET was in-flight
+    if (pendingPushCount > 0) {
+      return false;
+    }
+
     const data = await res.json();
     if (data && Array.isArray(data.employees) && Array.isArray(data.attendance)) {
       const localUpdatedAt = localStorage.getItem(STORAGE_KEY_UPDATED_AT);
@@ -178,17 +300,12 @@ export async function syncDatabaseFromServer(forceAccept = false): Promise<boole
         return false;
       }
 
-      isSyncingFromServer = true;
-      if (data.updatedAt) {
-        localStorage.setItem(STORAGE_KEY_UPDATED_AT, data.updatedAt);
+      // Final check right before modifying localStorage
+      if (pendingPushCount > 0) {
+        return false;
       }
-      if (data.settings) localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(data.settings));
-      if (data.shifts) localStorage.setItem(STORAGE_KEY_SHIFTS, JSON.stringify(data.shifts));
-      if (data.employees) localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(data.employees));
-      if (data.attendance) localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(data.attendance));
-      if (data.leaves) localStorage.setItem(STORAGE_KEY_LEAVES, JSON.stringify(data.leaves));
-      if (data.ceoComments) localStorage.setItem(STORAGE_KEY_CEO_COMMENTS, JSON.stringify(data.ceoComments));
-      isSyncingFromServer = false;
+
+      applyServerDbToLocal(data);
       return true;
     }
     return false;
@@ -199,12 +316,11 @@ export async function syncDatabaseFromServer(forceAccept = false): Promise<boole
 }
 
 // Local Storage Wrappers — NOTE: load* functions NEVER call pushDatabaseToServer()
-// so a newly opened employee laptop never overwrites the server DB with dummy data!
+// so a newly opened employee laptop never overwrites the server DB with stale data!
 export function loadEmployees(): Employee[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_EMPLOYEES);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(INITIAL_EMPLOYEES));
       return INITIAL_EMPLOYEES;
     }
     return JSON.parse(raw);
@@ -222,13 +338,41 @@ export function saveEmployees(employees: Employee[]): void {
   }
 }
 
+export function saveEmployeeUpsert(
+  employees: Employee[],
+  changedEmployee: Employee,
+  options?: { allowClearDevice?: boolean; clearPendingRequest?: boolean }
+): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(employees));
+    void pushDatabaseToServer({
+      scope: 'employee_upsert',
+      employee: changedEmployee,
+      allowClearDevice: options?.allowClearDevice,
+      clearPendingRequest: options?.clearPendingRequest,
+    });
+  } catch (err) {
+    console.error('Failed to save employee:', err);
+  }
+}
+
+export function saveEmployeeDelete(employees: Employee[], deletedEmployeeId: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(employees));
+    void pushDatabaseToServer({
+      scope: 'employee_delete',
+      deletedEmployeeId,
+    });
+  } catch (err) {
+    console.error('Failed to delete employee:', err);
+  }
+}
+
 export function loadAttendanceRecords(): AttendanceRecord[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_ATTENDANCE);
     if (!raw) {
-      const initial = generateInitialAttendanceRecords();
-      localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(initial));
-      return initial;
+      return generateInitialAttendanceRecords();
     }
     return JSON.parse(raw);
   } catch {
@@ -236,10 +380,16 @@ export function loadAttendanceRecords(): AttendanceRecord[] {
   }
 }
 
-export function saveAttendanceRecords(records: AttendanceRecord[]): void {
+export function saveAttendanceRecords(
+  records: AttendanceRecord[],
+  changedRecord?: AttendanceRecord
+): void {
   try {
     localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(records));
-    void pushDatabaseToServer();
+    void pushDatabaseToServer({
+      scope: 'attendance',
+      changedRecord,
+    });
   } catch (err) {
     console.error('Failed to save attendance records:', err);
   }
@@ -249,7 +399,6 @@ export function loadShifts(): ShiftSchedule[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_SHIFTS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY_SHIFTS, JSON.stringify(INITIAL_SHIFTS));
       return INITIAL_SHIFTS;
     }
     return JSON.parse(raw);
@@ -261,7 +410,7 @@ export function loadShifts(): ShiftSchedule[] {
 export function saveShifts(shifts: ShiftSchedule[]): void {
   try {
     localStorage.setItem(STORAGE_KEY_SHIFTS, JSON.stringify(shifts));
-    void pushDatabaseToServer();
+    void pushDatabaseToServer({ scope: 'shifts' });
   } catch (err) {
     console.error('Failed to save shifts:', err);
   }
@@ -271,7 +420,6 @@ export function loadLeaves(): LeaveRequest[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_LEAVES);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY_LEAVES, JSON.stringify(INITIAL_LEAVES));
       return INITIAL_LEAVES;
     }
     return JSON.parse(raw);
@@ -280,10 +428,10 @@ export function loadLeaves(): LeaveRequest[] {
   }
 }
 
-export function saveLeaves(leaves: LeaveRequest[]): void {
+export function saveLeaves(leaves: LeaveRequest[], changedLeave?: LeaveRequest): void {
   try {
     localStorage.setItem(STORAGE_KEY_LEAVES, JSON.stringify(leaves));
-    void pushDatabaseToServer();
+    void pushDatabaseToServer({ scope: 'leaves', changedLeave });
   } catch (err) {
     console.error('Failed to save leaves:', err);
   }
@@ -298,10 +446,10 @@ export function loadCeoComments(): CeoComment[] {
   }
 }
 
-export function saveCeoComments(comments: CeoComment[]): void {
+export function saveCeoComments(comments: CeoComment[], changedComment?: CeoComment): void {
   try {
     localStorage.setItem(STORAGE_KEY_CEO_COMMENTS, JSON.stringify(comments));
-    void pushDatabaseToServer();
+    void pushDatabaseToServer({ scope: 'ceoComments', changedComment });
   } catch (err) {
     console.error('Failed to save CEO comments:', err);
   }
@@ -311,7 +459,6 @@ export function loadSettings(): OfficeSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_SETTINGS);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(INITIAL_SETTINGS));
       return INITIAL_SETTINGS;
     }
     const parsed: OfficeSettings = JSON.parse(raw);
@@ -341,7 +488,7 @@ export function loadSettings(): OfficeSettings {
 export function saveSettings(settings: OfficeSettings): void {
   try {
     localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
-    void pushDatabaseToServer();
+    void pushDatabaseToServer({ scope: 'settings' });
   } catch (err) {
     console.error('Failed to save settings:', err);
   }
@@ -429,11 +576,13 @@ export function importDatabaseBackup(jsonString: string): boolean {
     if (!data.employees || !data.attendance) {
       throw new Error('Invalid database backup structure');
     }
-    if (data.settings) saveSettings(data.settings);
-    if (data.shifts) saveShifts(data.shifts);
-    if (data.employees) saveEmployees(data.employees);
-    if (data.attendance) saveAttendanceRecords(data.attendance);
-    if (data.leaves) saveLeaves(data.leaves);
+    if (data.settings) localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(data.settings));
+    if (data.shifts) localStorage.setItem(STORAGE_KEY_SHIFTS, JSON.stringify(data.shifts));
+    if (data.employees) localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(data.employees));
+    if (data.attendance) localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(data.attendance));
+    if (data.leaves) localStorage.setItem(STORAGE_KEY_LEAVES, JSON.stringify(data.leaves));
+    if (data.ceoComments) localStorage.setItem(STORAGE_KEY_CEO_COMMENTS, JSON.stringify(data.ceoComments));
+    void pushDatabaseToServer({ scope: 'full_restore' });
     return true;
   } catch (err) {
     console.error('Failed to import database backup:', err);
@@ -447,6 +596,8 @@ export function resetToFactoryDefaults(): void {
   localStorage.removeItem(STORAGE_KEY_SHIFTS);
   localStorage.removeItem(STORAGE_KEY_LEAVES);
   localStorage.removeItem(STORAGE_KEY_SETTINGS);
+  localStorage.removeItem(STORAGE_KEY_CEO_COMMENTS);
+  localStorage.removeItem(STORAGE_KEY_UPDATED_AT);
   localStorage.removeItem(STORAGE_KEY_SESSION);
   sessionStorage.removeItem(STORAGE_KEY_SESSION);
 }

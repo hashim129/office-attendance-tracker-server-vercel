@@ -435,7 +435,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                       {isPunchBlockedByDevice
                         ? deviceCheck.reason
                         : currentUser.pendingDeviceRequest?.status === 'pending'
-                        ? `Awaiting Admin approval for: "${currentUser.pendingDeviceRequest.deviceName}". You will be able to punch once approved.`
+                        ? `Awaiting Admin approval for: "${currentUser.pendingDeviceRequest.requestedDeviceName}". You will be able to punch once approved.`
                         : deviceCheck.shouldRegister
                         ? 'Your device requires Admin approval before attendance can be marked. Request binding below.'
                         : `Device Verified & Approved: ${currentUser.registeredDeviceName || deviceCheck.currentDeviceName}`}

@@ -10,12 +10,31 @@ export interface DeviceInfo {
   isMobile: boolean;
 }
 
+function readDeviceCookie(): string | null {
+  try {
+    if (typeof document === 'undefined' || !document.cookie) return null;
+    const match = document.cookie.match(new RegExp(`(?:^|; )${DEVICE_STORAGE_KEY}=([^;]*)`));
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDeviceCookie(id: string): void {
+  try {
+    if (typeof document === 'undefined') return;
+    document.cookie = `${DEVICE_STORAGE_KEY}=${encodeURIComponent(id)}; max-age=315360000; path=/; SameSite=Lax`;
+  } catch {
+    // Ignore cookie write errors in restricted contexts
+  }
+}
+
 /**
  * Get or initialize a unique persistent Device Identifier for this browser / phone
  */
 export function getOrCreateDeviceId(): string {
   try {
-    let id = localStorage.getItem(DEVICE_STORAGE_KEY);
+    let id = localStorage.getItem(DEVICE_STORAGE_KEY) || readDeviceCookie();
     if (!id) {
       const entropy = [
         Date.now().toString(36),
@@ -24,11 +43,12 @@ export function getOrCreateDeviceId(): string {
         typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4,
       ].join('-');
       id = `dev-${entropy}`;
-      localStorage.setItem(DEVICE_STORAGE_KEY, id);
     }
+    localStorage.setItem(DEVICE_STORAGE_KEY, id);
+    writeDeviceCookie(id);
     return id;
   } catch {
-    return `dev-${Date.now().toString(36)}`;
+    return readDeviceCookie() || `dev-${Date.now().toString(36)}`;
   }
 }
 

@@ -13,6 +13,7 @@ import {
 } from './types';
 import {
   clearSession,
+  hasPendingCloudWrites,
   loadAttendanceRecords,
   loadCeoComments,
   loadEmployees,
@@ -21,9 +22,11 @@ import {
   loadSession,
   loadSettings,
   loadShifts,
+  registerCloudSyncListener,
   saveAttendanceRecords,
   saveCeoComments,
-  saveEmployees,
+  saveEmployeeDelete,
+  saveEmployeeUpsert,
   saveLeaves,
   saveMode,
   saveSession,
@@ -73,6 +76,7 @@ export default function App() {
   const [settings, setSettings] = useState<OfficeSettings>(loadSettings());
   const [currentClientIp, setCurrentClientIp] = useState<string>('Detecting...');
   const [currentClientIsp, setCurrentClientIsp] = useState<string>('Detecting...');
+  const [isInitialCloudSyncing, setIsInitialCloudSyncing] = useState<boolean>(true);
 
   // Current Session & Workspace Navigation
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
@@ -95,20 +99,13 @@ export default function App() {
 
   // Initial Data Load & Server Sync
   useEffect(() => {
-    const refreshFromLocal = () => {
+    const refreshFromLocal = (verifySession = false) => {
       const loadedEmps = loadEmployees();
       const loadedShifts = loadShifts();
-      let loadedRecords = loadAttendanceRecords();
+      const loadedRecords = loadAttendanceRecords();
       const loadedLeaves = loadLeaves();
       const loadedComments = loadCeoComments();
       const loadedSettings = loadSettings();
-
-      // Automatically punch out any forgotten punches at 11:59 PM
-      const { updatedRecords, hasChanges } = autoCloseForgottenPunches(loadedRecords, loadedShifts);
-      if (hasChanges) {
-        loadedRecords = updatedRecords;
-        saveAttendanceRecords(updatedRecords);
-      }
 
       setEmployees(loadedEmps);
       setShifts(loadedShifts);
@@ -119,42 +116,81 @@ export default function App() {
 
       const session = loadSession();
       if (session) {
-        const matched = loadedEmps.find((e) => e.id === session.userId && e.isActive);
+        const matched = loadedEmps.find((e) => e.id === session.userId && e.isActive !== false);
         if (matched) {
           setCurrentUser(matched);
+        } else if (verifySession) {
+          clearSession();
+          setCurrentUser(null);
         }
       }
     };
 
-    refreshFromLocal();
+    // Load cached data immediately for instant UI, WITHOUT pushing stale records back to server!
+    refreshFromLocal(false);
+
+    // Subscribe to post-write server merges so state reflects authoritative cloud DB
+    registerCloudSyncListener(() => {
+      refreshFromLocal(true);
+    });
+
     void detectClientNetwork().then((net) => {
       setCurrentClientIp(net.ip);
       setCurrentClientIsp(net.isp);
     });
 
-    // Sync with Cloud / Windows Server backend (/api/db) immediately on boot
-    void syncDatabaseFromServer(true).then((updated) => {
-      if (updated) refreshFromLocal();
-    });
+    let bootFinished = false;
+    // Sync authoritative database from Cloud /api/db FIRST before any client auto-close writes
+    void syncDatabaseFromServer(true)
+      .then((updated) => {
+        if (updated) {
+          refreshFromLocal(true);
+        }
+      })
+      .finally(() => {
+        bootFinished = true;
+        setIsInitialCloudSyncing(false);
+
+        // Now check if any past open punch missed 11:59 PM
+        const currentRecs = loadAttendanceRecords();
+        const currentShifts = loadShifts();
+        const { updatedRecords, hasChanges } = autoCloseForgottenPunches(currentRecs, currentShifts);
+        if (hasChanges) {
+          setRecords(updatedRecords);
+          const changedOne = updatedRecords.find(
+            (u, idx) => currentRecs[idx] && u.isAutoPunchedOut !== currentRecs[idx].isAutoPunchedOut
+          );
+          if (changedOne) {
+            saveAttendanceRecords(updatedRecords, changedOne);
+          } else {
+            saveAttendanceRecords(updatedRecords);
+          }
+        }
+      });
 
     const syncInterval = setInterval(() => {
+      if (!bootFinished) return;
       void syncDatabaseFromServer(false).then((updated) => {
-        if (updated) refreshFromLocal();
+        if (updated) refreshFromLocal(true);
       });
     }, 4000);
 
     // Periodic check to auto punch out at 11:59 PM without requiring manual reload
     const autoPunchInterval = setInterval(() => {
+      if (!bootFinished) return;
       setRecords((prev) => {
         const currentShifts = loadShifts();
         const { updatedRecords, hasChanges } = autoCloseForgottenPunches(prev, currentShifts);
         if (hasChanges) {
-          saveAttendanceRecords(updatedRecords);
+          const changedOne = updatedRecords.find(
+            (u, idx) => prev[idx] && u.isAutoPunchedOut !== prev[idx].isAutoPunchedOut
+          );
+          saveAttendanceRecords(updatedRecords, changedOne);
           return updatedRecords;
         }
         return prev;
       });
-    }, 10000);
+    }, 15000);
 
     const ipInterval = setInterval(() => {
       void detectClientNetwork().then((net) => {
@@ -163,10 +199,21 @@ export default function App() {
       });
     }, 30000);
 
+    // Prevent accidental tab reload/close while a cloud DB save is still in flight
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasPendingCloudWrites()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     return () => {
       clearInterval(syncInterval);
       clearInterval(autoPunchInterval);
       clearInterval(ipInterval);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      registerCloudSyncListener(null);
     };
   }, []);
 
@@ -186,6 +233,24 @@ export default function App() {
   };
 
   const handleToggleMode = (mode: AppMode) => {
+    // Switching INTO Lobby Kiosk Mode from desktop/login requires Admin role or Admin PIN
+    // so colleagues on mobile phones cannot enter Kiosk Mode to punch each other's PINs!
+    if (mode === 'kiosk' && appMode !== 'kiosk') {
+      const isSignedInAdmin = currentUser?.role === 'admin';
+      if (!isSignedInAdmin) {
+        const enteredPin = prompt(
+          'Administrator Verification Required:\n\nEnter Administrator PIN to launch Lobby Kiosk Terminal mode:'
+        );
+        if (enteredPin === null) return;
+        const matchedAdmin = employees.find(
+          (e) => e.role === 'admin' && e.isActive !== false && e.pin === enteredPin.trim()
+        );
+        if (!matchedAdmin) {
+          alert('Invalid Administrator PIN. Only an Administrator can activate Lobby Kiosk Mode.');
+          return;
+        }
+      }
+    }
     setAppMode(mode);
     saveMode(mode);
   };
@@ -229,9 +294,10 @@ export default function App() {
     const isMismatch = !!(emp.registeredDeviceId && emp.registeredDeviceId !== deviceId);
 
     let nextRecords = [...records];
+    let changedRecord: AttendanceRecord;
 
     if (existingIdx >= 0) {
-      nextRecords[existingIdx] = {
+      changedRecord = {
         ...nextRecords[existingIdx],
         timeIn: nowTime,
         status: late ? 'late' : 'present',
@@ -244,8 +310,9 @@ export default function App() {
           ? `Punched from device "${deviceLabel}" instead of approved phone "${emp.registeredDeviceName || 'Registered Phone'}"`
           : undefined,
       };
+      nextRecords[existingIdx] = changedRecord;
     } else {
-      const newRec: AttendanceRecord = {
+      changedRecord = {
         id: `att-${todayStr}-${employeeId}`,
         employeeId,
         date: todayStr,
@@ -265,11 +332,11 @@ export default function App() {
           ? `Punched from device "${deviceLabel}" instead of approved phone "${emp.registeredDeviceName || 'Registered Phone'}"`
           : undefined,
       };
-      nextRecords = [newRec, ...nextRecords];
+      nextRecords = [changedRecord, ...nextRecords];
     }
 
     setRecords(nextRecords);
-    saveAttendanceRecords(nextRecords);
+    saveAttendanceRecords(nextRecords, changedRecord);
   };
 
   const handleUpdatePunchNote = (employeeId: string, notes: string) => {
@@ -280,12 +347,13 @@ export default function App() {
 
     if (existingIdx >= 0) {
       const updatedRecords = [...records];
-      updatedRecords[existingIdx] = {
+      const changedRecord = {
         ...updatedRecords[existingIdx],
         notes,
       };
+      updatedRecords[existingIdx] = changedRecord;
       setRecords(updatedRecords);
-      saveAttendanceRecords(updatedRecords);
+      saveAttendanceRecords(updatedRecords, changedRecord);
     }
   };
 
@@ -340,7 +408,7 @@ export default function App() {
     const nextRecords = [...records];
     nextRecords[existingIdx] = updated;
     setRecords(nextRecords);
-    saveAttendanceRecords(nextRecords);
+    saveAttendanceRecords(nextRecords, updated);
   };
 
   const handleStartBreak = (
@@ -370,7 +438,7 @@ export default function App() {
     const nextRecords = [...records];
     nextRecords[existingIdx] = updated;
     setRecords(nextRecords);
-    saveAttendanceRecords(nextRecords);
+    saveAttendanceRecords(nextRecords, updated);
   };
 
   const handleEndBreak = (employeeId: string) => {
@@ -398,7 +466,7 @@ export default function App() {
     const nextRecords = [...records];
     nextRecords[existingIdx] = updated;
     setRecords(nextRecords);
-    saveAttendanceRecords(nextRecords);
+    saveAttendanceRecords(nextRecords, updated);
   };
 
   // -------------------------------------------------------------
@@ -411,13 +479,13 @@ export default function App() {
     };
     const nextEmps = [...employees, newEmp];
     setEmployees(nextEmps);
-    saveEmployees(nextEmps);
+    saveEmployeeUpsert(nextEmps, newEmp);
   };
 
   const handleUpdateEmployee = (updatedEmp: Employee) => {
     const nextEmps = employees.map((e) => (e.id === updatedEmp.id ? updatedEmp : e));
     setEmployees(nextEmps);
-    saveEmployees(nextEmps);
+    saveEmployeeUpsert(nextEmps, updatedEmp);
     if (currentUser?.id === updatedEmp.id) {
       setCurrentUser(updatedEmp);
     }
@@ -426,17 +494,18 @@ export default function App() {
   const handleDeleteEmployee = (empId: string) => {
     const nextEmps = employees.filter((e) => e.id !== empId);
     setEmployees(nextEmps);
-    saveEmployees(nextEmps);
+    saveEmployeeDelete(nextEmps, empId);
   };
 
   const handleUpdatePin = (employeeId: string, newPin: string) => {
-    const nextEmps = employees.map((e) =>
-      e.id === employeeId ? { ...e, pin: newPin } : e
-    );
+    const target = employees.find((e) => e.id === employeeId);
+    if (!target) return;
+    const updatedEmp: Employee = { ...target, pin: newPin };
+    const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
     setEmployees(nextEmps);
-    saveEmployees(nextEmps);
+    saveEmployeeUpsert(nextEmps, updatedEmp);
     if (currentUser?.id === employeeId) {
-      setCurrentUser({ ...currentUser, pin: newPin });
+      setCurrentUser(updatedEmp);
     }
   };
 
@@ -469,7 +538,7 @@ export default function App() {
 
     const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
     setEmployees(nextEmps);
-    saveEmployees(nextEmps);
+    saveEmployeeUpsert(nextEmps, updatedEmp);
     if (currentUser?.id === employeeId) {
       setCurrentUser(updatedEmp);
     }
@@ -503,11 +572,44 @@ export default function App() {
 
     const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
     setEmployees(nextEmps);
-    saveEmployees(nextEmps);
+    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true });
     if (currentUser?.id === employeeId) {
       setCurrentUser(updatedEmp);
     }
-    alert(`Device binding approved for ${emp.name}! Their account is now bound to "${req.requestedDeviceName}".`);
+    alert(`Device binding approved for ${emp.name}! Their account is now permanently bound to "${req.requestedDeviceName}".`);
+  };
+
+  const handleDirectBindDevice = (employeeId: string, deviceId: string, deviceName: string) => {
+    const emp = employees.find((e) => e.id === employeeId);
+    if (!emp) return;
+
+    const historyEntry: DeviceHistoryEntry = {
+      id: `hist-${Date.now()}`,
+      action: emp.registeredDeviceId ? 'changed' : 'bound',
+      deviceId,
+      deviceName,
+      changedBy: currentUser?.name || 'Administrator',
+      changedAt: new Date().toISOString(),
+      reason: 'Admin direct binding from detected punch device',
+    };
+
+    const updatedEmp: Employee = {
+      ...emp,
+      registeredDeviceId: deviceId,
+      registeredDeviceName: deviceName,
+      registeredAt: new Date().toISOString(),
+      deviceBoundApprovedBy: currentUser?.name || 'Administrator',
+      deviceBoundApprovedAt: new Date().toISOString(),
+      pendingDeviceRequest: undefined,
+      deviceChangeHistory: [historyEntry, ...(emp.deviceChangeHistory || [])],
+    };
+
+    const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
+    setEmployees(nextEmps);
+    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true });
+    if (currentUser?.id === employeeId) {
+      setCurrentUser(updatedEmp);
+    }
   };
 
   const handleRejectDeviceChange = (employeeId: string) => {
@@ -521,7 +623,7 @@ export default function App() {
 
     const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
     setEmployees(nextEmps);
-    saveEmployees(nextEmps);
+    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true });
     if (currentUser?.id === employeeId) {
       setCurrentUser(updatedEmp);
     }
@@ -563,7 +665,10 @@ export default function App() {
 
     const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
     setEmployees(nextEmps);
-    saveEmployees(nextEmps);
+    saveEmployeeUpsert(nextEmps, updatedEmp, {
+      allowClearDevice: true,
+      clearPendingRequest: true,
+    });
     if (currentUser?.id === employeeId) {
       setCurrentUser(updatedEmp);
     }
@@ -596,7 +701,7 @@ export default function App() {
     };
     const nextLeaves = [newLeave, ...leaves];
     setLeaves(nextLeaves);
-    saveLeaves(nextLeaves);
+    saveLeaves(nextLeaves, newLeave);
   };
 
   const handleReviewLeave = (
@@ -604,31 +709,37 @@ export default function App() {
     status: 'approved' | 'rejected',
     reviewNote?: string
   ) => {
+    let changedLeave: LeaveRequest | undefined;
     const nextLeaves = leaves.map((l) => {
       if (l.id === leaveId) {
-        return {
+        changedLeave = {
           ...l,
           status,
           reviewNote,
           reviewedBy: currentUser?.id,
         };
+        return changedLeave;
       }
       return l;
     });
     setLeaves(nextLeaves);
-    saveLeaves(nextLeaves);
+    saveLeaves(nextLeaves, changedLeave);
   };
 
   const handleUpdateRecord = (updatedRecord: AttendanceRecord) => {
     const existingIdx = records.findIndex((r) => r.id === updatedRecord.id);
+    // Clean local state copy without transient clearTimeOut flag
+    const localRec = { ...updatedRecord };
+    delete localRec.clearTimeOut;
+
     let nextRecords = [...records];
     if (existingIdx >= 0) {
-      nextRecords[existingIdx] = updatedRecord;
+      nextRecords[existingIdx] = localRec;
     } else {
-      nextRecords = [updatedRecord, ...nextRecords];
+      nextRecords = [localRec, ...nextRecords];
     }
     setRecords(nextRecords);
-    saveAttendanceRecords(nextRecords);
+    saveAttendanceRecords(nextRecords, updatedRecord);
   };
 
   const handleAddCeoComment = (commentData: Omit<CeoComment, 'id' | 'createdAt'>) => {
@@ -640,15 +751,20 @@ export default function App() {
     };
     const nextComments = [newComment, ...ceoComments];
     setCeoComments(nextComments);
-    saveCeoComments(nextComments);
+    saveCeoComments(nextComments, newComment);
   };
 
   const handleMarkCeoCommentRead = (commentId: string) => {
-    const nextComments = ceoComments.map((c) =>
-      c.id === commentId ? { ...c, isRead: true } : c
-    );
+    let changedComment: CeoComment | undefined;
+    const nextComments = ceoComments.map((c) => {
+      if (c.id === commentId) {
+        changedComment = { ...c, isRead: true };
+        return changedComment;
+      }
+      return c;
+    });
     setCeoComments(nextComments);
-    saveCeoComments(nextComments);
+    saveCeoComments(nextComments, changedComment);
   };
 
   const handleUpdateSettings = (newSettings: OfficeSettings) => {
@@ -712,6 +828,7 @@ export default function App() {
           employees={employees}
           onLogin={handleLogin}
           companyName={settings.companyName}
+          isSyncing={isInitialCloudSyncing}
         />
       ) : (
         <div className="flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] overflow-hidden">
@@ -808,6 +925,7 @@ export default function App() {
                   onApproveDeviceChange={handleApproveDeviceChange}
                   onRejectDeviceChange={handleRejectDeviceChange}
                   onResetDeviceBound={handleResetDeviceBound}
+                  onDirectBindDevice={handleDirectBindDevice}
                 />
               )}
 

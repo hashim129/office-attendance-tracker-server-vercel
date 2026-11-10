@@ -1,34 +1,54 @@
-import React, { useState } from 'react';
-import { Clock, KeyRound, Shield, User, ArrowRight, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Clock, KeyRound, User, ArrowRight, RefreshCw } from 'lucide-react';
 import { Employee } from '../../types';
 
 interface LoginViewProps {
   employees: Employee[];
   onLogin: (employee: Employee, keepLoggedIn: boolean) => void;
   companyName: string;
+  isSyncing?: boolean;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({
   employees,
   onLogin,
   companyName,
+  isSyncing = false,
 }) => {
-  const [selectedEmpId, setSelectedEmpId] = useState<string>(employees[0]?.id || '');
+  const activeEmployees = useMemo(
+    () => employees.filter((e) => e.isActive !== false),
+    [employees]
+  );
+
+  const [selectedEmpId, setSelectedEmpId] = useState<string>(activeEmployees[0]?.id || '');
   const [pinInput, setPinInput] = useState<string>('');
   const [keepLoggedIn, setKeepLoggedIn] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [manualCode, setManualCode] = useState<string>('');
   const [mode, setMode] = useState<'picker' | 'manual'>('picker');
 
-  const selectedEmployee = employees.find((e) => e.id === selectedEmpId);
+  // Re-sync selected employee whenever cloud database finishes loading or updates
+  useEffect(() => {
+    if (activeEmployees.length > 0) {
+      const stillExists = activeEmployees.some((e) => e.id === selectedEmpId);
+      if (!selectedEmpId || !stillExists) {
+        setSelectedEmpId(activeEmployees[0].id);
+      }
+    }
+  }, [activeEmployees, selectedEmpId]);
+
+  const selectedEmployee = activeEmployees.find((e) => e.id === selectedEmpId);
 
   const handlePickerSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEmployee) return;
+    if (!selectedEmployee) {
+      setErrorMsg('Please select a valid employee account.');
+      return;
+    }
 
-    // Verify PIN
+    // Verify PIN / Password
     if (selectedEmployee.pin !== pinInput.trim()) {
-      setErrorMsg('Incorrect PIN. Please try again.');
+      setErrorMsg('Incorrect PIN or password. Please try again.');
       return;
     }
 
@@ -38,19 +58,19 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const emp = employees.find(
+    const emp = activeEmployees.find(
       (e) =>
         e.employeeCode.toLowerCase() === manualCode.trim().toLowerCase() ||
         e.email.toLowerCase() === manualCode.trim().toLowerCase()
     );
 
     if (!emp) {
-      setErrorMsg('No employee found with this ID or Email.');
+      setErrorMsg('No active employee found with this ID or Email.');
       return;
     }
 
     if (emp.pin !== pinInput.trim()) {
-      setErrorMsg('Incorrect PIN code.');
+      setErrorMsg('Incorrect PIN or password.');
       return;
     }
 
@@ -76,6 +96,13 @@ export const LoginView: React.FC<LoginViewProps> = ({
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Local Server Attendance & Timesheet Portal
           </p>
+
+          {isSyncing && (
+            <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-[11px] font-medium text-blue-700 dark:text-blue-300">
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              <span>Syncing live directory & credentials from cloud server...</span>
+            </div>
+          )}
         </div>
 
         {/* Mode Selector Tabs */}
@@ -127,7 +154,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                   }}
                   className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 >
-                  {employees.map((emp) => (
+                  {activeEmployees.map((emp) => (
                     <option key={emp.id} value={emp.id}>
                       {emp.name} ({emp.employeeCode}) — {emp.role.toUpperCase()} [{emp.department}]
                     </option>
@@ -155,27 +182,29 @@ export const LoginView: React.FC<LoginViewProps> = ({
                   className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ${
                     selectedEmployee.role === 'admin'
                       ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
+                      : selectedEmployee.role === 'ceo'
+                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
                       : selectedEmployee.role === 'accounts'
                       ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
                       : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
                   }`}
                 >
-                  {selectedEmployee.role === 'accounts' ? 'Accounts' : selectedEmployee.role}
+                  {selectedEmployee.role === 'ceo' ? 'CEO' : selectedEmployee.role === 'accounts' ? 'Accounts' : selectedEmployee.role}
                 </span>
               </div>
             )}
 
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
-                Security PIN Code
+                Security PIN / Password
               </label>
               <div className="relative">
                 <input
                   type="password"
                   value={pinInput}
                   onChange={(e) => setPinInput(e.target.value)}
-                  placeholder="Enter your 4-digit PIN"
-                  maxLength={6}
+                  placeholder="Enter your PIN or password"
+                  maxLength={32}
                   className="w-full px-3.5 py-2.5 pl-10 bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                   required
                 />
@@ -192,7 +221,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                   onChange={(e) => setKeepLoggedIn(e.target.checked)}
                   className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
                 />
-                <span>Keep me logged in on this PC</span>
+                <span>Keep me logged in on this device</span>
               </label>
             </div>
 
@@ -232,15 +261,15 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
-                Security PIN Code
+                Security PIN / Password
               </label>
               <div className="relative">
                 <input
                   type="password"
                   value={pinInput}
                   onChange={(e) => setPinInput(e.target.value)}
-                  placeholder="Enter your 4-digit PIN"
-                  maxLength={6}
+                  placeholder="Enter your PIN or password"
+                  maxLength={32}
                   className="w-full px-3.5 py-2.5 pl-10 bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                   required
                 />

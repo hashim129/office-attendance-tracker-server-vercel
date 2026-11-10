@@ -152,37 +152,63 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     }
 
     const shift = shifts.find((s) => s.id === editingEmployee.shiftId) || shifts[0];
+    const nowTime = new Date().toTimeString().slice(0, 8);
 
     let finalTimeIn: string = '';
     let finalTimeOut: string | undefined = undefined;
     let finalStatus: AttendanceRecord['status'] = editStatus;
+    let updatedBreaks = [...(editingRecord?.breaks || [])];
+    let shouldClearTimeOut = false;
 
     if (editWorkingStatus === 'absent' || !hasPunchIn) {
       finalTimeIn = '';
       finalTimeOut = undefined;
       finalStatus = 'absent';
+      updatedBreaks = [];
+      shouldClearTimeOut = true;
     } else {
       finalTimeIn = editTimeIn.trim() || shift.startTime;
 
-      if (editWorkingStatus === 'working' || !hasPunchOut) {
+      if (editWorkingStatus === 'working') {
         finalTimeOut = undefined;
+        shouldClearTimeOut = true;
+        updatedBreaks = updatedBreaks.map((b) => (!b.end ? { ...b, end: nowTime } : b));
+        if (finalStatus === 'absent') finalStatus = 'present';
+      } else if (editWorkingStatus === 'break') {
+        finalTimeOut = undefined;
+        shouldClearTimeOut = true;
+        if (!updatedBreaks.some((b) => !b.end)) {
+          updatedBreaks.push({
+            id: `brk-${Date.now()}`,
+            start: nowTime,
+            type: 'lunch',
+          });
+        }
         if (finalStatus === 'absent') finalStatus = 'present';
       } else if (editWorkingStatus === 'completed' || hasPunchOut) {
         finalTimeOut = editTimeOut.trim() || shift.endTime;
+        updatedBreaks = updatedBreaks.map((b) => (!b.end ? { ...b, end: finalTimeOut } : b));
+        if (finalStatus === 'absent') finalStatus = 'present';
+      } else {
+        finalTimeOut = undefined;
+        shouldClearTimeOut = true;
         if (finalStatus === 'absent') finalStatus = 'present';
       }
     }
 
     const worked = finalTimeIn && finalTimeOut
-      ? calculateWorkedMinutes(finalTimeIn, finalTimeOut, editingRecord?.breaks || [], shift.expectedHours)
+      ? calculateWorkedMinutes(finalTimeIn, finalTimeOut, updatedBreaks, shift.expectedHours)
       : finalTimeIn
-      ? calculateWorkedMinutes(finalTimeIn, undefined, editingRecord?.breaks || [], shift.expectedHours)
+      ? calculateWorkedMinutes(finalTimeIn, undefined, updatedBreaks, shift.expectedHours)
       : { totalWorkedMinutes: 0, regularMinutes: 0, overtimeMinutes: 0 };
 
     const updated: AttendanceRecord = {
       ...editingRecord,
       timeIn: finalTimeIn,
       timeOut: finalTimeOut,
+      clearTimeOut: shouldClearTimeOut,
+      isAutoPunchedOut: shouldClearTimeOut ? false : editingRecord.isAutoPunchedOut,
+      breaks: updatedBreaks,
       totalWorkedMinutes: worked.totalWorkedMinutes,
       regularMinutes: worked.regularMinutes,
       overtimeMinutes: worked.overtimeMinutes,

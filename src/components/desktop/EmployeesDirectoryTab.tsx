@@ -32,6 +32,7 @@ interface EmployeesDirectoryTabProps {
   onApproveDeviceChange?: (empId: string) => void;
   onRejectDeviceChange?: (empId: string) => void;
   onResetDeviceBound?: (empId: string) => void;
+  onDirectBindDevice?: (empId: string, deviceId: string, deviceName: string) => void;
   currentUserId: string;
 }
 
@@ -45,6 +46,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
   onApproveDeviceChange,
   onRejectDeviceChange,
   onResetDeviceBound,
+  onDirectBindDevice,
   currentUserId,
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -74,6 +76,27 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       mismatchedPunchesCount,
     };
   }, [employees, records]);
+
+  // Lookup most recent punch device per employee & mismatch count per employee
+  const { latestPunchDeviceByEmp, mismatchCountByEmp } = useMemo(() => {
+    const devMap = new Map<string, { deviceId: string; deviceName: string; date: string }>();
+    const misMap = new Map<string, number>();
+
+    const sorted = [...records].sort((a, b) => b.date.localeCompare(a.date));
+    for (const r of sorted) {
+      if (r.deviceId && !devMap.has(r.employeeId)) {
+        devMap.set(r.employeeId, {
+          deviceId: r.deviceId,
+          deviceName: r.deviceName || 'Detected Device',
+          date: r.date,
+        });
+      }
+      if (r.isDeviceMismatch) {
+        misMap.set(r.employeeId, (misMap.get(r.employeeId) || 0) + 1);
+      }
+    }
+    return { latestPunchDeviceByEmp: devMap, mismatchCountByEmp: misMap };
+  }, [records]);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -391,6 +414,8 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filteredEmployees.map((emp) => {
           const shift = shiftMap.get(emp.shiftId) || shifts[0];
+          const detectedDevice = latestPunchDeviceByEmp.get(emp.id);
+          const empMismatchCount = mismatchCountByEmp.get(emp.id) || 0;
           return (
             <div
               key={emp.id}
@@ -437,7 +462,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                     </div>
                     <div className="text-[11px] text-slate-700 dark:text-slate-300 space-y-0.5">
                       <p>
-                        <strong>Device:</strong> {emp.pendingDeviceRequest.deviceName}
+                        <strong>Device:</strong> {emp.pendingDeviceRequest.requestedDeviceName}
                       </p>
                       {emp.pendingDeviceRequest.reason && (
                         <p>
@@ -500,7 +525,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   </div>
 
                   <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-500">Kiosk PIN:</span>
+                    <span className="text-slate-500">Portal PIN / Pass:</span>
                     <span className="font-mono font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
                       {emp.pin}
                     </span>
@@ -510,7 +535,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                     <span className="text-slate-500">Bound Device:</span>
                     {emp.registeredDeviceId ? (
                       <span
-                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-900/50 max-w-[150px] truncate"
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-900/50 max-w-[155px] truncate"
                         title={`${emp.registeredDeviceName || emp.registeredDeviceId} (Approved: ${emp.deviceBoundApprovedBy || 'Admin'})`}
                       >
                         <Smartphone className="w-3 h-3 shrink-0 text-blue-600 dark:text-blue-400" />
@@ -524,11 +549,47 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                     )}
                   </div>
 
+                  {!emp.registeredDeviceId &&
+                    detectedDevice &&
+                    !emp.pendingDeviceRequest &&
+                    onDirectBindDevice && (
+                      <div className="mt-1 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 text-[10px]">
+                        <span className="text-slate-600 dark:text-slate-300 truncate" title={`Detected on ${detectedDevice.date}: ${detectedDevice.deviceName}`}>
+                          Last punch: <strong>{detectedDevice.deviceName.split('·')[0]}</strong>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `Bind "${detectedDevice.deviceName}" to ${emp.name}?\n\nDetected from their punch on ${detectedDevice.date}.`
+                              )
+                            ) {
+                              onDirectBindDevice(emp.id, detectedDevice.deviceId, detectedDevice.deviceName);
+                            }
+                          }}
+                          className="shrink-0 px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold cursor-pointer"
+                        >
+                          Bind Detected
+                        </button>
+                      </div>
+                    )}
+
+                  {empMismatchCount > 0 && (
+                    <div className="flex items-center justify-between text-[10px] text-rose-600 dark:text-rose-400 pt-0.5 font-semibold">
+                      <span className="flex items-center gap-1">
+                        <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+                        <span>Mismatched Punches:</span>
+                      </span>
+                      <span className="font-mono font-bold">{empMismatchCount} tagged</span>
+                    </div>
+                  )}
+
                   {emp.deviceChangeHistory && emp.deviceChangeHistory.length > 0 && (
                     <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
                       <span className="flex items-center gap-1">
                         <History className="w-2.5 h-2.5 text-slate-400" />
-                        <span>Device Resets:</span>
+                        <span>Device Changes / Resets:</span>
                       </span>
                       <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
                         {emp.deviceChangeHistory.length} recorded
@@ -638,14 +699,15 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
 
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Kiosk Security PIN (4 Digits)
+                  Portal Security PIN / Password (4+ chars)
                 </label>
                 <input
                   type="text"
                   value={formData.pin}
                   onChange={(e) => setFormData({ ...formData, pin: e.target.value })}
                   placeholder="1234"
-                  maxLength={6}
+                  minLength={4}
+                  maxLength={32}
                   required
                   className="w-full text-xs font-mono tracking-widest px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                 />
@@ -694,7 +756,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                 >
                   <option value="employee">Employee (Personal Reports & Self Punch Only)</option>
                   <option value="accounts">Accounts Officer (Audit, Timesheets & Attendance Verification)</option>
-                  <option value="ceo">Chief Executive Officer (CEO - Full Overview & Direct Mentions)</option>
+                  <option value="ceo">Chief Executive Officer (CEO - Stats View & Direct Mentions Only)</option>
                   <option value="admin">Administrator (Full Office Management & Settings)</option>
                 </select>
               </div>

@@ -144,14 +144,16 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
           )}
         </div>
 
-        <button
-          onClick={onSwitchToKiosk}
-          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
-          title="Switch to Lobby Punch-Clock Terminal"
-        >
-          <Monitor className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-          <span>Lobby Kiosk Mode</span>
-        </button>
+        {currentUser.role === 'admin' && (
+          <button
+            onClick={onSwitchToKiosk}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+            title="Switch to Lobby Punch-Clock Terminal"
+          >
+            <Monitor className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <span>Lobby Kiosk Mode</span>
+          </button>
+        )}
 
         <div className="h-5 w-px bg-slate-200 dark:bg-slate-800 hidden sm:block" />
 

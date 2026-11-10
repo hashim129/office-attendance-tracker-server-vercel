@@ -98,43 +98,44 @@ export const KioskMode: React.FC<KioskModeProps> = ({
   const [selectedStaffToAuth, setSelectedStaffToAuth] = useState<Employee | null>(null);
 
   const handleKeyClick = (digit: string) => {
-    if (pinInput.length < 6) {
+    if (pinInput.length < 16) {
       const nextPin = pinInput + digit;
       setPinInput(nextPin);
 
-      // Check if 4 digits
-      if (nextPin.length === 4) {
-        if (selectedStaffToAuth) {
-          if (selectedStaffToAuth.pin === nextPin) {
-            setMatchedEmployee(selectedStaffToAuth);
-            setSelectedStaffToAuth(null);
+      if (selectedStaffToAuth) {
+        if (selectedStaffToAuth.pin === nextPin) {
+          setMatchedEmployee(selectedStaffToAuth);
+          setSelectedStaffToAuth(null);
+          setPinInput('');
+        } else if (nextPin.length >= selectedStaffToAuth.pin.length) {
+          setToastMessage({
+            text: 'Incorrect PIN for selected employee. Please try again.',
+            type: 'info',
+          });
+          setTimeout(() => {
             setPinInput('');
-          } else {
-            setToastMessage({
-              text: 'Incorrect PIN for selected employee. Please try again.',
-              type: 'info',
-            });
-            setTimeout(() => {
-              setPinInput('');
-              setToastMessage(null);
-            }, 2000);
-          }
-        } else {
-          // Direct PIN entry on keypad
-          const found = employees.find((e) => e.pin === nextPin && e.isActive);
-          if (found) {
-            setMatchedEmployee(found);
+            setToastMessage(null);
+          }, 2000);
+        }
+      } else if (nextPin.length >= 4) {
+        const activeEmps = employees.filter((e) => e.isActive !== false);
+        const exact = activeEmps.find((e) => e.pin === nextPin);
+        const hasLongerPrefix = activeEmps.some(
+          (e) => e.pin.startsWith(nextPin) && e.pin.length > nextPin.length
+        );
+
+        if (exact && !hasLongerPrefix) {
+          setMatchedEmployee(exact);
+          setPinInput('');
+        } else if (!exact && !hasLongerPrefix) {
+          setToastMessage({
+            text: 'PIN code not recognized. Please check your credentials.',
+            type: 'info',
+          });
+          setTimeout(() => {
             setPinInput('');
-          } else {
-            setToastMessage({
-              text: 'PIN code not recognized. Please check your credentials.',
-              type: 'info',
-            });
-            setTimeout(() => {
-              setPinInput('');
-              setToastMessage(null);
-            }, 2000);
-          }
+            setToastMessage(null);
+          }, 2000);
         }
       }
     }
@@ -366,10 +367,10 @@ export const KioskMode: React.FC<KioskModeProps> = ({
             <div className="space-y-4">
               <div className="text-center">
                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Enter 4-Digit Employee PIN
+                  Enter Security PIN
                 </span>
-                <div className="h-12 flex items-center justify-center gap-3 mt-2 bg-slate-950 rounded-xl border border-slate-800">
-                  {[0, 1, 2, 3].map((idx) => (
+                <div className="h-12 flex items-center justify-center gap-3 mt-2 bg-slate-950 rounded-xl border border-slate-800 px-3">
+                  {Array.from({ length: Math.max(4, pinInput.length) }).map((_, idx) => (
                     <div
                       key={idx}
                       className={`w-3.5 h-3.5 rounded-full transition-all ${
