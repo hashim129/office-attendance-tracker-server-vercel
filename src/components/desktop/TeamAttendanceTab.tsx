@@ -339,6 +339,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           settings,
           todayStr,
           isCurrentUserOffline: !isNetworkOnline && emp.id === effectiveUser.id,
+          isCurrentUserConnected: isNetworkOnline && emp.id === effectiveUser.id,
         });
         if (state === 'out') {
           completedCount++;
