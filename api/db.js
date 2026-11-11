@@ -526,27 +526,27 @@ export default async function handler(req, res) {
 
       const current = readRes.data;
 
-      // Evaluate 11:59 PM forgotten punches, >2h device inactivity punch-out, and disconnectivity status
+      // Evaluate 11:59 PM / Shift-End+2h closes and transient disconnectivity/overtime state
       if (Array.isArray(current.attendance)) {
-        const { changed } = evaluateAttendancePresenceAndAutoClose(
+        const { records: displayRecs, changed, closedChanged } = evaluateAttendancePresenceAndAutoClose(
           current.attendance,
           current.settings,
           current.employees,
           current.shifts
         );
-        if (changed) {
-          // Persist auto-transitions through concurrency-safe mutateCloudDb so no concurrent write is lost!
+        if (closedChanged) {
+          // Only burn a Gist write on GET when an actual auto punch-out (timeOut) needs permanent saving
           const writeOutcome = await mutateCloudDb(
             token,
             (freshDb) => {
-              const { records: evalRecs, changed: freshChanged } =
+              const { records: evalRecs, closedChanged: freshClosed } =
                 evaluateAttendancePresenceAndAutoClose(
                   freshDb.attendance || [],
                   freshDb.settings,
                   freshDb.employees,
                   freshDb.shifts
                 );
-              if (!freshChanged) {
+              if (!freshClosed) {
                 return { skipWrite: true };
               }
               return {
@@ -557,11 +557,15 @@ export default async function handler(req, res) {
                 },
               };
             },
-            'Office-Attendance-Tracker-Server'
+            'Office-Attendance-Tracker-Server',
+            { priority: 'background', minReserve: 25 }
           );
           if (writeOutcome.ok && writeOutcome.db) {
             return res.status(200).json(writeOutcome.db);
           }
+        }
+        if (changed) {
+          return res.status(200).json({ ...current, attendance: displayRecs });
         }
       }
 
@@ -728,12 +732,28 @@ export default async function handler(req, res) {
             finalCeoComments = Array.from(commentMap.values());
           }
 
-          const { records: finalAttendance } = evaluateAttendancePresenceAndAutoClose(
+          const { records: evaluatedAttendance } = evaluateAttendancePresenceAndAutoClose(
             rawAttendance,
             finalSettings,
             finalEmployees,
             finalShifts
           );
+          const finalAttendance = rawAttendance.map((orig, i) => {
+            const ev = evaluatedAttendance[i];
+            return ev && ev.timeOut && !orig?.timeOut ? ev : orig;
+          });
+
+          const unchanged =
+            JSON.stringify(current.settings || null) === JSON.stringify(finalSettings || null) &&
+            JSON.stringify(current.shifts || []) === JSON.stringify(finalShifts || []) &&
+            JSON.stringify(current.employees || []) === JSON.stringify(finalEmployees || []) &&
+            JSON.stringify(current.attendance || []) === JSON.stringify(finalAttendance || []) &&
+            JSON.stringify(current.leaves || []) === JSON.stringify(finalLeaves || []) &&
+            JSON.stringify(current.ceoComments || []) === JSON.stringify(finalCeoComments || []);
+
+          if (unchanged) {
+            return { skipWrite: true };
+          }
 
           const mergedDb = {
             version: '1.0',
@@ -749,11 +769,15 @@ export default async function handler(req, res) {
           return { nextDb: mergedDb };
         },
         'Office-Attendance-Tracker-Server',
-        { allowEmptyInit: true, defaultDb: DEFAULT_DB }
+        { allowEmptyInit: true, defaultDb: DEFAULT_DB, priority: 'critical' }
       );
 
       if (!mutationResult.ok) {
-        return res.status(mutationResult.status || 500).json({ error: mutationResult.error });
+        return res.status(mutationResult.status || 500).json({
+          error: mutationResult.error,
+          ...(mutationResult.retryAfterSeconds ? { retryAfterSeconds: mutationResult.retryAfterSeconds } : {}),
+          ...(mutationResult.resetAtIso ? { resetAtIso: mutationResult.resetAtIso } : {}),
+        });
       }
 
       return res.status(200).json({

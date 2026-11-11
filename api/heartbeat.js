@@ -1,4 +1,5 @@
 import {
+  canWriteBackgroundGist,
   evaluateAttendancePresenceAndAutoClose,
   format12h,
   getCloudToken,
@@ -115,7 +116,7 @@ export default async function handler(req, res) {
               result: { ok: true, state: onBreak ? 'break' : 'working', keptOtherDevice: true },
             };
           }
-          if (existing.monitoringPaused) {
+          if (existing.monitoringPaused || existing.connectionStatus === 'no_internet' || !canWriteBackgroundGist(55)) {
             return {
               skipWrite: true,
               result: { ok: true, state: 'paused' },
@@ -151,6 +152,16 @@ export default async function handler(req, res) {
           : existingActMs || existingHbMs || nowMs;
         const nextLastActivityAt = new Date(Math.min(nowMs, candidateActMs)).toISOString();
 
+        // Scale heartbeat Gist writes safely under 36/hr total across all active desktop users
+        // so GitHub's 100/hr gist_update quota ALWAYS preserves room for punches, device approvals & Admin edits.
+        const activeOnlineCount = attendance.filter(
+          (a) => a && a.date === todayStr && a.timeIn && !a.timeOut && a.heartbeatSource !== 'kiosk'
+        ).length;
+        const adaptivePersistMs = Math.max(
+          180000,
+          Math.ceil((Math.max(1, activeOnlineCount) * 3600000) / 36)
+        );
+
         const updatedRec = {
           ...existing,
           lastHeartbeatAt: nowIso,
@@ -158,6 +169,7 @@ export default async function handler(req, res) {
           connectionStatus: 'online',
           heartbeatSource: effectiveSource,
           heartbeatDeviceId: effectiveDeviceId,
+          heartbeatIntervalMs: adaptivePersistMs,
           monitoringPaused: false,
         };
         delete updatedRec.disconnectedAt;
@@ -166,26 +178,21 @@ export default async function handler(req, res) {
         candidateAttendance[idx] = updatedRec;
 
         // Evaluate whether shift-end+2h overtime/logout or 23:59 close triggered on this or other records
-        const { records: finalAttendance, changed: sweepChanged } =
+        const { records: finalAttendance, closedChanged } =
           evaluateAttendancePresenceAndAutoClose(candidateAttendance, settings, employees, shifts);
 
         const selfAfterSweep = finalAttendance[idx];
         const selfPunchedOutNow = Boolean(selfAfterSweep?.timeOut);
 
-        // Persist on meaningful transitions or at least every 60s so DB stays well inside 3m threshold
-        const activityMovedSignificantly = Date.parse(nextLastActivityAt) - existingActMs >= 60000;
-        const overtimeAdvanced =
-          Math.abs(Number(selfAfterSweep?.overtimeMinutes || 0) - Number(existing.overtimeMinutes || 0)) >= 1;
+        // Persist ONLY on transitions (punch-out, online recovery, pause resume) or once per adaptivePersistMs
         const shouldPersist =
-          sweepChanged ||
+          closedChanged ||
           selfPunchedOutNow ||
-          overtimeAdvanced ||
           !existing.lastHeartbeatAt ||
           existing.connectionStatus !== 'online' ||
           existing.monitoringPaused === true ||
           existing.heartbeatSource !== effectiveSource ||
-          nowMs - existingHbMs >= 60000 ||
-          activityMovedSignificantly;
+          nowMs - existingHbMs >= adaptivePersistMs;
 
         if (!shouldPersist) {
           return {
@@ -233,6 +240,7 @@ export default async function handler(req, res) {
             };
 
         return {
+          forceCritical: Boolean(selfPunchedOutNow || closedChanged),
           nextDb: {
             ...db,
             updatedAt: nowIso,
@@ -241,7 +249,8 @@ export default async function handler(req, res) {
           result: responsePayload,
         };
       },
-      'Office-Attendance-Tracker-Heartbeat'
+      'Office-Attendance-Tracker-Heartbeat',
+      { priority: 'background', minReserve: 40 }
     );
 
     if (!outcome.ok) {

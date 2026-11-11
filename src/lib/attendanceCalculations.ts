@@ -44,7 +44,11 @@ export function deriveLiveAttendanceState(params: {
       return 'no_internet';
     }
 
-    const disconnectMs = Math.max(1, settings?.disconnectThresholdMinutes ?? 3) * 60 * 1000;
+    const baseDisconnectMs = Math.max(1, settings?.disconnectThresholdMinutes ?? 3) * 60 * 1000;
+    const adaptiveFloorMs = record.heartbeatIntervalMs
+      ? Number(record.heartbeatIntervalMs) + 90000
+      : 0;
+    const disconnectMs = Math.max(baseDisconnectMs, adaptiveFloorMs);
     if (nowMs - lastHbMs > disconnectMs) {
       return 'no_internet';
     }

@@ -24,6 +24,81 @@ let gistEtagCache = {
   data: null,
 };
 
+let gistUpdateQuota = {
+  limit: 100,
+  remaining: 100,
+  resetAtMs: 0,
+};
+
+export function getGistWriteQuotaState() {
+  const now = Date.now();
+  if (gistUpdateQuota.resetAtMs > 0 && now >= gistUpdateQuota.resetAtMs) {
+    gistUpdateQuota = {
+      ...gistUpdateQuota,
+      remaining: gistUpdateQuota.limit || 100,
+      resetAtMs: 0,
+    };
+  }
+  return {
+    ...gistUpdateQuota,
+    isRateLimited: gistUpdateQuota.remaining <= 0 && now < gistUpdateQuota.resetAtMs,
+  };
+}
+
+export function canWriteBackgroundGist(minReserve = 40) {
+  const q = getGistWriteQuotaState();
+  if (q.isRateLimited) return false;
+  return q.remaining > minReserve;
+}
+
+function updateQuotaFromResponseHeaders(headers, httpStatus) {
+  if (!headers) return;
+  const limitRaw = headers.get?.('x-ratelimit-limit');
+  const remRaw = headers.get?.('x-ratelimit-remaining');
+  const resetRaw = headers.get?.('x-ratelimit-reset');
+  const limit = limitRaw !== null && limitRaw !== undefined ? Number(limitRaw) : NaN;
+  const rem = remRaw !== null && remRaw !== undefined ? Number(remRaw) : NaN;
+  const resetSec = resetRaw !== null && resetRaw !== undefined ? Number(resetRaw) : NaN;
+
+  if (!Number.isNaN(limit) && limit > 0) {
+    gistUpdateQuota.limit = limit;
+  }
+  if (!Number.isNaN(rem) && rem >= 0) {
+    gistUpdateQuota.remaining = rem;
+  } else if (httpStatus === 403 || httpStatus === 429) {
+    gistUpdateQuota.remaining = 0;
+  }
+  if (!Number.isNaN(resetSec) && resetSec > 0) {
+    gistUpdateQuota.resetAtMs = resetSec * 1000;
+  } else if ((httpStatus === 403 || httpStatus === 429) && gistUpdateQuota.resetAtMs <= Date.now()) {
+    gistUpdateQuota.resetAtMs = Date.now() + 60000;
+  }
+}
+
+function formatQuotaWaitError(resetAtMs) {
+  const now = Date.now();
+  const safeResetMs = resetAtMs && resetAtMs > now ? resetAtMs : now + 60000;
+  const retryAfterSeconds = Math.max(5, Math.ceil((safeResetMs - now) / 1000));
+  const resetAtIso = new Date(safeResetMs).toISOString();
+  let resetClock = resetAtIso;
+  try {
+    resetClock = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Karachi',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }).format(new Date(safeResetMs));
+  } catch {
+    // fallback ISO
+  }
+  return {
+    retryAfterSeconds,
+    resetAtIso,
+    error: `Cloud database write quota paused until ${resetClock}. Pending changes stay queued and will auto-save cleanly.`,
+  };
+}
+
 let inProcessWriteQueue = Promise.resolve();
 
 function withWriteMutex(fn) {
@@ -169,8 +244,16 @@ async function patchGistWithDetails(token, dbObj, userAgent = 'Office-Attendance
       }),
     });
 
+    updateQuotaFromResponseHeaders(res.headers, res.status);
+
     if (!res.ok) {
-      return { ok: false, httpStatus: res.status };
+      const rateLimited = res.status === 403 || res.status === 429;
+      return {
+        ok: false,
+        httpStatus: res.status,
+        rateLimited,
+        resetAtMs: gistUpdateQuota.resetAtMs,
+      };
     }
 
     const patched = await res.json();
@@ -190,6 +273,8 @@ async function patchGistWithDetails(token, dbObj, userAgent = 'Office-Attendance
  * - Uses parent commit SHA verification (CAS) after PATCH: if another serverless instance
  *   committed between our Read and PATCH, reads that missed revision and replays our
  *   mutator on top of it so NO user or Admin write is ever clobbered.
+ * - Respects GitHub's 100/hr gist_update quota: skips non-critical background writes
+ *   when quota drops below minReserve, and fails fast without 4x retry storms on 403/429.
  */
 export function mutateCloudDb(
   token,
@@ -197,10 +282,18 @@ export function mutateCloudDb(
   userAgent = 'Office-Attendance-Tracker-Server',
   options = {}
 ) {
-  const { allowEmptyInit = false, defaultDb = null } = options;
+  const {
+    allowEmptyInit = false,
+    defaultDb = null,
+    priority = 'critical',
+    minReserve = 40,
+  } = options;
 
   return withWriteMutex(async () => {
-    const initialRead = await readFromGist(token, userAgent, { useEtagCache: false });
+    const preQuota = getGistWriteQuotaState();
+    const useCacheForSkipped = priority === 'background' && preQuota.isRateLimited;
+
+    const initialRead = await readFromGist(token, userAgent, { useEtagCache: useCacheForSkipped });
     if (initialRead.status === 'error') {
       return { ok: false, status: 503, error: 'Cloud database temporarily unavailable. Please retry.' };
     }
@@ -243,10 +336,50 @@ export function mutateCloudDb(
         };
       }
 
+      const isCritical = priority !== 'background' || Boolean(outcome?.forceCritical);
+      if (!isCritical && !canWriteBackgroundGist(minReserve)) {
+        const skippedResult =
+          outcome?.result && typeof outcome.result === 'object'
+            ? { ...outcome.result, persisted: false, quotaReservedSkip: true }
+            : outcome?.result;
+        return {
+          ok: true,
+          status: 200,
+          db: workingDb,
+          result: skippedResult,
+          skipped: true,
+        };
+      }
+
+      const liveQuota = getGistWriteQuotaState();
+      if (liveQuota.isRateLimited && Date.now() < liveQuota.resetAtMs - 2000) {
+        const waitInfo = formatQuotaWaitError(liveQuota.resetAtMs);
+        return {
+          ok: false,
+          status: 429,
+          rateLimited: true,
+          retryAfterSeconds: waitInfo.retryAfterSeconds,
+          resetAtIso: waitInfo.resetAtIso,
+          error: waitInfo.error,
+        };
+      }
+
       const nextDb = outcome?.skipWrite ? workingDb : outcome.nextDb;
       const patchRes = await patchGistWithDetails(token, nextDb, userAgent);
 
       if (!patchRes.ok) {
+        if (patchRes.rateLimited) {
+          const waitInfo = formatQuotaWaitError(patchRes.resetAtMs || gistUpdateQuota.resetAtMs);
+          return {
+            ok: false,
+            status: 429,
+            rateLimited: true,
+            retryAfterSeconds: waitInfo.retryAfterSeconds,
+            resetAtIso: waitInfo.resetAtIso,
+            error: waitInfo.error,
+          };
+        }
+
         if (attempt < MAX_ATTEMPTS) {
           await sleep(220 * attempt + Math.floor(Math.random() * 140));
           const fresh = await readFromGist(token, userAgent, { useEtagCache: false });
@@ -259,7 +392,7 @@ export function mutateCloudDb(
         }
         return {
           ok: false,
-          status: patchRes.httpStatus === 429 || patchRes.httpStatus === 503 ? 503 : 500,
+          status: patchRes.httpStatus === 503 ? 503 : 500,
           error: 'Failed to save changes to Cloud Database.',
         };
       }
@@ -530,6 +663,7 @@ export function evaluateAttendancePresenceAndAutoClose(
     overtimeWindowHoursRaw > 0 ? overtimeWindowHoursRaw * 60 * 60 * 1000 : 0;
 
   let changed = false;
+  let closedChanged = false;
   const records = attendanceList.map((rec) => {
     if (!rec || !rec.timeIn || rec.timeOut) return rec;
 
@@ -556,20 +690,22 @@ export function evaluateAttendancePresenceAndAutoClose(
       (!rec.heartbeatSource && String(rec.notes || '').startsWith('Lobby Kiosk Punch'));
 
     const lastHbMs = rec.lastHeartbeatAt ? Date.parse(rec.lastHeartbeatAt) : NaN;
+    const adaptiveFloorMs = rec.heartbeatIntervalMs ? Number(rec.heartbeatIntervalMs) + 90000 : 0;
+    const effectiveDisconnectMs = Math.max(disconnectMs, adaptiveFloorMs);
     const isPausedOffline = Boolean(rec.monitoringPaused) && !Number.isNaN(lastHbMs) && nowMs - lastHbMs > 15000;
     const isLiveConnected =
       !isKioskSession &&
       !Number.isNaN(lastHbMs) &&
       !rec.monitoringPaused &&
       rec.connectionStatus !== 'no_internet' &&
-      nowMs - lastHbMs <= disconnectMs;
+      nowMs - lastHbMs <= effectiveDisconnectMs;
 
     // Step A: Post-shift-end + 2h evaluation (Overtime if live & working vs Auto Logout if not live)
     const adminReopenedAfterCheck =
       adminOverrideMs > 0 &&
       !Number.isNaN(checkAtMs) &&
       adminOverrideMs >= checkAtMs &&
-      (rec.adminKeepOpen === true || nowMs - adminOverrideMs < Math.max(overtimeGraceMs, disconnectMs));
+      (rec.adminKeepOpen === true || nowMs - adminOverrideMs < Math.max(overtimeGraceMs, effectiveDisconnectMs));
 
     if (
       overtimeGraceMs > 0 &&
@@ -621,6 +757,7 @@ export function evaluateAttendancePresenceAndAutoClose(
       }
       if (candidateOutMs >= inMs) {
         changed = true;
+        closedChanged = true;
         const autoOutTime = formatOfficeTimeFromMs(candidateOutMs);
         const autoOutDate = formatOfficeDateFromMs(candidateOutMs);
         const effectiveOutTime =
@@ -656,6 +793,7 @@ export function evaluateAttendancePresenceAndAutoClose(
       !adminKeptOpenPastMidnight
     ) {
       changed = true;
+      closedChanged = true;
       return finalizeClosedRecord(rec, '23:59:00', 'Auto system Punched out', 'midnight', expectedHours);
     }
 
@@ -666,7 +804,7 @@ export function evaluateAttendancePresenceAndAutoClose(
 
     // Step D: Connectivity tracking for active/paused non-kiosk desktop sessions
     if (!isKioskSession && rec.date === todayStr && !Number.isNaN(lastHbMs)) {
-      const isDisconnected = nowMs - lastHbMs > disconnectMs || isPausedOffline;
+      const isDisconnected = nowMs - lastHbMs > effectiveDisconnectMs || isPausedOffline;
       if (settings?.enableDisconnectStatusTracking !== false) {
         const desiredConn = isDisconnected ? 'no_internet' : 'online';
         if (rec.connectionStatus !== desiredConn) {
@@ -677,7 +815,7 @@ export function evaluateAttendancePresenceAndAutoClose(
           };
           if (desiredConn === 'no_internet') {
             next.disconnectedAt =
-              rec.disconnectedAt || new Date(lastHbMs + (isPausedOffline ? 15000 : disconnectMs)).toISOString();
+              rec.disconnectedAt || new Date(lastHbMs + (isPausedOffline ? 15000 : effectiveDisconnectMs)).toISOString();
           } else {
             delete next.disconnectedAt;
           }
@@ -689,5 +827,5 @@ export function evaluateAttendancePresenceAndAutoClose(
     return rec;
   });
 
-  return { records, changed };
+  return { records, changed, closedChanged };
 }

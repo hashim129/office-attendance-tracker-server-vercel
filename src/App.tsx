@@ -220,7 +220,7 @@ export default function App() {
       }
 
       if (hasPendingCloudWrites()) {
-        void flushPendingCloudWrites();
+        void flushPendingCloudWrites({ respectCooldown: true });
         return;
       }
 

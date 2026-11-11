@@ -179,6 +179,7 @@ let isFlushingOutbox = false;
 let activeFlushPromise: Promise<boolean> | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryAttempt = 0;
+let rateLimitCooldownUntilMs = 0;
 let cloudSyncListener: (() => void) | null = null;
 const statusListeners = new Set<(state: CloudSyncState) => void>();
 
@@ -335,31 +336,118 @@ function buildServerPayload(mutation?: DbMutationPayload): Record<string, unknow
   return payload;
 }
 
-function scheduleOutboxRetry(): void {
+function scheduleOutboxRetry(explicitDelayMs?: number): void {
   if (retryTimer) return;
-  const delayMs = Math.min(12000, 1500 * Math.pow(2, Math.min(3, retryAttempt)));
+  const delayMs =
+    explicitDelayMs && explicitDelayMs > 0
+      ? explicitDelayMs
+      : Math.min(20000, 2000 * Math.pow(2, Math.min(3, retryAttempt)));
   retryAttempt += 1;
   retryTimer = setTimeout(() => {
     retryTimer = null;
-    void flushPendingCloudWrites();
+    void flushPendingCloudWrites({ respectCooldown: false });
   }, delayMs);
+}
+
+function coalesceQueuedBatch(queue: QueuedOutboxItem[]): {
+  mutation: DbMutationPayload;
+  consumedIds: string[];
+} {
+  const first = queue[0];
+  const consumedIds: string[] = [first.id];
+
+  if (first.mutation.scope === 'attendance') {
+    const byId = new Map<string, AttendanceRecord>();
+    const pushItem = (m: Extract<DbMutationPayload, { scope: 'attendance' }>) => {
+      if (Array.isArray(m.changedRecords)) {
+        for (const r of m.changedRecords) {
+          if (r && r.id) byId.set(r.id, r);
+        }
+      } else if (m.changedRecord && m.changedRecord.id) {
+        byId.set(m.changedRecord.id, m.changedRecord);
+      }
+    };
+
+    const hasExplicitRecords = (m: DbMutationPayload): m is Extract<DbMutationPayload, { scope: 'attendance' }> =>
+      m.scope === 'attendance' && (Boolean(m.changedRecord?.id) || Boolean(m.changedRecords?.length));
+
+    if (hasExplicitRecords(first.mutation)) {
+      pushItem(first.mutation);
+      const baseRole = first.mutation.actorRole;
+      for (let i = 1; i < queue.length; i++) {
+        const nextItem = queue[i];
+        if (hasExplicitRecords(nextItem.mutation) && nextItem.mutation.actorRole === baseRole) {
+          pushItem(nextItem.mutation);
+          consumedIds.push(nextItem.id);
+        } else {
+          break;
+        }
+      }
+      if (byId.size > 0) {
+        return {
+          mutation: {
+            scope: 'attendance',
+            changedRecords: Array.from(byId.values()),
+            actorRole: baseRole,
+          },
+          consumedIds,
+        };
+      }
+    }
+  } else if (first.mutation.scope === 'settings' || first.mutation.scope === 'shifts') {
+    let latest: DbMutationPayload = first.mutation;
+    for (let i = 1; i < queue.length; i++) {
+      if (queue[i].mutation.scope === first.mutation.scope) {
+        latest = queue[i].mutation;
+        consumedIds.push(queue[i].id);
+      } else {
+        break;
+      }
+    }
+    return { mutation: latest, consumedIds };
+  } else if (first.mutation.scope === 'employee_upsert') {
+    let latest = first.mutation;
+    for (let i = 1; i < queue.length; i++) {
+      const m = queue[i].mutation;
+      if (
+        m.scope === 'employee_upsert' &&
+        m.employee.id === latest.employee.id &&
+        Boolean(m.allowClearDevice) === Boolean(latest.allowClearDevice) &&
+        Boolean(m.clearPendingRequest) === Boolean(latest.clearPendingRequest) &&
+        m.actorRole === latest.actorRole
+      ) {
+        latest = m;
+        consumedIds.push(queue[i].id);
+      } else {
+        break;
+      }
+    }
+    return { mutation: latest, consumedIds };
+  }
+
+  return { mutation: first.mutation, consumedIds };
 }
 
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {
     if (readOutbox().length > 0) {
+      rateLimitCooldownUntilMs = 0;
       if (retryTimer) {
         clearTimeout(retryTimer);
         retryTimer = null;
       }
-      void flushPendingCloudWrites();
+      void flushPendingCloudWrites({ respectCooldown: false });
     }
   });
 }
 
-export function flushPendingCloudWrites(): Promise<boolean> {
+export function flushPendingCloudWrites(options?: { respectCooldown?: boolean }): Promise<boolean> {
   if (activeFlushPromise) {
     return activeFlushPromise;
+  }
+
+  if (options?.respectCooldown && (retryTimer || Date.now() < rateLimitCooldownUntilMs)) {
+    return Promise.resolve(false);
   }
 
   const run = (async (): Promise<boolean> => {
@@ -381,8 +469,8 @@ export function flushPendingCloudWrites(): Promise<boolean> {
         const queue = readOutbox();
         if (queue.length === 0) break;
 
-        const currentItem = queue[0];
-        const payload = buildServerPayload(currentItem.mutation);
+        const { mutation, consumedIds } = coalesceQueuedBatch(queue);
+        const payload = buildServerPayload(mutation);
 
         const res = await fetch(`/api/db?t=${Date.now()}`, {
           method: 'POST',
@@ -393,23 +481,30 @@ export function flushPendingCloudWrites(): Promise<boolean> {
 
         if (!res.ok) {
           let errMsg = `HTTP ${res.status}`;
+          let explicitWaitMs: number | undefined;
           try {
             const errJson = await res.json();
             if (errJson?.error) errMsg = String(errJson.error);
+            if (res.status === 429 && errJson?.retryAfterSeconds) {
+              explicitWaitMs = Math.min(300000, Math.max(5000, Number(errJson.retryAfterSeconds) * 1000));
+              rateLimitCooldownUntilMs = Date.now() + explicitWaitMs;
+            }
           } catch {
             // ignore non-json error
           }
           emitSyncState({ status: 'retrying', lastError: errMsg });
-          scheduleOutboxRetry();
+          scheduleOutboxRetry(explicitWaitMs);
           return false;
         }
 
         const data = await res.json();
         retryAttempt = 0;
+        rateLimitCooldownUntilMs = 0;
 
-        // Pop only the committed item so newly added mutations stay in queue
+        // Pop all coalesced items in this committed batch while preserving any new items appended mid-flight
+        const consumedSet = new Set(consumedIds);
         const latestQueue = readOutbox();
-        const remaining = latestQueue.filter((q) => q.id !== currentItem.id);
+        const remaining = latestQueue.filter((q) => !consumedSet.has(q.id));
         writeOutbox(remaining);
 
         if (data?.updatedAt) {
@@ -446,7 +541,7 @@ export function flushPendingCloudWrites(): Promise<boolean> {
       activeFlushPromise = null;
       // If another item arrived right before finally cleared activeFlushPromise, flush it promptly
       if (readOutbox().length > 0 && !retryTimer && currentSyncState.status !== 'retrying') {
-        void flushPendingCloudWrites();
+        void flushPendingCloudWrites({ respectCooldown: true });
       }
     }
   })();
@@ -461,7 +556,8 @@ export function retryCloudOutboxNow(): Promise<boolean> {
     retryTimer = null;
   }
   retryAttempt = 0;
-  return flushPendingCloudWrites();
+  rateLimitCooldownUntilMs = 0;
+  return flushPendingCloudWrites({ respectCooldown: false });
 }
 
 export function pushDatabaseToServer(mutation?: DbMutationPayload): Promise<boolean> {
@@ -477,7 +573,7 @@ export function pushDatabaseToServer(mutation?: DbMutationPayload): Promise<bool
   writeOutbox([...current, item]);
   emitSyncState({ status: 'saving', lastError: undefined });
 
-  return flushPendingCloudWrites();
+  return flushPendingCloudWrites({ respectCooldown: false });
 }
 
 export async function syncDatabaseFromServer(forceAccept = false): Promise<boolean> {

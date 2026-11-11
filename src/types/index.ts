@@ -61,6 +61,7 @@ export interface AttendanceRecord {
   disconnectedAt?: string;
   heartbeatSource?: 'web-client' | 'windows-agent' | 'kiosk';
   heartbeatDeviceId?: string;
+  heartbeatIntervalMs?: number;
   monitoringPaused?: boolean;
   clearTimeOut?: boolean;
   adminVerification?: VerificationInfo;

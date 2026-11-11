@@ -155,7 +155,14 @@ export default async function handler(req, res) {
               : `Already clocked in today at ${format12h(existingRec.timeIn)}.`,
           };
 
-          if (existingRec.timeOut) {
+          const prevHbMs = existingRec.lastHeartbeatAt ? Date.parse(existingRec.lastHeartbeatAt) : 0;
+          if (
+            existingRec.timeOut ||
+            (existingRec.connectionStatus === 'online' &&
+              !existingRec.monitoringPaused &&
+              existingRec.heartbeatSource === 'windows-agent' &&
+              Date.now() - prevHbMs < 120000)
+          ) {
             return { skipWrite: true, result: alreadyResult };
           }
 
