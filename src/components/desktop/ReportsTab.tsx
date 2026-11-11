@@ -17,6 +17,8 @@ import {
   Send,
   Edit3,
   AlertTriangle,
+  WifiOff,
+  Coffee,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -28,6 +30,7 @@ import {
 import {
   calculateBreaksDuration,
   calculateWorkedMinutes,
+  deriveLiveAttendanceState,
   formatMinutesToDecimal,
   formatMinutesToHoursMinutes,
   formatTime12h,
@@ -153,6 +156,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
 
     const shift = shifts.find((s) => s.id === editingEmployee.shiftId) || shifts[0];
     const nowTime = new Date().toTimeString().slice(0, 8);
+    const nowIso = new Date().toISOString();
 
     let finalTimeIn: string = '';
     let finalTimeOut: string | undefined = undefined;
@@ -208,6 +212,16 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
       timeOut: finalTimeOut,
       clearTimeOut: shouldClearTimeOut,
       isAutoPunchedOut: shouldClearTimeOut ? false : editingRecord.isAutoPunchedOut,
+      autoPunchOutReason: shouldClearTimeOut ? undefined : editingRecord.autoPunchOutReason,
+      ...(shouldClearTimeOut && editWorkingStatus !== 'absent'
+        ? {
+            connectionStatus: 'online' as const,
+            lastHeartbeatAt: nowIso,
+            lastActivityAt: nowIso,
+            disconnectedAt: undefined,
+            monitoringPaused: false,
+          }
+        : {}),
       breaks: updatedBreaks,
       totalWorkedMinutes: worked.totalWorkedMinutes,
       regularMinutes: worked.regularMinutes,
@@ -604,6 +618,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                 filteredRecords.map((r) => {
                   const emp = empMap.get(r.employeeId);
                   const breakMins = calculateBreaksDuration(r.breaks);
+                  const liveState = deriveLiveAttendanceState({ record: r, settings });
                   return (
                     <tr
                       key={r.id}
@@ -666,10 +681,22 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                             </div>
                             {r.isAutoPunchedOut && (
                               <span className="text-[9px] text-amber-600 dark:text-amber-400 font-sans font-semibold mt-0.5">
-                                Auto 11:59 PM
+                                {r.autoPunchOutReason === 'inactivity_2h'
+                                  ? `Auto >${settings.autoPunchOutOnInactiveHours ?? 2}h Inactive`
+                                  : 'Auto 11:59 PM'}
                               </span>
                             )}
                           </div>
+                        ) : liveState === 'break' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold text-[11px]">
+                            <Coffee className="w-3 h-3" />
+                            <span>On Break</span>
+                          </span>
+                        ) : liveState === 'no_internet' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-100 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-bold text-[11px]">
+                            <WifiOff className="w-3 h-3 animate-pulse" />
+                            <span>No Internet (In)</span>
+                          </span>
                         ) : r.timeIn ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-[11px] animate-pulse">
                             <span className="w-2 h-2 rounded-full bg-blue-500"></span>

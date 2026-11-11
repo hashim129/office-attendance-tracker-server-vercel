@@ -9,6 +9,7 @@ import {
   Timer,
   Info,
   Wifi,
+  WifiOff,
   ShieldAlert,
   ShieldCheck,
   Smartphone,
@@ -28,6 +29,7 @@ import {
 } from '../../types';
 import {
   calculateWorkedMinutes,
+  deriveLiveAttendanceState,
   formatMinutesToHoursMinutes,
   formatTime12h,
   getDayName,
@@ -55,6 +57,7 @@ interface PunchClockTabProps {
   onUpdatePunchNote?: (employeeId: string, notes: string) => void;
   settings: OfficeSettings;
   currentClientIp?: string;
+  isNetworkOnline?: boolean;
   ceoComments?: CeoComment[];
   onMarkCeoCommentRead?: (commentId: string) => void;
   onOpenRequestDevice?: () => void;
@@ -73,6 +76,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   onUpdatePunchNote,
   settings,
   currentClientIp = 'Detecting...',
+  isNetworkOnline = true,
   ceoComments = [],
   onMarkCeoCommentRead,
   onOpenRequestDevice,
@@ -114,10 +118,17 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     }
   }, [todayRecord?.notes]);
 
+  const liveState = deriveLiveAttendanceState({
+    record: todayRecord,
+    settings,
+    todayStr,
+    isCurrentUserOffline: !isNetworkOnline,
+  });
   const isClockedIn = !!todayRecord && !!todayRecord.timeIn && !todayRecord.timeOut;
-  const isCompleted = !!todayRecord && !!todayRecord.timeOut;
+  const isCompleted = liveState === 'out';
   const activeBreak = todayRecord?.breaks?.find((b) => !b.end);
-  const isOnBreak = !!activeBreak;
+  const isOnBreak = liveState === 'break';
+  const isNoInternet = liveState === 'no_internet';
 
   // 1. Office Wi-Fi IP Security Check
   const ipCheck = verifyOfficeIpAccess(currentClientIp, settings, currentUser);
@@ -324,6 +335,11 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                   <Coffee className="w-3.5 h-3.5" />
                   <span>On Lunch Break</span>
                 </span>
+              ) : isNoInternet ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
+                  <WifiOff className="w-3.5 h-3.5 animate-pulse" />
+                  <span>No Internet · Still In</span>
+                </span>
               ) : isClockedIn ? (
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -385,6 +401,21 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
           {/* Security Status Banners */}
           <div className="space-y-2">
+            {isNoInternet && (
+              <div className="p-3 rounded-xl border bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
+                <WifiOff className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 animate-pulse" />
+                <div className="text-xs">
+                  <div className="font-bold">
+                    Device Internet Disconnected — Attendance Status: No Internet (Still In)
+                  </div>
+                  <p className="text-[11px] opacity-90 mt-0.5">
+                    You remain marked Clocked In while reconnecting. If a monitored device stays non-active for more than{' '}
+                    {settings.autoPunchOutOnInactiveHours ?? 2} hours (when not on break), the system will automatically punch you out.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* 1. Office Wi-Fi Public IP Verification Banner */}
             {settings.enforceOfficeIpLock && (
               <div
@@ -544,6 +575,13 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                 <p className="text-xs text-emerald-700 dark:text-emerald-400">
                   Time In: {formatTime12h(todayRecord.timeIn)} · Time Out: {formatTime12h(todayRecord.timeOut)} · Total Worked: {formatMinutesToHoursMinutes(todayRecord.totalWorkedMinutes)}
                 </p>
+                {todayRecord.isAutoPunchedOut && (
+                  <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                    {todayRecord.autoPunchOutReason === 'inactivity_2h'
+                      ? `System Notice: Auto punched out after >${settings.autoPunchOutOnInactiveHours ?? 2} hours of device inactivity.`
+                      : 'System Notice: Auto system punched out at 11:59 PM.'}
+                  </p>
+                )}
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1">
                   Employees are permitted ONE attendance punch cycle per day. For any manual adjustments, please contact the Administrator.
                 </p>

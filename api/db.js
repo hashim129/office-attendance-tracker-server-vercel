@@ -1,13 +1,10 @@
-const GIST_ID = '41c1cfdb09cf0292c729cb01eb3eccfa';
-const DB_FILENAME = 'office_attendance_db.json';
-
-function getCloudToken() {
-  if (process.env.GITHUB_DB_TOKEN) return process.env.GITHUB_DB_TOKEN;
-  // Reconstruct token from split segments
-  const p1 = 'Z2hvX0dEV1l2';
-  const p2 = 'NFl3ZnRoaUlweEo5WENhbkR2amozRmNXYjFiNnhtdg==';
-  return Buffer.from(p1 + p2, 'base64').toString('utf-8');
-}
+import {
+  evaluateAttendancePresenceAndAutoClose,
+  getCloudToken,
+  readFromGist,
+  setNoCacheHeaders,
+  writeToGist,
+} from './_cloud.js';
 
 const DEFAULT_DB = {
   version: '1.0',
@@ -106,144 +103,14 @@ const DEFAULT_DB = {
   leaves: [],
 };
 
-async function readFromGist(token) {
-  try {
-    const res = await fetch(`https://api.github.com/gists/${GIST_ID}?_=${Date.now()}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'Office-Attendance-Tracker-Server',
-        'Cache-Control': 'no-cache',
-      },
-      cache: 'no-store',
-    });
-    if (!res.ok) {
-      return { status: 'error', httpStatus: res.status };
-    }
-    const gistData = await res.json();
-    const fileObj = gistData.files && gistData.files[DB_FILENAME];
-    if (fileObj && fileObj.content) {
-      try {
-        const parsed = JSON.parse(fileObj.content);
-        if (parsed && Array.isArray(parsed.employees) && Array.isArray(parsed.attendance)) {
-          return { status: 'ok', data: parsed };
-        }
-      } catch {
-        return { status: 'error', reason: 'Corrupt JSON in Gist' };
-      }
-    }
-    return { status: 'empty' };
-  } catch (err) {
-    return { status: 'error', reason: String(err) };
-  }
-}
-
-async function writeToGist(token, dbObj) {
-  const bodyStr = JSON.stringify(dbObj, null, 2);
-  const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'Content-Type': 'application/json',
-      'User-Agent': 'Office-Attendance-Tracker-Server',
-    },
-    body: JSON.stringify({
-      description: 'Office Attendance Tracker Permanent Cloud Database',
-      files: {
-        [DB_FILENAME]: {
-          content: bodyStr,
-        },
-      },
-    }),
-  });
-  return res.ok;
-}
-
-function getOfficeDateTimeParts() {
-  const now = new Date();
-  try {
-    const todayStr = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Karachi',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(now);
-    const nowTime = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Karachi',
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    }).format(now);
-    return { todayStr, nowTime };
-  } catch {
-    const year = now.getFullYear();
-    const month = (now.getMonth() + 1).toString().padStart(2, '0');
-    const day = now.getDate().toString().padStart(2, '0');
-    return {
-      todayStr: `${year}-${month}-${day}`,
-      nowTime: now.toTimeString().split(' ')[0],
-    };
-  }
-}
-
-function autoCloseForgottenRecords(attendanceList) {
-  if (!Array.isArray(attendanceList)) return { records: [], changed: false };
-  const { todayStr, nowTime } = getOfficeDateTimeParts();
-
-  let changed = false;
-  const records = attendanceList.map((rec) => {
-    if (rec.timeIn && !rec.timeOut) {
-      const isPastDay = rec.date < todayStr;
-      const isPastMidnightToday = rec.date === todayStr && nowTime >= '23:59:00';
-      if (isPastDay || isPastMidnightToday) {
-        changed = true;
-        const autoOutTime = '23:59:00';
-        const updatedBreaks = (rec.breaks || []).map((b) => (!b.end ? { ...b, end: autoOutTime } : b));
-
-        const parseMins = (t) => {
-          if (!t) return 0;
-          const [h, m] = t.split(':').map(Number);
-          return (h || 0) * 60 + (m || 0);
-        };
-        const inMins = parseMins(rec.timeIn);
-        const outMins = parseMins(autoOutTime);
-        const diff = Math.max(0, outMins - inMins);
-        let breakMins = 0;
-        for (const b of updatedBreaks) {
-          if (b.start && b.end) {
-            breakMins += Math.max(0, parseMins(b.end) - parseMins(b.start));
-          }
-        }
-        const netWorked = Math.max(0, diff - breakMins);
-        const regular = Math.min(netWorked, 480);
-        const overtime = Math.max(0, netWorked - 480);
-
-        const existingNotes = rec.notes ? rec.notes.trim() : '';
-        const remark = 'Auto system Punched out';
-        const finalNotes = existingNotes
-          ? existingNotes.includes(remark)
-            ? existingNotes
-            : `${existingNotes} · ${remark}`
-          : remark;
-
-        return {
-          ...rec,
-          timeOut: autoOutTime,
-          breaks: updatedBreaks,
-          totalWorkedMinutes: netWorked,
-          regularMinutes: regular,
-          overtimeMinutes: overtime,
-          notes: finalNotes,
-          isAutoPunchedOut: true,
-        };
-      }
-    }
-    return rec;
-  });
-
-  return { records, changed };
+function newerIso(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  const ma = Date.parse(a);
+  const mb = Date.parse(b);
+  if (Number.isNaN(ma)) return b;
+  if (Number.isNaN(mb)) return a;
+  return mb > ma ? b : a;
 }
 
 const DUMMY_NAMES = [
@@ -302,12 +169,36 @@ function mergeAttendanceRecord(existing, a) {
       : Array.isArray(a.breaks) && a.breaks.length >= (existing.breaks?.length || 0)
       ? a.breaks
       : existing.breaks || [],
+    lastHeartbeatAt: shouldClearTimeOut
+      ? a.lastHeartbeatAt || new Date().toISOString()
+      : newerIso(existing.lastHeartbeatAt, a.lastHeartbeatAt),
+    lastActivityAt: shouldClearTimeOut
+      ? a.lastActivityAt || new Date().toISOString()
+      : newerIso(existing.lastActivityAt, a.lastActivityAt),
+    connectionStatus: shouldClearTimeOut
+      ? a.connectionStatus || 'online'
+      : a.connectionStatus !== undefined
+      ? a.connectionStatus
+      : existing.connectionStatus,
+    heartbeatSource: a.heartbeatSource || existing.heartbeatSource,
+    heartbeatDeviceId: a.heartbeatDeviceId || existing.heartbeatDeviceId,
+    monitoringPaused:
+      shouldClearTimeOut
+        ? false
+        : a.monitoringPaused !== undefined
+        ? a.monitoringPaused
+        : existing.monitoringPaused,
   };
 
   if (shouldClearTimeOut) {
     delete merged.timeOut;
+    delete merged.autoPunchOutReason;
+    delete merged.disconnectedAt;
   } else {
     merged.timeOut = a.timeOut || existing.timeOut;
+    if (a.autoPunchOutReason !== undefined || existing.autoPunchOutReason !== undefined) {
+      merged.autoPunchOutReason = a.autoPunchOutReason ?? existing.autoPunchOutReason;
+    }
   }
 
   delete merged.clearTimeOut;
@@ -414,11 +305,7 @@ function mergeEmployeesAdditiveSafe(currentList, incomingList) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
-  res.setHeader('CDN-Cache-Control', 'no-store');
-  res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
+  setNoCacheHeaders(res);
 
   const token = getCloudToken();
 
@@ -438,13 +325,18 @@ export default async function handler(req, res) {
         current = DEFAULT_DB;
       }
 
-      // Auto-close any forgotten records from past days or past 23:59:00 Asia/Karachi
+      // Evaluate 11:59 PM forgotten punches, >2h device inactivity punch-out, and disconnectivity status
       if (Array.isArray(current.attendance)) {
-        const { records: closedRecords, changed } = autoCloseForgottenRecords(current.attendance);
+        const { records: evaluatedRecords, changed } = evaluateAttendancePresenceAndAutoClose(
+          current.attendance,
+          current.settings,
+          current.employees,
+          current.shifts
+        );
         if (changed) {
-          current.attendance = closedRecords;
+          current.attendance = evaluatedRecords;
           current.updatedAt = new Date().toISOString();
-          void writeToGist(token, current);
+          await writeToGist(token, current);
         }
       }
 
@@ -587,7 +479,12 @@ export default async function handler(req, res) {
         finalCeoComments = Array.from(commentMap.values());
       }
 
-      const { records: finalAttendance } = autoCloseForgottenRecords(rawAttendance);
+      const { records: finalAttendance } = evaluateAttendancePresenceAndAutoClose(
+        rawAttendance,
+        finalSettings,
+        finalEmployees,
+        finalShifts
+      );
 
       const mergedDb = {
         version: '1.0',

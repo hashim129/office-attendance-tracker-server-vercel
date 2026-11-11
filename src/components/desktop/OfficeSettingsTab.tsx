@@ -622,6 +622,58 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
               </div>
             </label>
           </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/40">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.enableDisconnectStatusTracking !== false}
+                onChange={(e) => {
+                  const updated = { ...formData, enableDisconnectStatusTracking: e.target.checked };
+                  setFormData(updated);
+                  onUpdateSettings(updated);
+                }}
+                className="mt-1 w-4 h-4 rounded text-amber-600"
+              />
+              <div className="text-xs">
+                <span className="font-semibold text-slate-900 dark:text-slate-100 block">
+                  Track Device Internet Disconnectivity (&quot;No Internet · In&quot;)
+                </span>
+                <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                  Automatically updates status to &quot;No Internet (In)&quot; if a clocked-in device loses connection (except when set on Break).
+                </span>
+              </div>
+            </label>
+
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs">
+                <span className="font-semibold text-slate-900 dark:text-slate-100 block">
+                  Auto Punch-Out on Device Inactivity
+                </span>
+                <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                  Punches out monitored staff if device remains non-active beyond limit (skipped on Break)
+                </span>
+              </div>
+              <select
+                value={String(formData.autoPunchOutOnInactiveHours ?? 2)}
+                onChange={(e) => {
+                  const updated = {
+                    ...formData,
+                    autoPunchOutOnInactiveHours: Number(e.target.value),
+                  };
+                  setFormData(updated);
+                  onUpdateSettings(updated);
+                }}
+                className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-900 dark:text-slate-100 shrink-0"
+              >
+                <option value="2">2 Hours (Default)</option>
+                <option value="1">1 Hour</option>
+                <option value="3">3 Hours</option>
+                <option value="4">4 Hours</option>
+                <option value="0">Disabled</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* Save Confirmation Button */}

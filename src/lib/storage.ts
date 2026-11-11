@@ -101,6 +101,9 @@ export const INITIAL_SETTINGS: OfficeSettings = {
   allowAdminBypassDeviceBinding: true,
   allowKioskPunchWithoutDevice: true,
   allowAutoStartPunch: true,
+  enableDisconnectStatusTracking: true,
+  autoPunchOutOnInactiveHours: 2,
+  disconnectThresholdMinutes: 3,
 };
 
 export const INITIAL_EMPLOYEES: Employee[] = [
@@ -480,6 +483,15 @@ export function loadSettings(): OfficeSettings {
       allowAdminBypassDeviceBinding: parsed.allowAdminBypassDeviceBinding ?? true,
       allowKioskPunchWithoutDevice: parsed.allowKioskPunchWithoutDevice ?? true,
       allowAutoStartPunch: parsed.allowAutoStartPunch ?? true,
+      enableDisconnectStatusTracking: parsed.enableDisconnectStatusTracking ?? true,
+      autoPunchOutOnInactiveHours:
+        parsed.autoPunchOutOnInactiveHours !== undefined
+          ? Number(parsed.autoPunchOutOnInactiveHours)
+          : 2,
+      disconnectThresholdMinutes:
+        parsed.disconnectThresholdMinutes !== undefined
+          ? Number(parsed.disconnectThresholdMinutes)
+          : 3,
     };
     return upgraded;
   } catch {

@@ -23,6 +23,8 @@ import {
   KeyRound,
   ShieldCheck,
   Terminal,
+  WifiOff,
+  Coffee,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -33,6 +35,7 @@ import {
 } from '../../types';
 import {
   calculateBreaksDuration,
+  deriveLiveAttendanceState,
   formatMinutesToDecimal,
   formatMinutesToHoursMinutes,
   formatTime12h,
@@ -55,6 +58,7 @@ interface MyAttendanceTabProps {
   onMarkCeoCommentRead?: (commentId: string) => void;
   onOpenRequestDevice?: () => void;
   onOpenChangePassword?: () => void;
+  isNetworkOnline?: boolean;
 }
 
 export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
@@ -67,6 +71,7 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
   onMarkCeoCommentRead,
   onOpenRequestDevice,
   onOpenChangePassword,
+  isNetworkOnline = true,
 }) => {
   // Strict filter: ONLY records belonging to currentUser!
   const myAllRecords = useMemo(() => {
@@ -836,6 +841,11 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
               ) : (
                 filteredRecords.map((r) => {
                   const breakMins = calculateBreaksDuration(r.breaks);
+                  const liveState = deriveLiveAttendanceState({
+                    record: r,
+                    settings,
+                    isCurrentUserOffline: !isNetworkOnline,
+                  });
                   return (
                     <tr
                       key={r.id}
@@ -874,10 +884,22 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                             </div>
                             {r.isAutoPunchedOut && (
                               <span className="text-[9px] text-amber-600 dark:text-amber-400 font-sans font-semibold mt-0.5">
-                                Auto 11:59 PM
+                                {r.autoPunchOutReason === 'inactivity_2h'
+                                  ? `Auto >${settings.autoPunchOutOnInactiveHours ?? 2}h Inactive`
+                                  : 'Auto 11:59 PM'}
                               </span>
                             )}
                           </div>
+                        ) : liveState === 'break' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold text-[11px]">
+                            <Coffee className="w-3 h-3" />
+                            <span>On Break</span>
+                          </span>
+                        ) : liveState === 'no_internet' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-100 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-bold text-[11px]">
+                            <WifiOff className="w-3 h-3 animate-pulse" />
+                            <span>No Internet (In)</span>
+                          </span>
                         ) : r.timeIn ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-[11px] animate-pulse">
                             <span className="w-2 h-2 rounded-full bg-blue-500"></span>

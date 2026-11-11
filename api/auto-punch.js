@@ -1,152 +1,18 @@
-import crypto from 'crypto';
-
-const GIST_ID = '41c1cfdb09cf0292c729cb01eb3eccfa';
-const DB_FILENAME = 'office_attendance_db.json';
-
-function getCloudToken() {
-  if (process.env.GITHUB_DB_TOKEN) return process.env.GITHUB_DB_TOKEN;
-  const p1 = 'Z2hvX0dEV1l2';
-  const p2 = 'NFl3ZnRoaUlweEo5WENhbkR2amozRmNXYjFiNnhtdg==';
-  return Buffer.from(p1 + p2, 'base64').toString('utf-8');
-}
-
-async function readFromGist(token) {
-  try {
-    const res = await fetch(`https://api.github.com/gists/${GIST_ID}?_=${Date.now()}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'Office-Attendance-Tracker-AutoPunch',
-        'Cache-Control': 'no-cache',
-      },
-      cache: 'no-store',
-    });
-    if (!res.ok) return { status: 'error', httpStatus: res.status };
-    const gistData = await res.json();
-    const fileObj = gistData.files && gistData.files[DB_FILENAME];
-    if (fileObj && fileObj.content) {
-      const parsed = JSON.parse(fileObj.content);
-      if (parsed && Array.isArray(parsed.employees) && Array.isArray(parsed.attendance)) {
-        return { status: 'ok', data: parsed };
-      }
-    }
-    return { status: 'empty' };
-  } catch (err) {
-    return { status: 'error', reason: String(err) };
-  }
-}
-
-async function writeToGist(token, dbObj) {
-  const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'Content-Type': 'application/json',
-      'User-Agent': 'Office-Attendance-Tracker-AutoPunch',
-    },
-    body: JSON.stringify({
-      description: 'Office Attendance Tracker Permanent Cloud Database',
-      files: {
-        [DB_FILENAME]: {
-          content: JSON.stringify(dbObj, null, 2),
-        },
-      },
-    }),
-  });
-  return res.ok;
-}
-
-function getOfficeDateTime() {
-  const now = new Date();
-  try {
-    const todayStr = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Karachi',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(now);
-    const nowTime = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Karachi',
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    }).format(now);
-    const dayName = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Asia/Karachi',
-      weekday: 'long',
-    }).format(now);
-    return { todayStr, nowTime, dayName };
-  } catch {
-    const year = now.getFullYear();
-    const month = (now.getMonth() + 1).toString().padStart(2, '0');
-    const day = now.getDate().toString().padStart(2, '0');
-    return {
-      todayStr: `${year}-${month}-${day}`,
-      nowTime: now.toTimeString().split(' ')[0],
-      dayName: now.toLocaleDateString('en-US', { weekday: 'long' }),
-    };
-  }
-}
-
-function parseMinutes(t) {
-  if (!t) return 0;
-  const parts = String(t).split(':').map((n) => parseInt(n, 10) || 0);
-  return (parts[0] || 0) * 60 + (parts[1] || 0);
-}
-
-function format12h(timeStr) {
-  if (!timeStr) return '--:--';
-  const [hStr, mStr] = String(timeStr).split(':');
-  let h = parseInt(hStr, 10) || 0;
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  h = h % 12 || 12;
-  return `${h}:${mStr} ${ampm}`;
-}
-
-function doesIpMatchRule(clientIp, ruleIp) {
-  const cleanClient = String(clientIp || '').trim().toLowerCase();
-  const cleanRule = String(ruleIp || '').trim().toLowerCase();
-  if (!cleanClient || !cleanRule) return false;
-  if (cleanClient === cleanRule) return true;
-
-  if (cleanRule.includes('*')) {
-    const prefix = cleanRule.split('*')[0];
-    if (prefix && cleanClient.startsWith(prefix)) return true;
-  }
-
-  if (cleanRule.includes('/')) {
-    const [baseIp, bitsStr] = cleanRule.split('/');
-    const bits = parseInt(bitsStr, 10);
-    const clientParts = cleanClient.split('.');
-    const baseParts = baseIp.split('.');
-    if (clientParts.length === 4 && baseParts.length === 4) {
-      if (bits === 24 && clientParts.slice(0, 3).join('.') === baseParts.slice(0, 3).join('.')) {
-        return true;
-      }
-      if (bits === 16 && clientParts.slice(0, 2).join('.') === baseParts.slice(0, 2).join('.')) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-function getClientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  const raw =
-    (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : '') ||
-    req.socket?.remoteAddress ||
-    '';
-  return String(raw).replace(/^::ffff:/, '').trim();
-}
+import {
+  doesIpMatchRule,
+  format12h,
+  getClientIp,
+  getCloudToken,
+  getOfficeDateTimeParts,
+  parseMinutes,
+  readFromGist,
+  setNoCacheHeaders,
+  verifyAutoStartToken,
+  writeToGist,
+} from './_cloud.js';
 
 export default async function handler(req, res) {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
-  res.setHeader('CDN-Cache-Control', 'no-store');
-  res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
+  setNoCacheHeaders(res);
 
   if (req.method !== 'POST') {
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
@@ -165,7 +31,7 @@ export default async function handler(req, res) {
     }
 
     const token = getCloudToken();
-    const readRes = await readFromGist(token);
+    const readRes = await readFromGist(token, 'Office-Attendance-Tracker-AutoPunch');
     if (readRes.status !== 'ok') {
       return res.status(503).json({
         ok: false,
@@ -200,14 +66,7 @@ export default async function handler(req, res) {
     }
 
     // 3. Verify cryptographic token (automatically invalidates if PIN or device bound changes)
-    const expectedSig = crypto
-      .createHash('sha256')
-      .update(`${emp.id}|${emp.pin}|${emp.registeredDeviceId || 'UNBOUND'}|OFFICE_AUTO_V1`)
-      .digest('hex');
-
-    const incomingBuf = Buffer.from(String(authToken || '').toLowerCase(), 'utf-8');
-    const expectedBuf = Buffer.from(expectedSig, 'utf-8');
-    if (incomingBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(incomingBuf, expectedBuf)) {
+    if (!verifyAutoStartToken(emp, authToken)) {
       return res.status(401).json({
         ok: false,
         code: 'TOKEN_INVALID',
@@ -253,12 +112,36 @@ export default async function handler(req, res) {
     }
 
     // 6. Enforce 1-Punch-Per-Day rule
-    const { todayStr, nowTime, dayName } = getOfficeDateTime();
+    const { todayStr, nowTime, dayName } = getOfficeDateTimeParts();
+    const cleanHost = String(machineName || 'Windows PC').replace(/[^\w.\- ]/g, '').slice(0, 40);
+    const nowIso = new Date().toISOString();
     const existingIdx = attendance.findIndex(
       (r) => r.employeeId === emp.id && r.date === todayStr
     );
 
     if (existingIdx >= 0 && attendance[existingIdx].timeIn) {
+      const existingRec = attendance[existingIdx];
+      // If still working on a reboot/relauch, refresh Windows-agent heartbeat immediately
+      if (!existingRec.timeOut) {
+        const refreshed = {
+          ...existingRec,
+          lastHeartbeatAt: nowIso,
+          lastActivityAt: nowIso,
+          connectionStatus: 'online',
+          heartbeatSource: 'windows-agent',
+          heartbeatDeviceId: deviceId || emp.registeredDeviceId || cleanHost,
+          monitoringPaused: false,
+        };
+        delete refreshed.disconnectedAt;
+        const nextAttendance = [...attendance];
+        nextAttendance[existingIdx] = refreshed;
+        await writeToGist(
+          token,
+          { ...db, updatedAt: nowIso, attendance: nextAttendance },
+          'Office-Attendance-Tracker-AutoPunch'
+        );
+      }
+
       return res.status(200).json({
         ok: true,
         status: 'already_punched',
@@ -266,9 +149,14 @@ export default async function handler(req, res) {
         employeeCode: emp.employeeCode,
         date: todayStr,
         day: dayName,
-        timeIn: attendance[existingIdx].timeIn,
-        timeInFormatted: format12h(attendance[existingIdx].timeIn),
-        message: `Already clocked in today at ${format12h(attendance[existingIdx].timeIn)}.`,
+        timeIn: existingRec.timeIn,
+        timeInFormatted: format12h(existingRec.timeIn),
+        timeOut: existingRec.timeOut || null,
+        isAutoPunchedOut: Boolean(existingRec.isAutoPunchedOut),
+        autoPunchOutReason: existingRec.autoPunchOutReason,
+        message: existingRec.timeOut
+          ? `Shift already completed today (${format12h(existingRec.timeIn)} - ${format12h(existingRec.timeOut)}).`
+          : `Already clocked in today at ${format12h(existingRec.timeIn)}.`,
       });
     }
 
@@ -278,7 +166,6 @@ export default async function handler(req, res) {
       ? parseMinutes(nowTime) > parseMinutes(shift.startTime) + (shift.graceMinutes || 0)
       : false;
 
-    const cleanHost = String(machineName || 'Windows PC').replace(/[^\w.\- ]/g, '').slice(0, 40);
     const newRecord = {
       ...(existingIdx >= 0 ? attendance[existingIdx] : {}),
       id: existingIdx >= 0 ? attendance[existingIdx].id : `att-${todayStr}-${emp.id}`,
@@ -286,7 +173,10 @@ export default async function handler(req, res) {
       date: todayStr,
       day: dayName,
       timeIn: nowTime,
-      breaks: existingIdx >= 0 && Array.isArray(attendance[existingIdx].breaks) ? attendance[existingIdx].breaks : [],
+      breaks:
+        existingIdx >= 0 && Array.isArray(attendance[existingIdx].breaks)
+          ? attendance[existingIdx].breaks
+          : [],
       totalWorkedMinutes: 0,
       regularMinutes: 0,
       overtimeMinutes: 0,
@@ -296,6 +186,12 @@ export default async function handler(req, res) {
       deviceId: deviceId || emp.registeredDeviceId || 'windows-autostart',
       deviceName: emp.registeredDeviceName || `${cleanHost} · Startup Agent`,
       isDeviceMismatch: false,
+      lastHeartbeatAt: nowIso,
+      lastActivityAt: nowIso,
+      connectionStatus: 'online',
+      heartbeatSource: 'windows-agent',
+      heartbeatDeviceId: deviceId || emp.registeredDeviceId || cleanHost,
+      monitoringPaused: false,
     };
 
     const nextAttendance = [...attendance];
@@ -307,11 +203,11 @@ export default async function handler(req, res) {
 
     const updatedDb = {
       ...db,
-      updatedAt: new Date().toISOString(),
+      updatedAt: nowIso,
       attendance: nextAttendance,
     };
 
-    const ok = await writeToGist(token, updatedDb);
+    const ok = await writeToGist(token, updatedDb, 'Office-Attendance-Tracker-AutoPunch');
     if (!ok) {
       return res.status(500).json({
         ok: false,
@@ -340,3 +236,4 @@ export default async function handler(req, res) {
     });
   }
 }
+

@@ -164,7 +164,9 @@ echo   - Enforces Office Wi-Fi & Device Security (will not punch from home).
 echo   - Log file saved to: "%APP_DIR%\\startup.log"
 echo.
 echo Running initial verification check now...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%APP_DIR%\\auto_attendance.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%APP_DIR%\\auto_attendance.ps1" -TestOnce
+echo Starting background connectivity & activity monitor...
+start "" /b wscript.exe "%APP_DIR%\\launch_hidden.vbs"
 echo.
 pause
 exit /b 0
@@ -178,7 +180,7 @@ if not exist "%APP_DIR%\\auto_attendance.ps1" (
 )
 echo.
 echo Running Auto Check-In test...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%APP_DIR%\\auto_attendance.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%APP_DIR%\\auto_attendance.ps1" -TestOnce
 echo.
 echo Check "%APP_DIR%\\startup.log" for full diagnostic output.
 pause
@@ -188,6 +190,9 @@ goto MENU
 echo.
 echo Removing Windows Startup registration...
 reg delete "%REG_KEY%" /v "%REG_NAME%" /f >nul 2>&1
+if exist "%APP_DIR%\\agent.pid" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$pf=Join-Path $env:APP_DIR 'agent.pid'; if(Test-Path $pf){$p=Get-Content $pf -ErrorAction SilentlyContinue; if($p){Stop-Process -Id ([int]$p) -Force -ErrorAction SilentlyContinue}}" >nul 2>&1
+)
 if exist "%APP_DIR%" rmdir /s /q "%APP_DIR%"
 set "SHORTCUT_NAME=${safeCompany} Attendance.url"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFolderPath('Desktop'); if($d){Remove-Item (Join-Path $d $env:SHORTCUT_NAME) -Force -ErrorAction SilentlyContinue}"
@@ -198,12 +203,14 @@ pause
 exit /b 0
 
 ::##PS_START##
+param([switch]$TestOnce)
 $ErrorActionPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $appDir = Join-Path $env:LOCALAPPDATA 'OfficeAttendanceTracker'
 $cfgPath = Join-Path $appDir 'config.json'
 $logPath = Join-Path $appDir 'startup.log'
+$pidPath = Join-Path $appDir 'agent.pid'
 
 function Write-Log($msg) {
   $ts = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
@@ -248,14 +255,98 @@ function Open-AttendancePortal($url) {
   }
 }
 
+function Invoke-AttendanceApi($apiUrl, $payloadObj) {
+  $jsonBody = $payloadObj | ConvertTo-Json -Compress
+  $curlExe = "$env:SystemRoot\\System32\\curl.exe"
+  $parsed = $null
+
+  if (Test-Path $curlExe) {
+    try {
+      $tempBodyFile = Join-Path $appDir ("payload_" + $PID + ".tmp.json")
+      [System.IO.File]::WriteAllText($tempBodyFile, $jsonBody, (New-Object System.Text.UTF8Encoding($false)))
+      $rawCurlOut = & $curlExe -4 -sS --max-time 20 -X POST -H "Content-Type: application/json" --data-binary "@$tempBodyFile" "$apiUrl" 2>$null
+      Remove-Item $tempBodyFile -Force -ErrorAction SilentlyContinue
+      if ($rawCurlOut) {
+        $parsed = $rawCurlOut | ConvertFrom-Json
+      }
+    } catch {
+      $parsed = $null
+    }
+  }
+
+  if (-not $parsed) {
+    try {
+      $parsed = Invoke-RestMethod -Uri $apiUrl -Method Post -ContentType 'application/json' -Body $jsonBody -TimeoutSec 20
+    } catch {
+      try {
+        $stream = $_.Exception.Response.GetResponseStream()
+        if ($stream) {
+          $reader = New-Object System.IO.StreamReader($stream)
+          $errBody = $reader.ReadToEnd()
+          $parsed = $errBody | ConvertFrom-Json
+        }
+      } catch {
+        return $null
+      }
+    }
+  }
+
+  return $parsed
+}
+
+try {
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class OfficeIdleTracker {
+  [StructLayout(LayoutKind.Sequential)]
+  struct LASTINPUTINFO {
+    public uint cbSize;
+    public uint dwTime;
+  }
+  [DllImport("user32.dll")]
+  static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+  public static uint GetIdleSeconds() {
+    LASTINPUTINFO lii = new LASTINPUTINFO();
+    lii.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
+    if (!GetLastInputInfo(ref lii)) return 0;
+    uint nowTicks = unchecked((uint)Environment.TickCount);
+    return (uint)((nowTicks - lii.dwTime) / 1000);
+  }
+}
+'@
+} catch {
+  # Fallback gracefully if runtime blocks Add-Type
+}
+
+function Get-PcIdleSeconds {
+  try {
+    return [int][OfficeIdleTracker]::GetIdleSeconds()
+  } catch {
+    return 0
+  }
+}
+
 if (-not (Test-Path $cfgPath)) {
   Write-Log 'ERROR: config.json missing.'
   exit 1
 }
 
+if (-not $TestOnce) {
+  if (Test-Path $pidPath) {
+    $oldPid = (Get-Content $pidPath -ErrorAction SilentlyContinue | Select-Object -First 1)
+    if ($oldPid -and ([int]$oldPid -ne $PID)) {
+      Stop-Process -Id ([int]$oldPid) -Force -ErrorAction SilentlyContinue
+    }
+  }
+  [System.IO.File]::WriteAllText($pidPath, [string]$PID, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 $cfg = Get-Content -Path $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $endpoint = "$($cfg.appUrl)/api/auto-punch"
+$hbEndpoint = "$($cfg.appUrl)/api/heartbeat"
 $hostName = ([System.Uri]$cfg.appUrl).Host
+$startDate = (Get-Date).ToString('yyyy-MM-dd')
 
 Write-Log "Startup agent started for $($cfg.employeeName) ($($cfg.employeeCode))."
 
@@ -278,76 +369,111 @@ for ($i = 1; $i -le 30; $i++) {
   Start-Sleep -Seconds 3
 }
 
-if (-not $online) {
-  Write-Log 'Network unavailable after 90s wait. Skipping auto check-in.'
-  Show-TrayToast "$($cfg.companyName)" 'No internet connection detected at startup. Please open Attendance Portal once Wi-Fi connects.' $true
-  exit 0
-}
-
 $bodyObj = @{
   employeeId = $cfg.employeeId
   deviceId = $cfg.deviceId
   authToken = $cfg.authToken
   machineName = $env:COMPUTERNAME
 }
-$jsonBody = $bodyObj | ConvertTo-Json -Compress
 
-$respJson = $null
+$shiftCompleted = $false
 
-# Prefer native Windows curl.exe -4 so dual-stack Windows 11 PCs consistently send Office IPv4
-$curlExe = "$env:SystemRoot\\System32\\curl.exe"
-if (Test-Path $curlExe) {
-  try {
-    $tempBodyFile = Join-Path $appDir 'payload.tmp.json'
-    [System.IO.File]::WriteAllText($tempBodyFile, $jsonBody, (New-Object System.Text.UTF8Encoding($false)))
-    $rawCurlOut = & $curlExe -4 -sS --max-time 20 -X POST -H "Content-Type: application/json" --data-binary "@$tempBodyFile" "$endpoint" 2>$null
-    Remove-Item $tempBodyFile -Force -ErrorAction SilentlyContinue
-    if ($rawCurlOut) {
-      $respJson = $rawCurlOut | ConvertFrom-Json
-    }
-  } catch {
-    $respJson = $null
-  }
-}
-
-# Fallback to standard PowerShell Invoke-RestMethod (supports IPv6-only networks too)
-if (-not $respJson) {
-  try {
-    $respJson = Invoke-RestMethod -Uri $endpoint -Method Post -ContentType 'application/json' -Body $jsonBody -TimeoutSec 20
-  } catch {
-    try {
-      $stream = $_.Exception.Response.GetResponseStream()
-      if ($stream) {
-        $reader = New-Object System.IO.StreamReader($stream)
-        $errBody = $reader.ReadToEnd()
-        $respJson = $errBody | ConvertFrom-Json
-      }
-    } catch {
-      Write-Log "HTTP request failed: $($_.Exception.Message)"
-    }
-  }
-}
-
-if ($respJson -and $respJson.ok) {
-  if ($respJson.status -eq 'punched_in') {
-    $msg = "Auto Clocked In at $($respJson.timeInFormatted) ($($respJson.arrivalStatus))"
-    Write-Log "SUCCESS: $msg"
-    Show-TrayToast "$($cfg.companyName) - Checked In" $msg $false
-  } elseif ($respJson.status -eq 'already_punched') {
-    $msg = "Already clocked in today at $($respJson.timeInFormatted)."
-    Write-Log "INFO: $msg"
-    Show-TrayToast "$($cfg.companyName) - Attendance Active" $msg $false
-  }
-} elseif ($respJson -and $respJson.message) {
-  Write-Log "BLOCKED [$($respJson.code)]: $($respJson.message)"
-  Show-TrayToast "$($cfg.companyName) - Notice" $respJson.message $true
+if (-not $online) {
+  Write-Log 'Network unavailable after 90s wait. Skipping initial auto check-in.'
+  Show-TrayToast "$($cfg.companyName)" 'No internet connection detected at startup. Please open Attendance Portal once Wi-Fi connects.' $true
+  if ($TestOnce) { exit 0 }
 } else {
-  Write-Log 'WARNING: No valid response received from attendance server.'
+  $respJson = Invoke-AttendanceApi $endpoint $bodyObj
+
+  if ($respJson -and $respJson.ok) {
+    if ($respJson.status -eq 'punched_in') {
+      $msg = "Auto Clocked In at $($respJson.timeInFormatted) ($($respJson.arrivalStatus))"
+      Write-Log "SUCCESS: $msg"
+      Show-TrayToast "$($cfg.companyName) - Checked In" $msg $false
+    } elseif ($respJson.status -eq 'already_punched') {
+      Write-Log "INFO: $($respJson.message)"
+      if ($respJson.timeOut) {
+        $shiftCompleted = $true
+      } elseif (-not $TestOnce) {
+        Show-TrayToast "$($cfg.companyName) - Attendance Active" $respJson.message $false
+      }
+    }
+  } elseif ($respJson -and $respJson.message) {
+    Write-Log "BLOCKED [$($respJson.code)]: $($respJson.message)"
+    Show-TrayToast "$($cfg.companyName) - Notice" $respJson.message $true
+  } else {
+    Write-Log 'WARNING: No valid response received from attendance server.'
+  }
 }
 
-if ($cfg.openPortal -eq $true) {
+if ($cfg.openPortal -eq $true -and -not $TestOnce) {
+  Open-AttendancePortal $cfg.appUrl
+} elseif ($cfg.openPortal -eq $true -and $TestOnce -and $online) {
   Open-AttendancePortal $cfg.appUrl
 }
+
+if ($TestOnce -or $shiftCompleted) {
+  exit 0
+}
+
+# Continuous silent presence & activity monitor loop (checks every 90s)
+$wasOffline = (-not $online)
+$didAutoPunchOnce = $online
+while ($true) {
+  Start-Sleep -Seconds 90
+  if ((Get-Date).ToString('yyyy-MM-dd') -ne $startDate) {
+    Write-Log 'Calendar day ended; background monitor stopping cleanly.'
+    break
+  }
+
+  # If network was down at boot and just came up, attempt initial punch-in once
+  if (-not $didAutoPunchOnce) {
+    $punchRetry = Invoke-AttendanceApi $endpoint $bodyObj
+    if ($punchRetry -and $punchRetry.ok) {
+      $didAutoPunchOnce = $true
+      $wasOffline = $false
+      if ($punchRetry.timeOut) { break }
+      Show-TrayToast "$($cfg.companyName) - Checked In" $punchRetry.message $false
+      continue
+    }
+  }
+
+  $idleSec = Get-PcIdleSeconds
+  $hbObj = @{
+    employeeId = $cfg.employeeId
+    deviceId = $cfg.deviceId
+    authToken = $cfg.authToken
+    source = 'windows-agent'
+    isUserActive = ($idleSec -lt 120)
+    idleSeconds = $idleSec
+    machineName = $env:COMPUTERNAME
+  }
+
+  $hbResp = Invoke-AttendanceApi $hbEndpoint $hbObj
+  if ($hbResp -and $hbResp.ok) {
+    if ($wasOffline) {
+      Write-Log 'Internet reconnected. Attendance synced as Online.'
+      Show-TrayToast "$($cfg.companyName) - Back Online" 'Internet connection restored. Attendance active.' $false
+      $wasOffline = $false
+    }
+    if ($hbResp.state -eq 'punched_out') {
+      if ($hbResp.autoPunchOutReason -eq 'inactivity_2h') {
+        $outMsg = "Auto punched out at $($hbResp.timeOutFormatted) after >2 hours of device inactivity."
+        Write-Log "AUTO PUNCH-OUT: $outMsg"
+        Show-TrayToast "$($cfg.companyName) - Auto Punched Out" $outMsg $true
+      } else {
+        Write-Log "Shift completed ($($hbResp.timeOutFormatted)). Background monitor stopping."
+      }
+      break
+    }
+  } else {
+    if (-not $wasOffline) {
+      Write-Log 'Internet disconnect detected. Server will reflect No Internet (In) after grace window.'
+      $wasOffline = $true
+    }
+  }
+}
+
 exit 0
 `;
 

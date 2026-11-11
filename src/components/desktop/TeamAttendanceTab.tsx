@@ -20,6 +20,7 @@ import {
   MessageSquare,
   Send,
   LogOut,
+  WifiOff,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -30,6 +31,8 @@ import {
 } from '../../types';
 import {
   calculateWorkedMinutes,
+  deriveLiveAttendanceState,
+  DerivedWorkingState,
   formatMinutesToHoursMinutes,
   formatTime12h,
   getDayName,
@@ -49,6 +52,7 @@ interface TeamAttendanceTabProps {
   currentUser?: Employee;
   ceoComments?: CeoComment[];
   onAddCeoComment?: (comment: Omit<CeoComment, 'id' | 'createdAt'>) => void;
+  isNetworkOnline?: boolean;
 }
 
 export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
@@ -61,6 +65,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
   currentUser,
   ceoComments = [],
   onAddCeoComment,
+  isNetworkOnline = true,
 }) => {
   const effectiveUser = currentUser || adminUser;
   const isAdmin = effectiveUser.role === 'admin';
@@ -160,6 +165,8 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
     }
   };
 
+  const todayStr = getTodayDateString();
+
   // Combine active employees with their record on selectedDate
   const teamRoster = useMemo(() => {
     return employees
@@ -167,16 +174,16 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       .map((emp) => {
         const record = dateRecordMap.get(emp.id);
         const shift = shiftMap.get(emp.shiftId) || shifts[0];
-        const isClockedIn = !!record && !!record.timeIn && !record.timeOut;
-        const activeBreak = record?.breaks?.find((b) => !b.end);
-        const isOnBreak = !!activeBreak;
-        const isCompleted = !!record && !!record.timeOut;
-        const isAbsent = !record || !record.timeIn;
-
-        let derivedStatus: 'in' | 'break' | 'out' | 'absent' = 'absent';
-        if (isOnBreak) derivedStatus = 'break';
-        else if (isClockedIn) derivedStatus = 'in';
-        else if (isCompleted) derivedStatus = 'out';
+        const derivedStatus = deriveLiveAttendanceState({
+          record,
+          settings,
+          todayStr,
+          isCurrentUserOffline: !isNetworkOnline && emp.id === effectiveUser.id,
+        });
+        const isClockedIn = derivedStatus === 'in' || derivedStatus === 'no_internet';
+        const isOnBreak = derivedStatus === 'break';
+        const isCompleted = derivedStatus === 'out';
+        const isAbsent = derivedStatus === 'absent';
 
         return {
           employee: emp,
@@ -195,6 +202,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         }
         if (statusFilter !== 'all') {
           if (statusFilter === 'in' && item.derivedStatus !== 'in') return false;
+          if (statusFilter === 'no_internet' && item.derivedStatus !== 'no_internet') return false;
           if (statusFilter === 'break' && item.derivedStatus !== 'break') return false;
           if (statusFilter === 'out' && item.derivedStatus !== 'out') return false;
           if (statusFilter === 'absent' && item.derivedStatus !== 'absent') return false;
@@ -208,6 +216,9 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           if (statusFilter === 'auto_punched') {
             if (!item.record?.isAutoPunchedOut) return false;
           }
+          if (statusFilter === 'auto_inactivity') {
+            if (!item.record?.isAutoPunchedOut || item.record.autoPunchOutReason !== 'inactivity_2h') return false;
+          }
         }
         if (searchQuery) {
           const q = searchQuery.toLowerCase();
@@ -219,28 +230,34 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         return true;
       })
       .sort((a, b) => {
-        // Working status priority: Working 'in' (1) -> On break 'break' (2) -> Completed 'out' (3) -> Absent 'absent' (4)
-        const priority: Record<'in' | 'break' | 'out' | 'absent', number> = {
+        // Working status priority: Working 'in' (1) -> No Internet 'no_internet' (2) -> On break 'break' (3) -> Completed 'out' (4) -> Absent 'absent' (5)
+        const priority: Record<DerivedWorkingState, number> = {
           in: 1,
-          break: 2,
-          out: 3,
-          absent: 4,
+          no_internet: 2,
+          break: 3,
+          out: 4,
+          absent: 5,
         };
         const rankDiff = priority[a.derivedStatus] - priority[b.derivedStatus];
         if (rankDiff !== 0) return rankDiff;
 
-        // Secondary sort: If both currently working, sort by timeIn earliest first
-        if (a.derivedStatus === 'in' && a.record?.timeIn && b.record?.timeIn) {
+        // Secondary sort: If both currently in, sort by timeIn earliest first
+        if (
+          (a.derivedStatus === 'in' || a.derivedStatus === 'no_internet') &&
+          a.record?.timeIn &&
+          b.record?.timeIn
+        ) {
           return a.record.timeIn.localeCompare(b.record.timeIn);
         }
         // Otherwise sort alphabetically by name
         return a.employee.name.localeCompare(b.employee.name);
       });
-  }, [employees, dateRecordMap, shiftMap, shifts, departmentFilter, statusFilter, searchQuery]);
+  }, [employees, dateRecordMap, shiftMap, shifts, departmentFilter, statusFilter, searchQuery, settings, todayStr, isNetworkOnline, effectiveUser.id]);
 
   // Presence & Verification counts
   const liveCounts = useMemo(() => {
     let inCount = 0;
+    let noInternetCount = 0;
     let breakCount = 0;
     let completedCount = 0;
     let absentCount = 0;
@@ -262,10 +279,18 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         if (rec.isAutoPunchedOut) autoPunchedCount++;
         if (rec.adminVerification?.verified) adminVerifiedCount++;
         if (rec.accountsVerification?.verified) accountsVerifiedCount++;
-        if (rec.timeOut) {
+        const state = deriveLiveAttendanceState({
+          record: rec,
+          settings,
+          todayStr,
+          isCurrentUserOffline: !isNetworkOnline && emp.id === effectiveUser.id,
+        });
+        if (state === 'out') {
           completedCount++;
-        } else if (rec.breaks.some((b) => !b.end)) {
+        } else if (state === 'break') {
           breakCount++;
+        } else if (state === 'no_internet') {
+          noInternetCount++;
         } else {
           inCount++;
         }
@@ -274,6 +299,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
 
     return {
       inCount,
+      noInternetCount,
       breakCount,
       completedCount,
       absentCount,
@@ -284,7 +310,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       presentPCount,
       absentACount,
     };
-  }, [employees, dateRecordMap]);
+  }, [employees, dateRecordMap, settings, todayStr, isNetworkOnline, effectiveUser.id]);
 
   // Open adjustment modal with separate options for punch in, punch out, and working status
   const handleOpenAdjustment = (emp: Employee, existingRecord?: AttendanceRecord) => {
@@ -332,6 +358,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
 
     if (action === 'in') {
       const isLate = isLateArrival(nowTime, shift);
+      const nowIso = new Date().toISOString();
       const updated: AttendanceRecord = {
         ...(existing || {
           id: `att-${selectedDate}-${emp.id}`,
@@ -344,6 +371,11 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         timeOut: undefined,
         clearTimeOut: true,
         isAutoPunchedOut: false,
+        autoPunchOutReason: undefined,
+        disconnectedAt: undefined,
+        connectionStatus: 'online',
+        lastHeartbeatAt: nowIso,
+        lastActivityAt: nowIso,
         totalWorkedMinutes: 0,
         regularMinutes: 0,
         overtimeMinutes: 0,
@@ -391,6 +423,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
 
     const shift = shiftMap.get(editingEmployee.shiftId) || shifts[0];
     const nowTime = new Date().toTimeString().slice(0, 8);
+    const nowIso = new Date().toISOString();
 
     // Determine final timeIn, timeOut, breaks, and clearTimeOut flag
     let finalTimeIn: string = '';
@@ -453,6 +486,16 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       timeOut: finalTimeOut,
       clearTimeOut: shouldClearTimeOut,
       isAutoPunchedOut: shouldClearTimeOut ? false : editingRecord?.isAutoPunchedOut,
+      autoPunchOutReason: shouldClearTimeOut ? undefined : editingRecord?.autoPunchOutReason,
+      ...(shouldClearTimeOut && editWorkingStatus !== 'absent'
+        ? {
+            connectionStatus: 'online' as const,
+            lastHeartbeatAt: nowIso,
+            lastActivityAt: nowIso,
+            disconnectedAt: undefined,
+            monitoringPaused: false,
+          }
+        : {}),
       breaks: updatedBreaks,
       totalWorkedMinutes: worked.totalWorkedMinutes,
       regularMinutes: worked.regularMinutes,
@@ -574,7 +617,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       </div>
 
       {/* Presence & Verification KPI Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2.5">
         {/* Total Present ('P') */}
         <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border-2 border-emerald-400/90 dark:border-emerald-600 shadow-2xs">
           <div className="flex items-center justify-between">
@@ -603,15 +646,33 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           <span className="text-[10px] font-medium text-rose-600/90 dark:text-rose-400">Not arrived / leave</span>
         </div>
 
-        {/* Working at desk */}
+        {/* Working at desk (Online) */}
         <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
           <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-            Clocked In (Active)
+            Clocked In (Online)
           </span>
           <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
             {liveCounts.inCount}
           </div>
           <span className="text-[10px] text-slate-400">At desks / working</span>
+        </div>
+
+        {/* No Internet (Still In) */}
+        <div className={`p-3 rounded-xl border shadow-2xs ${
+          liveCounts.noInternetCount > 0
+            ? 'bg-amber-50/90 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700'
+            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+        }`}>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+              No Internet (In)
+            </span>
+            <WifiOff className={`w-3 h-3 text-amber-600 ${liveCounts.noInternetCount > 0 ? 'animate-pulse' : 'opacity-40'}`} />
+          </div>
+          <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
+            {liveCounts.noInternetCount}
+          </div>
+          <span className="text-[10px] text-slate-400">Offline but in</span>
         </div>
 
         {/* On Break */}
@@ -699,14 +760,16 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
               className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100"
             >
               <option value="all">All Statuses</option>
-              <option value="in">Currently In</option>
+              <option value="in">Currently In (Online)</option>
+              <option value="no_internet">No Internet (In)</option>
               <option value="break">On Break</option>
               <option value="out">Shift Finished</option>
               <option value="late">Late Arrival</option>
               <option value="absent">Not In</option>
               <option value="admin_unverified">Pending Admin Verification</option>
               <option value="accounts_unverified">Pending Accounts Verification</option>
-              <option value="auto_punched">Auto Punched (11:59 PM)</option>
+              <option value="auto_punched">All Auto Punched Out</option>
+              <option value="auto_inactivity">Auto Punched (Inactive &gt; 2h)</option>
             </select>
           </div>
         </div>
@@ -821,10 +884,25 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                             </div>
                             {record.isAutoPunchedOut && (
                               <span className="text-[9px] text-amber-600 dark:text-amber-400 font-sans font-semibold mt-0.5">
-                                Auto 11:59 PM
+                                {record.autoPunchOutReason === 'inactivity_2h'
+                                  ? `Auto >${settings.autoPunchOutOnInactiveHours ?? 2}h Inactive`
+                                  : 'Auto 11:59 PM'}
                               </span>
                             )}
                           </div>
+                        ) : derivedStatus === 'break' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold text-[11px]">
+                            <Coffee className="w-3 h-3" />
+                            <span>On Break</span>
+                          </span>
+                        ) : derivedStatus === 'no_internet' ? (
+                          <span
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-100/90 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-bold text-[11px]"
+                            title={record?.lastHeartbeatAt ? `Last online heartbeat: ${new Date(record.lastHeartbeatAt).toLocaleTimeString()}` : 'Device internet disconnected'}
+                          >
+                            <WifiOff className="w-3 h-3 animate-pulse shrink-0" />
+                            <span>No Internet (In)</span>
+                          </span>
                         ) : record?.timeIn ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-[11px] animate-pulse">
                             <span className="w-2 h-2 rounded-full bg-blue-500"></span>
@@ -844,6 +922,18 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
                             <Coffee className="w-3 h-3" />
                             <span>On Break</span>
+                          </span>
+                        ) : derivedStatus === 'no_internet' ? (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700"
+                            title={
+                              record?.lastHeartbeatAt
+                                ? `Internet lost · Last seen ${new Date(record.lastHeartbeatAt).toLocaleTimeString()} · Still Clocked In`
+                                : 'Device lost internet connectivity while Clocked In'
+                            }
+                          >
+                            <WifiOff className="w-3 h-3 text-amber-600 dark:text-amber-400 animate-pulse" />
+                            <span>No Internet · In</span>
                           </span>
                         ) : derivedStatus === 'in' ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
@@ -865,8 +955,15 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                           </span>
                         )}
                         {record?.isAutoPunchedOut && (
-                          <span className="ml-1 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300" title="Automatically closed at 11:59 PM">
-                            Auto Closed
+                          <span
+                            className="ml-1 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
+                            title={
+                              record.autoPunchOutReason === 'inactivity_2h'
+                                ? 'Automatically punched out after >2h device inactivity'
+                                : 'Automatically closed at 11:59 PM'
+                            }
+                          >
+                            {record.autoPunchOutReason === 'inactivity_2h' ? 'Auto >2h' : 'Auto Closed'}
                           </span>
                         )}
                       </td>

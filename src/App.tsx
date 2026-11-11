@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ActiveDesktopTab,
   AppMode,
@@ -77,6 +77,9 @@ export default function App() {
   const [currentClientIp, setCurrentClientIp] = useState<string>('Detecting...');
   const [currentClientIsp, setCurrentClientIsp] = useState<string>('Detecting...');
   const [isInitialCloudSyncing, setIsInitialCloudSyncing] = useState<boolean>(true);
+  const [isNetworkOnline, setIsNetworkOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
 
   // Current Session & Workspace Navigation
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
@@ -85,6 +88,22 @@ export default function App() {
   // Password & Device Modals
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState<boolean>(false);
   const [isRequestDeviceOpen, setIsRequestDeviceOpen] = useState<boolean>(false);
+
+  // Live refs for background timers & heartbeats
+  const lastInteractionRef = useRef<number>(Date.now());
+  const currentUserRef = useRef<Employee | null>(null);
+  const recordsRef = useRef<AttendanceRecord[]>([]);
+  const appModeRef = useRef<AppMode>(appMode);
+
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+  useEffect(() => {
+    recordsRef.current = records;
+  }, [records]);
+  useEffect(() => {
+    appModeRef.current = appMode;
+  }, [appMode]);
 
   // Printable Timesheet Modal State
   const [printModalState, setPrintModalState] = useState<{
@@ -151,10 +170,15 @@ export default function App() {
         bootFinished = true;
         setIsInitialCloudSyncing(false);
 
-        // Now check if any past open punch missed 11:59 PM
+        // Now check if any past open punch missed 11:59 PM or >2h inactivity
         const currentRecs = loadAttendanceRecords();
         const currentShifts = loadShifts();
-        const { updatedRecords, hasChanges } = autoCloseForgottenPunches(currentRecs, currentShifts);
+        const { updatedRecords, hasChanges } = autoCloseForgottenPunches(
+          currentRecs,
+          currentShifts,
+          loadSettings(),
+          loadEmployees()
+        );
         if (hasChanges) {
           setRecords(updatedRecords);
           const changedOne = updatedRecords.find(
@@ -170,17 +194,29 @@ export default function App() {
 
     const syncInterval = setInterval(() => {
       if (!bootFinished) return;
-      void syncDatabaseFromServer(false).then((updated) => {
-        if (updated) refreshFromLocal(true);
-      });
+      void syncDatabaseFromServer(false)
+        .then((updated) => {
+          if (typeof navigator !== 'undefined' && navigator.onLine) {
+            setIsNetworkOnline(true);
+          }
+          if (updated) refreshFromLocal(true);
+        })
+        .catch(() => {
+          setIsNetworkOnline(false);
+        });
     }, 4000);
 
-    // Periodic check to auto punch out at 11:59 PM without requiring manual reload
+    // Periodic check to auto punch out at 11:59 PM or >2h inactivity without requiring manual reload
     const autoPunchInterval = setInterval(() => {
       if (!bootFinished) return;
       setRecords((prev) => {
         const currentShifts = loadShifts();
-        const { updatedRecords, hasChanges } = autoCloseForgottenPunches(prev, currentShifts);
+        const { updatedRecords, hasChanges } = autoCloseForgottenPunches(
+          prev,
+          currentShifts,
+          loadSettings(),
+          loadEmployees()
+        );
         if (hasChanges) {
           const changedOne = updatedRecords.find(
             (u, idx) => prev[idx] && u.isAutoPunchedOut !== prev[idx].isAutoPunchedOut
@@ -214,6 +250,136 @@ export default function App() {
       clearInterval(ipInterval);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       registerCloudSyncListener(null);
+    };
+  }, []);
+
+  // Network disconnectivity, user activity tracking, & 45s web-client heartbeat
+  useEffect(() => {
+    const sendWebHeartbeat = async (forceActive = false) => {
+      const user = currentUserRef.current;
+      if (!user || appModeRef.current !== 'desktop') return;
+      const todayStr = getTodayDateString();
+      const todayRec = recordsRef.current.find(
+        (r) => r.employeeId === user.id && r.date === todayStr
+      );
+      if (!todayRec || !todayRec.timeIn || todayRec.timeOut) return;
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setIsNetworkOnline(false);
+        return;
+      }
+
+      const idleSeconds = forceActive
+        ? 0
+        : Math.max(0, Math.floor((Date.now() - lastInteractionRef.current) / 1000));
+
+      try {
+        const { deviceId } = getDeviceDetails();
+        const res = await fetch(`/api/heartbeat?t=${Date.now()}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({
+            employeeId: user.id,
+            deviceId,
+            source: 'web-client',
+            isUserActive: idleSeconds < 90,
+            idleSeconds,
+          }),
+        });
+        if (res.ok) {
+          setIsNetworkOnline(true);
+          const data = await res.json().catch(() => null);
+          if (data?.state === 'punched_out') {
+            void syncDatabaseFromServer(true);
+          }
+        } else {
+          setIsNetworkOnline(false);
+        }
+      } catch {
+        setIsNetworkOnline(false);
+      }
+    };
+
+    let lastRecordedActivity = 0;
+    const markActivity = () => {
+      const now = Date.now();
+      if (now - lastRecordedActivity >= 5000) {
+        lastRecordedActivity = now;
+        lastInteractionRef.current = now;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        lastInteractionRef.current = Date.now();
+        void sendWebHeartbeat(true);
+      }
+    };
+
+    const handleOnline = () => {
+      setIsNetworkOnline(true);
+      void sendWebHeartbeat(false);
+    };
+
+    const handleOffline = () => {
+      setIsNetworkOnline(false);
+    };
+
+    const handlePageHide = () => {
+      const user = currentUserRef.current;
+      if (!user || appModeRef.current !== 'desktop') return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      const todayStr = getTodayDateString();
+      const todayRec = recordsRef.current.find(
+        (r) => r.employeeId === user.id && r.date === todayStr
+      );
+      if (!todayRec || !todayRec.timeIn || todayRec.timeOut) return;
+
+      try {
+        const { deviceId } = getDeviceDetails();
+        const blob = new Blob(
+          [
+            JSON.stringify({
+              employeeId: user.id,
+              deviceId,
+              source: 'web-client',
+              event: 'tab_closed',
+            }),
+          ],
+          { type: 'application/json' }
+        );
+        navigator.sendBeacon('/api/heartbeat', blob);
+      } catch {
+        // Ignore beacon restrictions
+      }
+    };
+
+    const activityEvents: (keyof WindowEventMap)[] = [
+      'mousemove',
+      'mousedown',
+      'keydown',
+      'touchstart',
+      'click',
+      'scroll',
+    ];
+    activityEvents.forEach((evt) => window.addEventListener(evt, markActivity, { passive: true }));
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('pagehide', handlePageHide);
+
+    const hbInterval = setInterval(() => {
+      void sendWebHeartbeat(false);
+    }, 45000);
+
+    return () => {
+      clearInterval(hbInterval);
+      activityEvents.forEach((evt) => window.removeEventListener(evt, markActivity));
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('pagehide', handlePageHide);
     };
   }, []);
 
@@ -292,6 +458,21 @@ export default function App() {
     // Capture device details & detect mismatch
     const { deviceId, deviceLabel } = getDeviceDetails();
     const isMismatch = !!(emp.registeredDeviceId && emp.registeredDeviceId !== deviceId);
+    const nowIso = new Date().toISOString();
+    const isOnlineNow = typeof navigator !== 'undefined' ? navigator.onLine : true;
+    lastInteractionRef.current = Date.now();
+
+    const presenceFields: Partial<AttendanceRecord> =
+      appMode === 'kiosk'
+        ? { heartbeatSource: 'kiosk' }
+        : {
+            lastHeartbeatAt: nowIso,
+            lastActivityAt: nowIso,
+            connectionStatus: isOnlineNow ? 'online' : 'no_internet',
+            heartbeatSource: 'web-client',
+            heartbeatDeviceId: deviceId,
+            monitoringPaused: false,
+          };
 
     let nextRecords = [...records];
     let changedRecord: AttendanceRecord;
@@ -299,6 +480,7 @@ export default function App() {
     if (existingIdx >= 0) {
       changedRecord = {
         ...nextRecords[existingIdx],
+        ...presenceFields,
         timeIn: nowTime,
         status: late ? 'late' : 'present',
         notes: notes || nextRecords[existingIdx].notes,
@@ -331,6 +513,7 @@ export default function App() {
         deviceMismatchReason: isMismatch
           ? `Punched from device "${deviceLabel}" instead of approved phone "${emp.registeredDeviceName || 'Registered Phone'}"`
           : undefined,
+        ...presenceFields,
       };
       nextRecords = [changedRecord, ...nextRecords];
     }
@@ -423,6 +606,8 @@ export default function App() {
 
     if (existingIdx === -1) return;
 
+    const nowIso = new Date().toISOString();
+    lastInteractionRef.current = Date.now();
     const currentRec = records[existingIdx];
     const newBreak = {
       id: `brk-${Date.now()}`,
@@ -433,6 +618,13 @@ export default function App() {
     const updated: AttendanceRecord = {
       ...currentRec,
       breaks: [...currentRec.breaks, newBreak],
+      lastActivityAt: nowIso,
+      ...(appMode !== 'kiosk'
+        ? {
+            lastHeartbeatAt: nowIso,
+            connectionStatus: isNetworkOnline ? 'online' : 'no_internet',
+          }
+        : {}),
     };
 
     const nextRecords = [...records];
@@ -450,6 +642,8 @@ export default function App() {
 
     if (existingIdx === -1) return;
 
+    const nowIso = new Date().toISOString();
+    lastInteractionRef.current = Date.now();
     const currentRec = records[existingIdx];
     const updatedBreaks = currentRec.breaks.map((b) => {
       if (!b.end) {
@@ -461,6 +655,15 @@ export default function App() {
     const updated: AttendanceRecord = {
       ...currentRec,
       breaks: updatedBreaks,
+      lastActivityAt: nowIso,
+      disconnectedAt: undefined,
+      ...(appMode !== 'kiosk'
+        ? {
+            lastHeartbeatAt: nowIso,
+            connectionStatus: isNetworkOnline ? 'online' : 'no_internet',
+            monitoringPaused: false,
+          }
+        : {}),
     };
 
     const nextRecords = [...records];
@@ -841,6 +1044,7 @@ export default function App() {
             ceoComments={ceoComments}
             onMarkCeoCommentRead={handleMarkCeoCommentRead}
             onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+            isNetworkOnline={isNetworkOnline}
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
@@ -867,6 +1071,7 @@ export default function App() {
                   onUpdatePunchNote={handleUpdatePunchNote}
                   settings={settings}
                   currentClientIp={currentClientIp}
+                  isNetworkOnline={isNetworkOnline}
                   ceoComments={ceoComments}
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
                   onOpenRequestDevice={() => setIsRequestDeviceOpen(true)}
@@ -885,6 +1090,7 @@ export default function App() {
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
                   onOpenRequestDevice={() => setIsRequestDeviceOpen(true)}
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+                  isNetworkOnline={isNetworkOnline}
                 />
               )}
 
@@ -910,6 +1116,7 @@ export default function App() {
                   currentUser={currentUser}
                   ceoComments={ceoComments}
                   onAddCeoComment={handleAddCeoComment}
+                  isNetworkOnline={isNetworkOnline}
                 />
               )}
 

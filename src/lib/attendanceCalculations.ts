@@ -1,4 +1,52 @@
-import { AttendanceRecord, ShiftSchedule } from '../types';
+import { AttendanceRecord, Employee, OfficeSettings, ShiftSchedule } from '../types';
+
+export type DerivedWorkingState = 'in' | 'no_internet' | 'break' | 'out' | 'absent';
+
+/**
+ * Compute authoritative live working state for an attendance record.
+ * Explicit Break ALWAYS takes precedence over disconnectivity or active work.
+ */
+export function deriveLiveAttendanceState(params: {
+  record?: AttendanceRecord;
+  settings?: OfficeSettings;
+  todayStr?: string;
+  nowMs?: number;
+  isCurrentUserOffline?: boolean;
+}): DerivedWorkingState {
+  const {
+    record,
+    settings,
+    todayStr = getTodayDateString(),
+    nowMs = Date.now(),
+    isCurrentUserOffline = false,
+  } = params;
+
+  if (!record || !record.timeIn) return 'absent';
+  if (record.timeOut) return 'out';
+
+  // Priority rule: If employee sets on break, it stays Break regardless of network/idle
+  const activeBreak = Array.isArray(record.breaks) && record.breaks.some((b) => !b.end);
+  if (activeBreak) return 'break';
+
+  if (settings?.enableDisconnectStatusTracking !== false && record.date === todayStr) {
+    if (isCurrentUserOffline) return 'no_internet';
+    if (record.connectionStatus === 'no_internet') return 'no_internet';
+
+    if (
+      record.lastHeartbeatAt &&
+      !record.monitoringPaused &&
+      record.heartbeatSource !== 'kiosk'
+    ) {
+      const lastHbMs = Date.parse(record.lastHeartbeatAt);
+      const disconnectMs = Math.max(1, settings?.disconnectThresholdMinutes ?? 3) * 60 * 1000;
+      if (!Number.isNaN(lastHbMs) && nowMs - lastHbMs > disconnectMs) {
+        return 'no_internet';
+      }
+    }
+  }
+
+  return 'in';
+}
 
 /**
  * Format total minutes into human readable "Xh Ym" or "0m"
@@ -174,73 +222,121 @@ export function playPunchSound(type: 'in' | 'out' | 'break') {
   }
 }
 
+function finalizeAutoClosedRecord(params: {
+  record: AttendanceRecord;
+  autoOutTime: string;
+  autoRemark: string;
+  reason: 'midnight' | 'inactivity_2h';
+  expectedHours: number;
+}): AttendanceRecord {
+  const { record, autoOutTime, autoRemark, reason, expectedHours } = params;
+  const updatedBreaks = (record.breaks || []).map((b) =>
+    !b.end ? { ...b, end: autoOutTime } : b
+  );
+  const { totalWorkedMinutes, regularMinutes, overtimeMinutes } = calculateWorkedMinutes(
+    record.timeIn,
+    autoOutTime,
+    updatedBreaks,
+    expectedHours
+  );
+  const existingNotes = record.notes ? record.notes.trim() : '';
+  const finalNotes = existingNotes
+    ? existingNotes.includes(autoRemark)
+      ? existingNotes
+      : `${existingNotes} · ${autoRemark}`
+    : autoRemark;
+
+  return {
+    ...record,
+    timeOut: autoOutTime,
+    breaks: updatedBreaks,
+    totalWorkedMinutes,
+    regularMinutes,
+    overtimeMinutes,
+    notes: finalNotes,
+    isAutoPunchedOut: true,
+    autoPunchOutReason: reason,
+  };
+}
+
 /**
- * Auto punch out any employee record that forgot to clock out by 11:59 PM (23:59:00).
- * Checks:
- * 1. Any record where record.timeIn exists but record.timeOut does NOT exist.
- * 2. If record.date < todayDateString() OR (record.date === todayDateString() && currentTime >= '23:59:00')
- * 3. Automatically sets timeOut to "23:59:00", closes any open break, recalculates worked minutes,
- *    marks isAutoPunchedOut = true, and appends "Auto system Punched out" to notes.
+ * Auto punch out forgotten punches at 11:59 PM (23:59:00) AND records whose
+ * monitored device remained non-active for more than the configured inactivity window (default 2h).
+ * Explicitly skips active Breaks during the workday ("if employee sets on break then it is break").
  */
 export function autoCloseForgottenPunches(
   records: AttendanceRecord[],
-  shifts: ShiftSchedule[]
+  shifts: ShiftSchedule[],
+  settings?: OfficeSettings,
+  employees?: Employee[]
 ): { updatedRecords: AttendanceRecord[]; hasChanges: boolean } {
   const today = getTodayDateString();
   const nowTime = getCurrentTimeString();
+  const nowMs = Date.now();
   let hasChanges = false;
 
   const defaultShift = shifts[0] || { expectedHours: 8 };
+  const empMap = employees ? new Map(employees.map((e) => [e.id, e])) : null;
+  const shiftMap = new Map(shifts.map((s) => [s.id, s]));
+
+  const inactiveHoursRaw =
+    settings?.autoPunchOutOnInactiveHours !== undefined
+      ? Number(settings.autoPunchOutOnInactiveHours)
+      : 2;
+  const inactiveMs =
+    inactiveHoursRaw > 0 ? inactiveHoursRaw * 60 * 60 * 1000 + 20000 : 0;
 
   const updatedRecords = records.map((record) => {
-    // Only target records that have clocked in but haven't clocked out
-    if (record.timeIn && !record.timeOut) {
-      const isPastDay = record.date < today;
-      const isPastMidnightToday = record.date === today && nowTime >= '23:59:00';
+    if (!record.timeIn || record.timeOut) return record;
 
-      if (isPastDay || isPastMidnightToday) {
+    const emp = empMap?.get(record.employeeId);
+    const shift = (emp && shiftMap.get(emp.shiftId)) || defaultShift;
+    const expectedHours = shift.expectedHours || 8;
+
+    const isPastDay = record.date < today;
+    const isPastMidnightToday = record.date === today && nowTime >= '23:59:00';
+
+    if (isPastDay || isPastMidnightToday) {
+      hasChanges = true;
+      return finalizeAutoClosedRecord({
+        record,
+        autoOutTime: '23:59:00',
+        autoRemark: 'Auto system Punched out',
+        reason: 'midnight',
+        expectedHours,
+      });
+    }
+
+    // Same-day >2h device inactivity check (skip if currently On Break)
+    const onBreak = Array.isArray(record.breaks) && record.breaks.some((b) => !b.end);
+    if (
+      !onBreak &&
+      inactiveMs > 0 &&
+      record.date === today &&
+      record.lastHeartbeatAt &&
+      !record.monitoringPaused &&
+      record.heartbeatSource !== 'kiosk'
+    ) {
+      const lastActMs = Date.parse(record.lastActivityAt || record.lastHeartbeatAt);
+      if (
+        !Number.isNaN(lastActMs) &&
+        nowMs - lastActMs > inactiveMs &&
+        parseTimeToMinutes(nowTime) >= parseTimeToMinutes(record.timeIn)
+      ) {
         hasChanges = true;
-        const autoOutTime = '23:59:00';
-
-        // Close any active break that was left open
-        const updatedBreaks = (record.breaks || []).map((b) => {
-          if (!b.end) {
-            return { ...b, end: autoOutTime };
-          }
-          return b;
+        return finalizeAutoClosedRecord({
+          record,
+          autoOutTime: nowTime,
+          autoRemark: `Auto Punched Out (Device Inactive > ${inactiveHoursRaw}h)`,
+          reason: 'inactivity_2h',
+          expectedHours,
         });
-
-        // Find shift for employee
-        const shift = defaultShift;
-        const { totalWorkedMinutes, regularMinutes, overtimeMinutes } = calculateWorkedMinutes(
-          record.timeIn,
-          autoOutTime,
-          updatedBreaks,
-          shift.expectedHours || 8
-        );
-
-        const existingNotes = record.notes ? record.notes.trim() : '';
-        const autoRemark = 'Auto system Punched out';
-        const finalNotes = existingNotes
-          ? existingNotes.includes(autoRemark)
-            ? existingNotes
-            : `${existingNotes} · ${autoRemark}`
-          : autoRemark;
-
-        return {
-          ...record,
-          timeOut: autoOutTime,
-          breaks: updatedBreaks,
-          totalWorkedMinutes,
-          regularMinutes,
-          overtimeMinutes,
-          notes: finalNotes,
-          isAutoPunchedOut: true,
-        };
       }
     }
+
     return record;
   });
 
   return { updatedRecords, hasChanges };
 }
+

@@ -54,6 +54,14 @@ export interface AttendanceRecord {
   isDeviceMismatch?: boolean;
   deviceMismatchReason?: string;
   isAutoPunchedOut?: boolean;
+  autoPunchOutReason?: 'midnight' | 'inactivity_2h';
+  connectionStatus?: 'online' | 'no_internet';
+  lastHeartbeatAt?: string;
+  lastActivityAt?: string;
+  disconnectedAt?: string;
+  heartbeatSource?: 'web-client' | 'windows-agent' | 'kiosk';
+  heartbeatDeviceId?: string;
+  monitoringPaused?: boolean;
   clearTimeOut?: boolean;
   adminVerification?: VerificationInfo;
   accountsVerification?: VerificationInfo;
@@ -159,6 +167,9 @@ export interface OfficeSettings {
   allowAdminBypassDeviceBinding?: boolean;
   allowKioskPunchWithoutDevice?: boolean;
   allowAutoStartPunch?: boolean; // Allows Windows .bat startup auto check-in
+  enableDisconnectStatusTracking?: boolean; // Show "No Internet (In)" when active device loses internet
+  autoPunchOutOnInactiveHours?: number; // Auto punch out after N hours of device inactivity (default 2, 0=off)
+  disconnectThresholdMinutes?: number; // Minutes without heartbeat before marking "No Internet" (default 3)
 }
 
 export type AppMode = 'desktop' | 'kiosk';
