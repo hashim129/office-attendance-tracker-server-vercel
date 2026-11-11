@@ -18,6 +18,8 @@ import {
   Edit3,
   AlertTriangle,
   WifiOff,
+  Wifi,
+  CheckCircle2,
   Coffee,
 } from 'lucide-react';
 import {
@@ -35,6 +37,8 @@ import {
   formatMinutesToHoursMinutes,
   formatTime12h,
   getDayName,
+  getLiveWorkedStats,
+  getTodayDateString,
 } from '../../lib/attendanceCalculations';
 import { exportAttendanceToCsv } from '../../lib/exportUtils';
 import { Modal } from '../common/Modal';
@@ -48,6 +52,7 @@ interface ReportsTabProps {
   currentUser?: Employee;
   onAddCeoComment?: (comment: Omit<CeoComment, 'id' | 'createdAt'>) => void;
   onUpdateRecord?: (updated: AttendanceRecord) => void;
+  isNetworkOnline?: boolean;
 }
 
 export const ReportsTab: React.FC<ReportsTabProps> = ({
@@ -59,6 +64,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   currentUser,
   onAddCeoComment,
   onUpdateRecord,
+  isNetworkOnline = true,
 }) => {
   const [period, setPeriod] = useState<'month' | 'last_month' | 'all' | 'custom'>('month');
   const [customStart, setCustomStart] = useState<string>('');
@@ -267,6 +273,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   };
 
   const empMap = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
+  const shiftMap = useMemo(() => new Map(shifts.map((s) => [s.id, s])), [shifts]);
   const departments = useMemo(
     () => Array.from(new Set(employees.map((e) => e.department))).sort(),
     [employees]
@@ -330,18 +337,29 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     let totalLaborCost = 0;
     let lateCount = 0;
     let presentCount = 0;
+    const todayStrNow = getTodayDateString();
 
     filteredRecords.forEach((r) => {
-      totalWorkedMinutes += r.totalWorkedMinutes || 0;
-      totalRegularMinutes += r.regularMinutes || 0;
-      totalOvertimeMinutes += r.overtimeMinutes || 0;
+      const emp = empMap.get(r.employeeId);
+      const shift = (emp && shiftMap.get(emp.shiftId)) || shifts[0];
+      const liveState = deriveLiveAttendanceState({
+        record: r,
+        settings,
+        todayStr: todayStrNow,
+        isCurrentUserOffline: !isNetworkOnline && emp?.id === currentUser?.id,
+        isCurrentUserConnected: isNetworkOnline && emp?.id === currentUser?.id,
+      });
+      const worked = getLiveWorkedStats({ record: r, shift, settings, liveState });
+
+      totalWorkedMinutes += worked.totalWorkedMinutes;
+      totalRegularMinutes += worked.regularMinutes;
+      totalOvertimeMinutes += worked.overtimeMinutes;
       if (r.status === 'late') lateCount++;
       if (r.status === 'present' || r.status === 'late') presentCount++;
 
-      const emp = empMap.get(r.employeeId);
       if (emp) {
-        const regularHours = (r.regularMinutes || 0) / 60;
-        const overtimeHours = (r.overtimeMinutes || 0) / 60;
+        const regularHours = worked.regularMinutes / 60;
+        const overtimeHours = worked.overtimeMinutes / 60;
         const empCost =
           regularHours * emp.hourlyRate +
           overtimeHours * (emp.hourlyRate * settings.overtimeRateMultiplier);
@@ -360,7 +378,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
       presentCount,
       punctuality,
     };
-  }, [filteredRecords, empMap, settings.overtimeRateMultiplier]);
+  }, [filteredRecords, empMap, shiftMap, shifts, settings, isNetworkOnline, currentUser?.id]);
 
   const handleDownloadFullCsv = () => {
     const singleEmp = selectedEmpId !== 'all' ? empMap.get(selectedEmpId) : undefined;
@@ -627,6 +645,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                 <th className="py-3 px-4">Break</th>
                 <th className="py-3 px-4 text-right">Worked (Hours)</th>
                 <th className="py-3 px-4 text-right">Overtime</th>
+                <th className="py-3 px-4 text-center">Arrival</th>
                 <th className="py-3 px-4 text-center">Status</th>
                 <th className="py-3 px-4 text-center">Verification</th>
                 <th className="py-3 px-4">Notes</th>
@@ -638,15 +657,27 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={currentUser?.role === 'ceo' || currentUser?.role === 'admin' ? 12 : 11} className="py-12 text-center text-slate-400">
+                  <td colSpan={currentUser?.role === 'ceo' || currentUser?.role === 'admin' ? 13 : 12} className="py-12 text-center text-slate-400">
                     No records found for the selected reporting criteria.
                   </td>
                 </tr>
               ) : (
                 filteredRecords.map((r) => {
                   const emp = empMap.get(r.employeeId);
+                  const shift = (emp && shiftMap.get(emp.shiftId)) || shifts[0];
                   const breakMins = calculateBreaksDuration(r.breaks);
-                  const liveState = deriveLiveAttendanceState({ record: r, settings });
+                  const liveState = deriveLiveAttendanceState({
+                    record: r,
+                    settings,
+                    isCurrentUserOffline: !isNetworkOnline && emp?.id === currentUser?.id,
+                    isCurrentUserConnected: isNetworkOnline && emp?.id === currentUser?.id,
+                  });
+                  const worked = getLiveWorkedStats({
+                    record: r,
+                    shift,
+                    settings,
+                    liveState,
+                  });
                   return (
                     <tr
                       key={r.id}
@@ -700,6 +731,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                         )}
                       </td>
 
+                      {/* Time Out Column (Strictly Punch Out Time Only) */}
                       <td className="py-3 px-4">
                         {r.timeOut ? (
                           <div className="inline-flex flex-col">
@@ -709,29 +741,16 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                             </div>
                             {r.isAutoPunchedOut && (
                               <span className="text-[9px] text-amber-600 dark:text-amber-400 font-sans font-semibold mt-0.5">
-                                {r.autoPunchOutReason === 'inactivity_2h'
-                                  ? `Auto >${settings.autoPunchOutOnInactiveHours ?? 2}h Inactive`
+                                {r.autoPunchOutReason === 'shift_end_2h'
+                                  ? `Auto (Shift End +${settings.autoPunchOutOnInactiveHours ?? 2}h)`
+                                  : r.autoPunchOutReason === 'inactivity_2h'
+                                  ? 'Auto Closed'
                                   : 'Auto 11:59 PM'}
                               </span>
                             )}
                           </div>
-                        ) : liveState === 'break' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold text-[11px]">
-                            <Coffee className="w-3 h-3" />
-                            <span>On Break</span>
-                          </span>
-                        ) : liveState === 'no_internet' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-100 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-bold text-[11px]">
-                            <WifiOff className="w-3 h-3 animate-pulse" />
-                            <span>No Internet (In)</span>
-                          </span>
-                        ) : r.timeIn ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-[11px] animate-pulse">
-                            <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                            Working
-                          </span>
                         ) : (
-                          <span className="text-slate-400 font-sans text-xs">—</span>
+                          <span className="text-slate-400 font-mono text-xs">—</span>
                         )}
                       </td>
 
@@ -740,13 +759,13 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                       </td>
 
                       <td className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-slate-100 text-right tabular-nums">
-                        {formatMinutesToHoursMinutes(r.totalWorkedMinutes)}
+                        {formatMinutesToHoursMinutes(worked.totalWorkedMinutes)}
                       </td>
 
                       <td className="py-3 px-4 font-mono text-right tabular-nums">
-                        {r.overtimeMinutes > 0 ? (
+                        {worked.overtimeMinutes > 0 ? (
                           <span className="text-amber-600 dark:text-amber-400 font-semibold">
-                            +{formatMinutesToHoursMinutes(r.overtimeMinutes)}
+                            +{formatMinutesToHoursMinutes(worked.overtimeMinutes)}
                           </span>
                         ) : (
                           <span className="text-slate-400">—</span>
@@ -761,6 +780,40 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                         ) : (
                           <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
                             On Time
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Totally Separate Live / Working Status Column */}
+                      <td className="py-3 px-4 text-center">
+                        {liveState === 'break' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                            <Coffee className="w-3 h-3" />
+                            <span>On Break</span>
+                          </span>
+                        ) : liveState === 'no_internet' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
+                            <WifiOff className="w-3 h-3 text-amber-600 dark:text-amber-400 animate-pulse" />
+                            <span>
+                              {!r.lastHeartbeatAt
+                                ? 'Offline (In)'
+                                : r.monitoringPaused
+                                ? 'Offline · Tab Closed'
+                                : 'No Internet (In)'}
+                            </span>
+                          </span>
+                        ) : liveState === 'in' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+                            <Wifi className="w-3 h-3" />
+                            <span>{worked.isLiveOvertime ? 'Online · Overtime' : 'Online · Working'}</span>
+                          </span>
+                        ) : liveState === 'out' ? (
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                            Punched Out
+                          </span>
+                        ) : (
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                            Not In
                           </span>
                         )}
                       </td>

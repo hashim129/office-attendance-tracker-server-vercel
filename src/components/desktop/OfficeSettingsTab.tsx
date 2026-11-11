@@ -648,10 +648,10 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
             <div className="flex items-center justify-between gap-3">
               <div className="text-xs">
                 <span className="font-semibold text-slate-900 dark:text-slate-100 block">
-                  Auto Punch-Out on Device Inactivity
+                  Post-Shift Overtime Check &amp; Auto Logout Window
                 </span>
                 <span className="text-slate-500 dark:text-slate-400 text-[11px]">
-                  Punches out monitored staff if device remains non-active beyond limit (skipped on Break)
+                  No idle timeout during shift. After Shift End + window, checks internet live status: live workers earn overtime, offline/forgotten shifts auto logout.
                 </span>
               </div>
               <select
@@ -666,10 +666,10 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
                 }}
                 className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-slate-900 dark:text-slate-100 shrink-0"
               >
-                <option value="2">2 Hours (Default)</option>
-                <option value="1">1 Hour</option>
-                <option value="3">3 Hours</option>
-                <option value="4">4 Hours</option>
+                <option value="2">Shift End + 2h (Default)</option>
+                <option value="1">Shift End + 1h</option>
+                <option value="3">Shift End + 3h</option>
+                <option value="4">Shift End + 4h</option>
                 <option value="0">Disabled</option>
               </select>
             </div>

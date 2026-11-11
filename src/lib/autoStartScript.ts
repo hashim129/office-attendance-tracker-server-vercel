@@ -463,8 +463,12 @@ while ($true) {
       $wasOffline = $false
     }
     if ($hbResp.state -eq 'punched_out') {
-      if ($hbResp.autoPunchOutReason -eq 'inactivity_2h') {
-        $outMsg = "Auto punched out at $($hbResp.timeOutFormatted) after >2 hours of device inactivity."
+      if ($hbResp.autoPunchOutReason -eq 'shift_end_2h') {
+        $outMsg = "Auto punched out at $($hbResp.timeOutFormatted) (shift ended +2h without live connection)."
+        Write-Log "AUTO PUNCH-OUT: $outMsg"
+        Show-TrayToast "$($cfg.companyName) - Auto Punched Out" $outMsg $true
+      } elseif ($hbResp.autoPunchOutReason -eq 'inactivity_2h') {
+        $outMsg = "Auto punched out at $($hbResp.timeOutFormatted)."
         Write-Log "AUTO PUNCH-OUT: $outMsg"
         Show-TrayToast "$($cfg.companyName) - Auto Punched Out" $outMsg $true
       } else {

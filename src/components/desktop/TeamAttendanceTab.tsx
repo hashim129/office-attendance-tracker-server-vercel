@@ -36,6 +36,7 @@ import {
   formatMinutesToHoursMinutes,
   formatTime12h,
   getDayName,
+  getLiveWorkedStats,
   getTodayDateString,
   isLateArrival,
 } from '../../lib/attendanceCalculations';
@@ -226,6 +227,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           settings,
           todayStr,
           isCurrentUserOffline: !isNetworkOnline && emp.id === effectiveUser.id,
+          isCurrentUserConnected: isNetworkOnline && emp.id === effectiveUser.id,
         });
         const isClockedIn = derivedStatus === 'in' || derivedStatus === 'no_internet';
         const isOnBreak = derivedStatus === 'break';
@@ -264,7 +266,13 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
             if (!item.record?.isAutoPunchedOut) return false;
           }
           if (statusFilter === 'auto_inactivity') {
-            if (!item.record?.isAutoPunchedOut || item.record.autoPunchOutReason !== 'inactivity_2h') return false;
+            if (
+              !item.record?.isAutoPunchedOut ||
+              (item.record.autoPunchOutReason !== 'shift_end_2h' &&
+                item.record.autoPunchOutReason !== 'inactivity_2h')
+            ) {
+              return false;
+            }
           }
         }
         if (searchQuery) {
@@ -406,8 +414,10 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
 
     if (action === 'in') {
       const isLate = isLateArrival(nowTime, shift);
-      const isExistingDesktopMonitored =
-        existing?.heartbeatSource === 'web-client' || existing?.heartbeatSource === 'windows-agent';
+      const isSelfOrDesktopMonitored =
+        emp.id === effectiveUser.id ||
+        existing?.heartbeatSource === 'web-client' ||
+        existing?.heartbeatSource === 'windows-agent';
       const cleanedNotes = (existing?.notes || '')
         .replace(/\s*·?\s*(Clocked Out by Admin|Auto system Punched out|Auto Punched Out\s*\([^)]*\))/gi, '')
         .trim();
@@ -427,12 +437,12 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         autoPunchOutReason: undefined,
         disconnectedAt: undefined,
         monitoringPaused: false,
-        heartbeatSource: isExistingDesktopMonitored
-          ? existing?.heartbeatSource
+        heartbeatSource: isSelfOrDesktopMonitored
+          ? existing?.heartbeatSource || 'web-client'
           : existing?.heartbeatSource || 'kiosk',
-        ...(isExistingDesktopMonitored
+        ...(isSelfOrDesktopMonitored
           ? {
-              connectionStatus: 'online' as const,
+              connectionStatus: emp.id === effectiveUser.id && !isNetworkOnline ? ('no_internet' as const) : ('online' as const),
               lastHeartbeatAt: nowIso,
               lastActivityAt: nowIso,
             }
@@ -543,7 +553,8 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       : { totalWorkedMinutes: 0, regularMinutes: 0, overtimeMinutes: 0 };
 
     const isReopeningActiveShift = shouldClearTimeOut && editWorkingStatus !== 'absent' && Boolean(finalTimeIn);
-    const isExistingDesktopMonitored =
+    const isSelfOrDesktopMonitored =
+      editingEmployee.id === effectiveUser.id ||
       editingRecord?.heartbeatSource === 'web-client' ||
       editingRecord?.heartbeatSource === 'windows-agent';
 
@@ -579,12 +590,15 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       monitoringPaused: false,
       ...(isReopeningActiveShift
         ? {
-            heartbeatSource: isExistingDesktopMonitored
-              ? editingRecord?.heartbeatSource
+            heartbeatSource: isSelfOrDesktopMonitored
+              ? editingRecord?.heartbeatSource || 'web-client'
               : editingRecord?.heartbeatSource || 'kiosk',
-            ...(isExistingDesktopMonitored
+            ...(isSelfOrDesktopMonitored
               ? {
-                  connectionStatus: 'online' as const,
+                  connectionStatus:
+                    editingEmployee.id === effectiveUser.id && !isNetworkOnline
+                      ? ('no_internet' as const)
+                      : ('online' as const),
                   lastHeartbeatAt: nowIso,
                   lastActivityAt: nowIso,
                 }
@@ -869,7 +883,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
               <option value="admin_unverified">Pending Admin Verification</option>
               <option value="accounts_unverified">Pending Accounts Verification</option>
               <option value="auto_punched">All Auto Punched Out</option>
-              <option value="auto_inactivity">Auto Punched (Inactive &gt; 2h)</option>
+              <option value="auto_inactivity">Auto Punched (Shift End + 2h)</option>
             </select>
           </div>
         </div>
@@ -974,7 +988,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                         )}
                       </td>
 
-                      {/* Time Out Column */}
+                      {/* Time Out Column (Strictly Punch Out Time Only) */}
                       <td className="py-3 px-3">
                         {record?.timeOut ? (
                           <div className="inline-flex flex-col">
@@ -984,37 +998,26 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                             </div>
                             {record.isAutoPunchedOut && (
                               <span className="text-[9px] text-amber-600 dark:text-amber-400 font-sans font-semibold mt-0.5">
-                                {record.autoPunchOutReason === 'inactivity_2h'
-                                  ? `Auto >${settings.autoPunchOutOnInactiveHours ?? 2}h Inactive`
+                                {record.autoPunchOutReason === 'shift_end_2h'
+                                  ? `Auto (Shift End +${settings.autoPunchOutOnInactiveHours ?? 2}h)`
+                                  : record.autoPunchOutReason === 'inactivity_2h'
+                                  ? 'Auto Closed'
                                   : 'Auto 11:59 PM'}
                               </span>
                             )}
                           </div>
-                        ) : derivedStatus === 'break' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold text-[11px]">
-                            <Coffee className="w-3 h-3" />
-                            <span>On Break</span>
-                          </span>
-                        ) : derivedStatus === 'no_internet' ? (
-                          <span
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-100/90 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-bold text-[11px]"
-                            title={getOfflineBadgeMeta(record).tooltip}
-                          >
-                            <WifiOff className="w-3 h-3 animate-pulse shrink-0" />
-                            <span>{getOfflineBadgeMeta(record).timeOutLabel}</span>
-                          </span>
-                        ) : record?.timeIn ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-[11px] animate-pulse">
-                            <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                            Working
-                          </span>
                         ) : (
-                          <span className="text-slate-400 font-sans">—</span>
+                          <span className="text-slate-400 font-mono">—</span>
                         )}
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono font-bold tabular-nums">
-                        {record ? formatMinutesToHoursMinutes(record.totalWorkedMinutes) : '0h 00m'}
+                        {record
+                          ? formatMinutesToHoursMinutes(
+                              getLiveWorkedStats({ record, shift, settings, liveState: derivedStatus })
+                                .totalWorkedMinutes
+                            )
+                          : '0h 00m'}
                       </td>
 
                       <td className="py-3 px-3 text-center">
@@ -1054,12 +1057,12 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                           <span
                             className="ml-1 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
                             title={
-                              record.autoPunchOutReason === 'inactivity_2h'
-                                ? 'Automatically punched out after >2h device inactivity'
+                              record.autoPunchOutReason === 'shift_end_2h'
+                                ? `Automatically punched out ${settings.autoPunchOutOnInactiveHours ?? 2}h after shift ended (not live online)`
                                 : 'Automatically closed at 11:59 PM'
                             }
                           >
-                            {record.autoPunchOutReason === 'inactivity_2h' ? 'Auto >2h' : 'Auto Closed'}
+                            {record.autoPunchOutReason === 'shift_end_2h' ? 'Auto Shift+2h' : 'Auto Closed'}
                           </span>
                         )}
                       </td>

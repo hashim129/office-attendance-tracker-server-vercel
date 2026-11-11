@@ -165,23 +165,26 @@ export default async function handler(req, res) {
         const candidateAttendance = [...attendance];
         candidateAttendance[idx] = updatedRec;
 
-        // Evaluate whether 2h non-active punch-out or 23:59 close triggered on this or other records
+        // Evaluate whether shift-end+2h overtime/logout or 23:59 close triggered on this or other records
         const { records: finalAttendance, changed: sweepChanged } =
           evaluateAttendancePresenceAndAutoClose(candidateAttendance, settings, employees, shifts);
 
         const selfAfterSweep = finalAttendance[idx];
         const selfPunchedOutNow = Boolean(selfAfterSweep?.timeOut);
 
-        // Persist on meaningful transitions or at most every 120s during steady-state online work
+        // Persist on meaningful transitions or at least every 60s so DB stays well inside 3m threshold
         const activityMovedSignificantly = Date.parse(nextLastActivityAt) - existingActMs >= 60000;
+        const overtimeAdvanced =
+          Math.abs(Number(selfAfterSweep?.overtimeMinutes || 0) - Number(existing.overtimeMinutes || 0)) >= 1;
         const shouldPersist =
           sweepChanged ||
           selfPunchedOutNow ||
+          overtimeAdvanced ||
           !existing.lastHeartbeatAt ||
           existing.connectionStatus !== 'online' ||
           existing.monitoringPaused === true ||
           existing.heartbeatSource !== effectiveSource ||
-          nowMs - existingHbMs >= 120000 ||
+          nowMs - existingHbMs >= 60000 ||
           activityMovedSignificantly;
 
         if (!shouldPersist) {
@@ -193,6 +196,13 @@ export default async function handler(req, res) {
               onBreak,
               date: todayStr,
               persisted: false,
+              lastHeartbeatAt: selfAfterSweep?.lastHeartbeatAt || nowIso,
+              lastActivityAt: selfAfterSweep?.lastActivityAt || nextLastActivityAt,
+              heartbeatSource: effectiveSource,
+              connectionStatus: 'online',
+              totalWorkedMinutes: selfAfterSweep?.totalWorkedMinutes,
+              regularMinutes: selfAfterSweep?.regularMinutes,
+              overtimeMinutes: selfAfterSweep?.overtimeMinutes,
             },
           };
         }
@@ -213,6 +223,13 @@ export default async function handler(req, res) {
               onBreak,
               date: todayStr,
               persisted: true,
+              lastHeartbeatAt: selfAfterSweep?.lastHeartbeatAt || nowIso,
+              lastActivityAt: selfAfterSweep?.lastActivityAt || nextLastActivityAt,
+              heartbeatSource: effectiveSource,
+              connectionStatus: 'online',
+              totalWorkedMinutes: selfAfterSweep?.totalWorkedMinutes,
+              regularMinutes: selfAfterSweep?.regularMinutes,
+              overtimeMinutes: selfAfterSweep?.overtimeMinutes,
             };
 
         return {

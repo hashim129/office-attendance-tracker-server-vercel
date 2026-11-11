@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Terminal,
   WifiOff,
+  Wifi,
   Coffee,
 } from 'lucide-react';
 import {
@@ -40,6 +41,7 @@ import {
   formatMinutesToHoursMinutes,
   formatTime12h,
   getDayName,
+  getLiveWorkedStats,
   getTodayDateString,
 } from '../../lib/attendanceCalculations';
 import { exportAttendanceToCsv } from '../../lib/exportUtils';
@@ -77,6 +79,10 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
   const myAllRecords = useMemo(() => {
     return records.filter((r) => r.employeeId === currentUser.id);
   }, [records, currentUser.id]);
+
+  const userShift = useMemo(() => {
+    return shifts.find((s) => s.id === currentUser.shiftId) || shifts[0];
+  }, [shifts, currentUser.shiftId]);
 
   const [dateRange, setDateRange] = useState<'all' | 'month' | 'last_month' | 'custom'>('month');
   const [customStart, setCustomStart] = useState<string>('');
@@ -140,11 +146,20 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
     let totalOvertimeMins = 0;
     let presentCount = 0;
     let lateCount = 0;
+    const todayStrNow = getTodayDateString();
 
     filteredRecords.forEach((r) => {
-      totalWorkedMins += r.totalWorkedMinutes || 0;
-      totalRegularMins += r.regularMinutes || 0;
-      totalOvertimeMins += r.overtimeMinutes || 0;
+      const liveState = deriveLiveAttendanceState({
+        record: r,
+        settings,
+        todayStr: todayStrNow,
+        isCurrentUserOffline: !isNetworkOnline,
+        isCurrentUserConnected: isNetworkOnline,
+      });
+      const worked = getLiveWorkedStats({ record: r, shift: userShift, settings, liveState });
+      totalWorkedMins += worked.totalWorkedMinutes;
+      totalRegularMins += worked.regularMinutes;
+      totalOvertimeMins += worked.overtimeMinutes;
       if (r.status === 'present') presentCount++;
       if (r.status === 'late') {
         presentCount++;
@@ -162,7 +177,7 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
       lateCount,
       onTimeRate,
     };
-  }, [filteredRecords]);
+  }, [filteredRecords, userShift, settings, isNetworkOnline]);
 
   // Current week worked minutes calculation (Monday through Sunday)
   const currentWeekStats = useMemo(() => {
@@ -423,6 +438,93 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
           )}
         </div>
       </div>
+
+      {/* Totally Separate Live Attendance & Connection Status Bar */}
+      {(() => {
+        const todayRecordForBar = myAllRecords.find((r) => r.date === todayStr);
+        const todayStatusForBar = deriveLiveAttendanceState({
+          record: todayRecordForBar,
+          settings,
+          todayStr,
+          isCurrentUserOffline: !isNetworkOnline,
+          isCurrentUserConnected: isNetworkOnline,
+        });
+        const todayWorked = getLiveWorkedStats({
+          record: todayRecordForBar,
+          shift: userShift,
+          settings,
+          liveState: todayStatusForBar,
+        });
+        return (
+          <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div
+                className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                  todayStatusForBar === 'in'
+                    ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                    : todayStatusForBar === 'no_internet' || todayStatusForBar === 'break'
+                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {todayStatusForBar === 'no_internet' ? (
+                  <WifiOff className="w-4 h-4 animate-pulse" />
+                ) : todayStatusForBar === 'break' ? (
+                  <Coffee className="w-4 h-4" />
+                ) : (
+                  <Wifi className="w-4 h-4" />
+                )}
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Today&apos;s Live Attendance Status Bar
+                </div>
+                <div className="text-sm font-bold text-slate-900 dark:text-slate-100 flex flex-wrap items-center gap-2 mt-0.5">
+                  <span>
+                    {todayStatusForBar === 'in'
+                      ? 'Online · Working'
+                      : todayStatusForBar === 'break'
+                      ? 'On Break'
+                      : todayStatusForBar === 'no_internet'
+                      ? 'No Internet · Offline (Still In)'
+                      : todayStatusForBar === 'out'
+                      ? `Shift Ended · Punched Out (${formatTime12h(todayRecordForBar?.timeOut)})`
+                      : isNetworkOnline
+                      ? 'Online · Not Clocked In Today'
+                      : 'Offline · Not Clocked In Today'}
+                  </span>
+                  {todayWorked.isLiveOvertime && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
+                      Live Overtime (+{formatMinutesToHoursMinutes(todayWorked.overtimeMinutes)})
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <span className="text-[10px] text-slate-400 block uppercase">Punch In</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                  {todayRecordForBar?.timeIn ? formatTime12h(todayRecordForBar.timeIn) : '—'}
+                </span>
+              </div>
+              <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <span className="text-[10px] text-slate-400 block uppercase">Punch Out</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                  {todayRecordForBar?.timeOut ? formatTime12h(todayRecordForBar.timeOut) : '—'}
+                </span>
+              </div>
+              <div className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <span className="text-[10px] text-slate-400 block uppercase">Connection</span>
+                <span className={`font-bold ${isNetworkOnline ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                  {isNetworkOnline ? 'Connected' : 'Offline'}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* KPI Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -821,6 +923,7 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                 <th className="py-3 px-4">Break Mins</th>
                 <th className="py-3 px-4 text-right">Total Hours</th>
                 <th className="py-3 px-4 text-right">Overtime</th>
+                <th className="py-3 px-4 text-center">Arrival</th>
                 <th className="py-3 px-4 text-center">Status</th>
                 <th className="py-3 px-4">Notes / Audit</th>
               </tr>
@@ -828,7 +931,7 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     No attendance records found for the selected filter period.
                   </td>
                 </tr>
@@ -839,6 +942,13 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                     record: r,
                     settings,
                     isCurrentUserOffline: !isNetworkOnline,
+                    isCurrentUserConnected: isNetworkOnline,
+                  });
+                  const worked = getLiveWorkedStats({
+                    record: r,
+                    shift: userShift,
+                    settings,
+                    liveState,
                   });
                   return (
                     <tr
@@ -869,6 +979,7 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                         )}
                       </td>
 
+                      {/* Time Out Column (Strictly Punch Out Time Only) */}
                       <td className="py-3 px-4">
                         {r.timeOut ? (
                           <div className="inline-flex flex-col">
@@ -878,29 +989,16 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                             </div>
                             {r.isAutoPunchedOut && (
                               <span className="text-[9px] text-amber-600 dark:text-amber-400 font-sans font-semibold mt-0.5">
-                                {r.autoPunchOutReason === 'inactivity_2h'
-                                  ? `Auto >${settings.autoPunchOutOnInactiveHours ?? 2}h Inactive`
+                                {r.autoPunchOutReason === 'shift_end_2h'
+                                  ? `Auto (Shift End +${settings.autoPunchOutOnInactiveHours ?? 2}h)`
+                                  : r.autoPunchOutReason === 'inactivity_2h'
+                                  ? 'Auto Closed'
                                   : 'Auto 11:59 PM'}
                               </span>
                             )}
                           </div>
-                        ) : liveState === 'break' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold text-[11px]">
-                            <Coffee className="w-3 h-3" />
-                            <span>On Break</span>
-                          </span>
-                        ) : liveState === 'no_internet' ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-100 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-bold text-[11px]">
-                            <WifiOff className="w-3 h-3 animate-pulse" />
-                            <span>No Internet (In)</span>
-                          </span>
-                        ) : r.timeIn ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-[11px] animate-pulse">
-                            <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                            Working
-                          </span>
                         ) : (
-                          <span className="text-slate-400 font-sans text-xs">—</span>
+                          <span className="text-slate-400 font-mono text-xs">—</span>
                         )}
                       </td>
 
@@ -909,13 +1007,13 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                       </td>
 
                       <td className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-slate-100 text-right tabular-nums">
-                        {formatMinutesToHoursMinutes(r.totalWorkedMinutes)}
+                        {formatMinutesToHoursMinutes(worked.totalWorkedMinutes)}
                       </td>
 
                       <td className="py-3 px-4 font-mono text-right tabular-nums">
-                        {r.overtimeMinutes > 0 ? (
+                        {worked.overtimeMinutes > 0 ? (
                           <span className="text-amber-600 dark:text-amber-400 font-semibold">
-                            +{formatMinutesToHoursMinutes(r.overtimeMinutes)}
+                            +{formatMinutesToHoursMinutes(worked.overtimeMinutes)}
                           </span>
                         ) : (
                           <span className="text-slate-400">—</span>
@@ -934,6 +1032,34 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                         ) : (
                           <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 capitalize">
                             {r.status}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Totally Separate Live / Working Status Column */}
+                      <td className="py-3 px-4 text-center">
+                        {liveState === 'break' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                            <Coffee className="w-3 h-3" />
+                            <span>On Break</span>
+                          </span>
+                        ) : liveState === 'no_internet' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
+                            <WifiOff className="w-3 h-3 text-amber-600 dark:text-amber-400 animate-pulse" />
+                            <span>No Internet (In)</span>
+                          </span>
+                        ) : liveState === 'in' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+                            <Wifi className="w-3 h-3" />
+                            <span>{worked.isLiveOvertime ? 'Online · Overtime' : 'Online · Working'}</span>
+                          </span>
+                        ) : liveState === 'out' ? (
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                            Punched Out
+                          </span>
+                        ) : (
+                          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                            Not In
                           </span>
                         )}
                       </td>

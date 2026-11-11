@@ -38,6 +38,7 @@ import {
   saveShifts,
   subscribeCloudSyncStatus,
   syncDatabaseFromServer,
+  updateAttendanceRecordsLocalCacheOnly,
 } from './lib/storage';
 import {
   autoCloseForgottenPunches,
@@ -100,6 +101,7 @@ export default function App() {
   const currentUserRef = useRef<Employee | null>(null);
   const recordsRef = useRef<AttendanceRecord[]>([]);
   const appModeRef = useRef<AppMode>(appMode);
+  const refreshFromLocalRef = useRef<((verifySession?: boolean) => void) | null>(null);
 
   useEffect(() => {
     currentUserRef.current = currentUser;
@@ -151,6 +153,7 @@ export default function App() {
         }
       }
     };
+    refreshFromLocalRef.current = refreshFromLocal;
 
     // Load cached data immediately for instant UI, WITHOUT pushing stale records back to server!
     refreshFromLocal(false);
@@ -292,7 +295,7 @@ export default function App() {
     }
 
     const nowMs = Date.now();
-    // Deduplicate bursts faster than 5s unless recovery transition needed
+    // Deduplicate bursts faster than 5s unless recovery/initial sync needed
     if (!forceActive && nowMs - lastHeartbeatSentAtRef.current < 5000) return;
     lastHeartbeatSentAtRef.current = nowMs;
 
@@ -317,10 +320,43 @@ export default function App() {
       if (res.ok) {
         setIsNetworkOnline(true);
         const data = await res.json().catch(() => null);
-        if (data?.state === 'punched_out' || data?.persisted) {
-          void syncDatabaseFromServer(true);
+        if (data?.ok && data.state !== 'punched_out' && data.state !== 'not_punched_in') {
+          const hbIso = data.lastHeartbeatAt || new Date().toISOString();
+          const actIso = data.lastActivityAt || hbIso;
+          const patched = recordsRef.current.map((r) => {
+            if (r.employeeId !== user.id || r.date !== todayStr || r.timeOut) return r;
+            const nextRec: AttendanceRecord = {
+              ...r,
+              connectionStatus: 'online',
+              monitoringPaused: false,
+              heartbeatSource: data.heartbeatSource || r.heartbeatSource || 'web-client',
+              lastHeartbeatAt: hbIso,
+              lastActivityAt: actIso,
+              disconnectedAt: undefined,
+              ...(typeof data.totalWorkedMinutes === 'number'
+                ? { totalWorkedMinutes: data.totalWorkedMinutes }
+                : {}),
+              ...(typeof data.regularMinutes === 'number'
+                ? { regularMinutes: data.regularMinutes }
+                : {}),
+              ...(typeof data.overtimeMinutes === 'number'
+                ? { overtimeMinutes: data.overtimeMinutes }
+                : {}),
+            };
+            return nextRec;
+          });
+          recordsRef.current = patched;
+          setRecords(patched);
+          updateAttendanceRecordsLocalCacheOnly(patched);
         }
-      } else {
+        if (data?.state === 'punched_out' || data?.persisted) {
+          void syncDatabaseFromServer(true).then((updated) => {
+            if (updated) {
+              refreshFromLocalRef.current?.(true);
+            }
+          });
+        }
+      } else if (typeof navigator !== 'undefined' && !navigator.onLine) {
         setIsNetworkOnline(false);
       }
     } catch {
@@ -359,6 +395,11 @@ export default function App() {
         lastInteractionRef.current = Date.now();
         void sendWebHeartbeatNow(true);
       }
+    };
+
+    const handleFocus = () => {
+      lastInteractionRef.current = Date.now();
+      void sendWebHeartbeatNow(true);
     };
 
     const handleOnline = () => {
@@ -409,6 +450,7 @@ export default function App() {
     ];
     activityEvents.forEach((evt) => window.addEventListener(evt, markActivity, { passive: true }));
     document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('pagehide', handlePageHide);
@@ -421,6 +463,7 @@ export default function App() {
       clearInterval(hbInterval);
       activityEvents.forEach((evt) => window.removeEventListener(evt, markActivity));
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('pagehide', handlePageHide);
@@ -1350,6 +1393,7 @@ export default function App() {
                     currentUser={currentUser}
                     onAddCeoComment={handleAddCeoComment}
                     onUpdateRecord={handleUpdateRecord}
+                    isNetworkOnline={isNetworkOnline}
                   />
                 )}
 

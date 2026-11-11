@@ -123,6 +123,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     settings,
     todayStr,
     isCurrentUserOffline: !isNetworkOnline,
+    isCurrentUserConnected: isNetworkOnline,
   });
   const isClockedIn = !!todayRecord && !!todayRecord.timeIn && !todayRecord.timeOut;
   const isCompleted = liveState === 'out';
@@ -399,23 +400,58 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
             </div>
           )}
 
+          {/* Separate Live Attendance & Connection Status Bar */}
+          <div
+            className={`p-3 rounded-xl border flex items-start justify-between gap-3 ${
+              isNoInternet
+                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200'
+                : isOnBreak
+                ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200'
+                : isClockedIn
+                ? 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
+            }`}
+          >
+            <div className="flex items-start gap-2.5">
+              {isNoInternet ? (
+                <WifiOff className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 animate-pulse" />
+              ) : isOnBreak ? (
+                <Coffee className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              ) : (
+                <Wifi className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              )}
+              <div className="text-xs">
+                <div className="font-bold">
+                  {isNoInternet
+                    ? 'Attendance Status: Device Internet Disconnected — Offline (Still In)'
+                    : isOnBreak
+                    ? 'Attendance Status: On Break (Timer Active)'
+                    : isClockedIn
+                    ? 'Attendance Status: Connected Online · Clocked In & Working'
+                    : isCompleted
+                    ? `Attendance Status: Shift Completed (Punched Out at ${formatTime12h(todayRecord?.timeOut)})`
+                    : 'Attendance Status: Connected Online · Ready to Punch In'}
+                </div>
+                <p className="text-[11px] opacity-90 mt-0.5">
+                  {isNoInternet
+                    ? `You remain marked Clocked In while reconnecting. At Shift End + ${settings.autoPunchOutOnInactiveHours ?? 2}h, live connected staff earn overtime while disconnected shifts auto logout.`
+                    : `Live internet connected · After Shift End + ${settings.autoPunchOutOnInactiveHours ?? 2}h, active online work counts as overtime (otherwise auto logout).`}
+                </p>
+              </div>
+            </div>
+            <span
+              className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 uppercase tracking-wider ${
+                isNetworkOnline
+                  ? 'bg-emerald-100/90 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700'
+                  : 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700'
+              }`}
+            >
+              {isNetworkOnline ? 'Online' : 'Offline'}
+            </span>
+          </div>
+
           {/* Security Status Banners */}
           <div className="space-y-2">
-            {isNoInternet && (
-              <div className="p-3 rounded-xl border bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
-                <WifiOff className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 animate-pulse" />
-                <div className="text-xs">
-                  <div className="font-bold">
-                    Device Internet Disconnected — Attendance Status: No Internet (Still In)
-                  </div>
-                  <p className="text-[11px] opacity-90 mt-0.5">
-                    You remain marked Clocked In while reconnecting. If a monitored device stays non-active for more than{' '}
-                    {settings.autoPunchOutOnInactiveHours ?? 2} hours (when not on break), the system will automatically punch you out.
-                  </p>
-                </div>
-              </div>
-            )}
-
             {/* 1. Office Wi-Fi Public IP Verification Banner */}
             {settings.enforceOfficeIpLock && (
               <div
@@ -577,8 +613,10 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                 </p>
                 {todayRecord.isAutoPunchedOut && (
                   <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                    {todayRecord.autoPunchOutReason === 'inactivity_2h'
-                      ? `System Notice: Auto punched out after >${settings.autoPunchOutOnInactiveHours ?? 2} hours of device inactivity.`
+                    {todayRecord.autoPunchOutReason === 'shift_end_2h'
+                      ? `System Notice: Auto punched out ${settings.autoPunchOutOnInactiveHours ?? 2}h after shift ended (no live internet connection).`
+                      : todayRecord.autoPunchOutReason === 'inactivity_2h'
+                      ? 'System Notice: Auto punched out by server rule.'
                       : 'System Notice: Auto system punched out at 11:59 PM.'}
                   </p>
                 )}

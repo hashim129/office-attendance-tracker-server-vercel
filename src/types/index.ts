@@ -54,7 +54,7 @@ export interface AttendanceRecord {
   isDeviceMismatch?: boolean;
   deviceMismatchReason?: string;
   isAutoPunchedOut?: boolean;
-  autoPunchOutReason?: 'midnight' | 'inactivity_2h';
+  autoPunchOutReason?: 'midnight' | 'shift_end_2h' | 'inactivity_2h';
   connectionStatus?: 'online' | 'no_internet';
   lastHeartbeatAt?: string;
   lastActivityAt?: string;

@@ -90,10 +90,11 @@ export function exportAttendanceToCsv({
     'Total Worked (Hours)',
     'Regular Hours',
     'Overtime Hours',
-    'Status',
+    'Arrival Status',
+    'Live Status',
     'Admin Verification',
     'Accounts Verification',
-    'Auto Closed (11:59 PM)',
+    'Auto Closed',
     'Notes / Remarks',
   ];
 
@@ -101,6 +102,18 @@ export function exportAttendanceToCsv({
     const emp = empMap.get(rec.employeeId);
     const shift = emp ? shiftMap.get(emp.shiftId) : undefined;
     const breakMins = calculateBreaksDuration(rec.breaks);
+    const onBreak = Array.isArray(rec.breaks) && rec.breaks.some((b) => !b.end);
+    const liveStatus = rec.timeOut
+      ? rec.isAutoPunchedOut
+        ? rec.autoPunchOutReason === 'shift_end_2h'
+          ? 'Auto Punched Out (Shift End +2h)'
+          : 'Auto Punched Out'
+        : 'Punched Out'
+      : onBreak
+      ? 'On Break'
+      : rec.connectionStatus === 'no_internet' || rec.monitoringPaused || !rec.lastHeartbeatAt
+      ? 'Offline / No Internet (In)'
+      : 'Working (Online)';
 
     const adminVer = rec.adminVerification?.verified
       ? `Verified (${rec.adminVerification.verifiedByName || 'Admin'})`
@@ -119,13 +132,14 @@ export function exportAttendanceToCsv({
       escapeCsvCell(emp?.designation || ''),
       escapeCsvCell(shift?.name || 'Standard'),
       escapeCsvCell(formatTime12h(rec.timeIn)),
-      escapeCsvCell(rec.timeOut ? formatTime12h(rec.timeOut) : 'Active / Pending'),
+      escapeCsvCell(rec.timeOut ? formatTime12h(rec.timeOut) : '—'),
       escapeCsvCell(breakMins),
       escapeCsvCell(formatMinutesToHoursMinutes(rec.totalWorkedMinutes)),
       escapeCsvCell(formatMinutesToDecimal(rec.totalWorkedMinutes)),
       escapeCsvCell(formatMinutesToDecimal(rec.regularMinutes)),
       escapeCsvCell(formatMinutesToDecimal(rec.overtimeMinutes)),
       escapeCsvCell(rec.status.toUpperCase()),
+      escapeCsvCell(liveStatus),
       escapeCsvCell(adminVer),
       escapeCsvCell(accountsVer),
       escapeCsvCell(autoOut),

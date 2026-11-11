@@ -583,6 +583,14 @@ export function loadAttendanceRecords(): AttendanceRecord[] {
   }
 }
 
+export function updateAttendanceRecordsLocalCacheOnly(records: AttendanceRecord[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(records));
+  } catch (err) {
+    console.error('Failed to update local attendance cache:', err);
+  }
+}
+
 export function saveAttendanceRecords(
   records: AttendanceRecord[],
   changedOrBatch?: AttendanceRecord | AttendanceRecord[],
