@@ -13,7 +13,7 @@ interface RequestDeviceChangeModalProps {
     requestedDeviceId: string,
     requestedDeviceName: string,
     reason?: string
-  ) => void;
+  ) => Promise<boolean> | boolean | void;
 }
 
 export const RequestDeviceChangeModal: React.FC<RequestDeviceChangeModalProps> = ({
@@ -24,22 +24,42 @@ export const RequestDeviceChangeModal: React.FC<RequestDeviceChangeModalProps> =
 }) => {
   const [reason, setReason] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const currentDevice = getDeviceDetails();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onRequestDeviceChange(
-      currentUser.id,
-      currentDevice.deviceId,
-      currentDevice.deviceLabel,
-      reason.trim() || 'Employee phone binding / change request'
-    );
-    setSubmitted(true);
-    setTimeout(() => {
-      setSubmitted(false);
-      setReason('');
-      onClose();
-    }, 1800);
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const result = await Promise.resolve(
+        onRequestDeviceChange(
+          currentUser.id,
+          currentDevice.deviceId,
+          currentDevice.deviceLabel,
+          reason.trim() || 'Employee phone binding / change request'
+        )
+      );
+      if (result === false) {
+        setSubmitError(
+          'Could not reach cloud database right now. Your request is queued locally — please stay online and click Retry Submit.'
+        );
+        return;
+      }
+      setSubmitted(true);
+      setTimeout(() => {
+        setSubmitted(false);
+        setReason('');
+        onClose();
+      }, 1600);
+    } catch {
+      setSubmitError('Failed to send request to server. Please check internet connection and try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const isAlreadyBoundToThis = currentUser.registeredDeviceId === currentDevice.deviceId;
@@ -57,10 +77,10 @@ export const RequestDeviceChangeModal: React.FC<RequestDeviceChangeModalProps> =
             <ShieldCheck className="w-7 h-7" />
           </div>
           <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-            Request Sent to Administrator!
+            Request Saved &amp; Sent to Administrator!
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Your request to bind this phone has been submitted. The Administrator will review and approve your device in the Admin Panel.
+            Your phone approval request has been saved to the cloud server. The Administrator can now review and approve it in Employees Directory.
           </p>
         </div>
       ) : (
@@ -106,6 +126,13 @@ export const RequestDeviceChangeModal: React.FC<RequestDeviceChangeModalProps> =
             </div>
           )}
 
+          {submitError && (
+            <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-700 text-xs text-rose-800 dark:text-rose-200 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>{submitError}</span>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
               Reason for Phone Binding / Change Request
@@ -116,7 +143,8 @@ export const RequestDeviceChangeModal: React.FC<RequestDeviceChangeModalProps> =
               placeholder="e.g. Changed my phone to a new Samsung Galaxy / Old device screen damaged / First time registration"
               rows={3}
               required
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isSubmitting}
+              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
             />
             <p className="text-[10px] text-slate-500 mt-1">
               The Administrator will see this reason in the Admin Panel before approving your device.
@@ -127,16 +155,18 @@ export const RequestDeviceChangeModal: React.FC<RequestDeviceChangeModalProps> =
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer"
+              disabled={isSubmitting}
+              className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs cursor-pointer"
+              disabled={isSubmitting}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs cursor-pointer disabled:opacity-60"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>Submit Request to Admin</span>
+              <span>{isSubmitting ? 'Saving to Server...' : submitError ? 'Retry Submit' : 'Submit Request to Admin'}</span>
             </button>
           </div>
         </form>

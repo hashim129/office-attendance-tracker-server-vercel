@@ -99,6 +99,7 @@ export default function App() {
   // Live refs for background timers & heartbeats
   const lastInteractionRef = useRef<number>(Date.now());
   const currentUserRef = useRef<Employee | null>(null);
+  const employeesRef = useRef<Employee[]>([]);
   const recordsRef = useRef<AttendanceRecord[]>([]);
   const appModeRef = useRef<AppMode>(appMode);
   const refreshFromLocalRef = useRef<((verifySession?: boolean) => void) | null>(null);
@@ -106,6 +107,9 @@ export default function App() {
   useEffect(() => {
     currentUserRef.current = currentUser;
   }, [currentUser]);
+  useEffect(() => {
+    employeesRef.current = employees;
+  }, [employees]);
   useEffect(() => {
     recordsRef.current = records;
   }, [records]);
@@ -134,6 +138,7 @@ export default function App() {
       const loadedComments = loadCeoComments();
       const loadedSettings = loadSettings();
 
+      employeesRef.current = loadedEmps;
       recordsRef.current = loadedRecords;
       setEmployees(loadedEmps);
       setShifts(loadedShifts);
@@ -860,9 +865,10 @@ export default function App() {
     requestedDeviceId: string,
     requestedDeviceName: string,
     reason?: string
-  ) => {
-    const emp = employees.find((e) => e.id === employeeId);
-    if (!emp) return;
+  ): Promise<boolean> => {
+    const empList = employeesRef.current.length > 0 ? employeesRef.current : employees;
+    const emp = empList.find((e) => e.id === employeeId);
+    if (!emp) return Promise.resolve(false);
 
     const nowIso = new Date().toISOString();
     const actorRole = currentUserRef.current?.role || emp.role;
@@ -886,12 +892,13 @@ export default function App() {
       lastEditedByRole: actorRole,
     };
 
-    const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
+    const nextEmps = empList.map((e) => (e.id === employeeId ? updatedEmp : e));
+    employeesRef.current = nextEmps;
     setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, updatedEmp, { actorRole });
     if (currentUser?.id === employeeId) {
       setCurrentUser(updatedEmp);
     }
+    return saveEmployeeUpsert(nextEmps, updatedEmp, { actorRole });
   };
 
   const handleApproveDeviceChange = (employeeId: string) => {
@@ -1228,6 +1235,9 @@ export default function App() {
   };
 
   const pendingLeavesCount = leaves.filter((l) => l.status === 'pending').length;
+  const pendingDeviceRequestsCount = employees.filter(
+    (e) => e.pendingDeviceRequest && e.pendingDeviceRequest.status === 'pending'
+  ).length;
 
   return (
     <div
@@ -1279,6 +1289,8 @@ export default function App() {
             isNetworkOnline={isNetworkOnline}
             cloudSyncState={cloudSyncState}
             onRetrySync={() => void retryCloudOutboxNow()}
+            pendingDeviceRequestsCount={pendingDeviceRequestsCount}
+            onOpenEmployeesDirectory={() => setActiveTab('employees')}
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
@@ -1288,6 +1300,7 @@ export default function App() {
               activeTab={activeTab}
               onSelectTab={setActiveTab}
               pendingLeavesCount={pendingLeavesCount}
+              pendingDeviceRequestsCount={pendingDeviceRequestsCount}
               settings={settings}
             />
 

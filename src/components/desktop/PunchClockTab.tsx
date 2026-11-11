@@ -533,9 +533,17 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                     <button
                       type="button"
                       onClick={onOpenRequestDevice}
-                      className="text-[11px] font-bold px-2.5 py-1 rounded-md bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 shadow-2xs transition-colors cursor-pointer"
+                      className={`text-[11px] font-bold px-3 py-1.5 rounded-md shadow-2xs transition-colors cursor-pointer ${
+                        isPunchBlockedByDevice || !currentUser.registeredDeviceId
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-700'
+                          : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700'
+                      }`}
                     >
-                      {currentUser.registeredDeviceId ? 'Request Change' : 'Request Approval'}
+                      {currentUser.pendingDeviceRequest?.status === 'pending'
+                        ? 'Update Request'
+                        : currentUser.registeredDeviceId
+                        ? 'Request Change'
+                        : 'Request Approval'}
                     </button>
                   )}
                 </div>

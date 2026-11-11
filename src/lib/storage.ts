@@ -176,7 +176,7 @@ interface QueuedOutboxItem {
 
 let isSyncingFromServer = false;
 let isFlushingOutbox = false;
-let activeFlushPromise: Promise<void> | null = null;
+let activeFlushPromise: Promise<boolean> | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryAttempt = 0;
 let cloudSyncListener: (() => void) | null = null;
@@ -357,13 +357,13 @@ if (typeof window !== 'undefined') {
   });
 }
 
-export function flushPendingCloudWrites(): Promise<void> {
+export function flushPendingCloudWrites(): Promise<boolean> {
   if (activeFlushPromise) {
     return activeFlushPromise;
   }
 
-  const run = (async () => {
-    if (readOutbox().length === 0) return;
+  const run = (async (): Promise<boolean> => {
+    if (readOutbox().length === 0) return true;
 
     if (retryTimer) {
       clearTimeout(retryTimer);
@@ -401,7 +401,7 @@ export function flushPendingCloudWrites(): Promise<void> {
           }
           emitSyncState({ status: 'retrying', lastError: errMsg });
           scheduleOutboxRetry();
-          return;
+          return false;
         }
 
         const data = await res.json();
@@ -433,12 +433,14 @@ export function flushPendingCloudWrites(): Promise<void> {
         lastSavedAt: lastUpdatedAt || new Date().toISOString(),
         lastError: undefined,
       });
+      return true;
     } catch (err) {
       emitSyncState({
         status: 'retrying',
         lastError: err instanceof Error ? err.message : 'Network unavailable',
       });
       scheduleOutboxRetry();
+      return false;
     } finally {
       isFlushingOutbox = false;
       activeFlushPromise = null;
@@ -453,7 +455,7 @@ export function flushPendingCloudWrites(): Promise<void> {
   return run;
 }
 
-export function retryCloudOutboxNow(): Promise<void> {
+export function retryCloudOutboxNow(): Promise<boolean> {
   if (retryTimer) {
     clearTimeout(retryTimer);
     retryTimer = null;
@@ -462,8 +464,8 @@ export function retryCloudOutboxNow(): Promise<void> {
   return flushPendingCloudWrites();
 }
 
-export function pushDatabaseToServer(mutation?: DbMutationPayload): Promise<void> {
-  if (isSyncingFromServer) return Promise.resolve();
+export function pushDatabaseToServer(mutation?: DbMutationPayload): Promise<boolean> {
+  if (isSyncingFromServer) return Promise.resolve(false);
 
   const item: QueuedOutboxItem = {
     id: `mut-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -539,10 +541,10 @@ export function saveEmployeeUpsert(
   employees: Employee[],
   changedEmployee: Employee,
   options?: { allowClearDevice?: boolean; clearPendingRequest?: boolean; actorRole?: Role }
-): void {
+): Promise<boolean> {
   try {
     localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(employees));
-    void pushDatabaseToServer({
+    return pushDatabaseToServer({
       scope: 'employee_upsert',
       employee: changedEmployee,
       allowClearDevice: options?.allowClearDevice,
@@ -551,6 +553,7 @@ export function saveEmployeeUpsert(
     });
   } catch (err) {
     console.error('Failed to save employee:', err);
+    return Promise.resolve(false);
   }
 }
 

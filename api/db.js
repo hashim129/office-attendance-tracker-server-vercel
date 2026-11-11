@@ -1,6 +1,7 @@
 import {
   evaluateAttendancePresenceAndAutoClose,
   getCloudToken,
+  mutateCloudDb,
   readFromGist,
   setNoCacheHeaders,
   writeToGist,

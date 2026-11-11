@@ -334,6 +334,96 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
         </div>
       </div>
 
+      {/* Dedicated Pending Device / Phone Binding Approval Queue (Always visible at top for Admin) */}
+      {(() => {
+        const pendingDeviceEmployees = employees.filter(
+          (e) => e.pendingDeviceRequest && e.pendingDeviceRequest.status === 'pending'
+        );
+        if (pendingDeviceEmployees.length === 0) return null;
+        return (
+          <div className="p-4 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border-2 border-amber-300 dark:border-amber-700 shadow-xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-pulse" />
+                <h2 className="text-xs font-bold uppercase tracking-wider text-amber-900 dark:text-amber-200">
+                  Pending Device Binding Requests ({pendingDeviceEmployees.length})
+                </h2>
+              </div>
+              <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                Action Required: Approve or Decline employee device binding requests
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {pendingDeviceEmployees.map((emp) => (
+                <div
+                  key={`pending-req-${emp.id}`}
+                  className="p-3.5 rounded-lg bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 flex flex-col justify-between gap-3 shadow-2xs"
+                >
+                  <div className="space-y-1 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-900 dark:text-slate-100">
+                        {emp.name}{' '}
+                        <span className="font-mono text-[11px] text-slate-400">
+                          ({emp.employeeCode})
+                        </span>
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {new Date(emp.pendingDeviceRequest!.requestedAt).toLocaleString([], {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-700 dark:text-slate-300">
+                      <strong>Requested Device:</strong> {emp.pendingDeviceRequest!.requestedDeviceName}
+                    </p>
+                    <p className="text-[10px] font-mono text-slate-400 truncate">
+                      ID: {emp.pendingDeviceRequest!.requestedDeviceId}
+                    </p>
+                    {emp.registeredDeviceName && (
+                      <p className="text-[11px] text-slate-500">
+                        <strong>Previous Device:</strong> {emp.registeredDeviceName}
+                      </p>
+                    )}
+                    {emp.pendingDeviceRequest!.reason && (
+                      <p className="text-[11px] text-amber-800 dark:text-amber-200 bg-amber-50/70 dark:bg-amber-950/30 px-2 py-1 rounded border border-amber-200/70 dark:border-amber-900/50">
+                        <strong>Reason:</strong> &quot;{emp.pendingDeviceRequest!.reason}&quot;
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    {onApproveDeviceChange && (
+                      <button
+                        type="button"
+                        onClick={() => onApproveDeviceChange(emp.id)}
+                        className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>Approve Phone</span>
+                      </button>
+                    )}
+                    {onRejectDeviceChange && (
+                      <button
+                        type="button"
+                        onClick={() => onRejectDeviceChange(emp.id)}
+                        className="flex-1 py-1.5 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                      >
+                        <XCircle className="w-3.5 h-3.5" />
+                        <span>Decline</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Filter and Search Bar */}
       <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
