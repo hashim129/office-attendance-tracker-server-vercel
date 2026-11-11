@@ -65,6 +65,11 @@ export interface AttendanceRecord {
   clearTimeOut?: boolean;
   adminVerification?: VerificationInfo;
   accountsVerification?: VerificationInfo;
+  recordUpdatedAt?: string;
+  lastEditedByRole?: Role;
+  actorAction?: 'time_in' | 'time_out' | 'start_break' | 'end_break' | 'update_note' | 'verify' | 'admin_edit' | 'auto_close';
+  adminOverrideAt?: string;
+  adminKeepOpen?: boolean;
 }
 
 export interface ShiftSchedule {
@@ -126,11 +131,13 @@ export interface Employee {
   deviceBoundApprovedAt?: string;
   pendingDeviceRequest?: DeviceChangeRequest;
   deviceChangeHistory?: DeviceHistoryEntry[];
+  recordUpdatedAt?: string;
+  lastEditedByRole?: Role;
 }
 
 export type LeaveType = 'annual' | 'sick' | 'casual' | 'unpaid' | 'remote_work';
 
-export type LeaveStatus = 'pending' | 'approved' | 'rejected';
+export type LeaveStatus = 'pending' | 'rejected' | 'approved';
 
 export interface LeaveRequest {
   id: string;
@@ -144,6 +151,8 @@ export interface LeaveRequest {
   appliedAt: string; // ISO
   reviewedBy?: string;
   reviewNote?: string;
+  recordUpdatedAt?: string;
+  lastEditedByRole?: Role;
 }
 
 export interface OfficeSettings {
@@ -170,6 +179,7 @@ export interface OfficeSettings {
   enableDisconnectStatusTracking?: boolean; // Show "No Internet (In)" when active device loses internet
   autoPunchOutOnInactiveHours?: number; // Auto punch out after N hours of device inactivity (default 2, 0=off)
   disconnectThresholdMinutes?: number; // Minutes without heartbeat before marking "No Internet" (default 3)
+  settingsUpdatedAt?: string;
 }
 
 export type AppMode = 'desktop' | 'kiosk';

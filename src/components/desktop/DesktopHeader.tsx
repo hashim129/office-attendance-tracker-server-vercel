@@ -1,6 +1,22 @@
 import React, { useState } from 'react';
-import { LogOut, Shield, User, Monitor, Bell, Crown, Check, MessageSquare, KeyRound, Wifi, WifiOff } from 'lucide-react';
+import {
+  LogOut,
+  Shield,
+  User,
+  Monitor,
+  Bell,
+  Crown,
+  Check,
+  MessageSquare,
+  KeyRound,
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  CheckCircle2,
+  Cloud,
+} from 'lucide-react';
 import { ActiveDesktopTab, AppMode, CeoComment, Employee } from '../../types';
+import { CloudSyncState } from '../../lib/storage';
 
 interface DesktopHeaderProps {
   currentUser: Employee;
@@ -11,6 +27,8 @@ interface DesktopHeaderProps {
   onMarkCeoCommentRead?: (commentId: string) => void;
   onOpenChangePassword?: () => void;
   isNetworkOnline?: boolean;
+  cloudSyncState?: CloudSyncState;
+  onRetrySync?: () => void;
 }
 
 export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
@@ -22,6 +40,8 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   onMarkCeoCommentRead,
   onOpenChangePassword,
   isNetworkOnline = true,
+  cloudSyncState,
+  onRetrySync,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -69,8 +89,38 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         </h2>
       </div>
 
-      {/* Right Controls: Connection State, Notifications, Kiosk Mode Shortcut & User Profile */}
+      {/* Right Controls: Cloud Sync, Connection State, Notifications, Kiosk Mode Shortcut & User Profile */}
       <div className="flex items-center gap-3">
+        {cloudSyncState && cloudSyncState.status === 'saving' && (
+          <span
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+            title="Saving changes promptly to cloud database..."
+          >
+            <RefreshCw className="w-3 h-3 animate-spin" />
+            <span>Saving{cloudSyncState.pendingCount > 1 ? ` (${cloudSyncState.pendingCount})` : '...'}</span>
+          </span>
+        )}
+        {cloudSyncState && (cloudSyncState.status === 'retrying' || cloudSyncState.status === 'error') && (
+          <button
+            type="button"
+            onClick={onRetrySync}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300 dark:border-amber-700 transition-colors cursor-pointer"
+            title={cloudSyncState.lastError ? `Cloud save pending (${cloudSyncState.lastError}). Click to retry now.` : 'Click to retry cloud save now'}
+          >
+            <RefreshCw className="w-3 h-3" />
+            <span>Retry Save ({cloudSyncState.pendingCount || 1})</span>
+          </button>
+        )}
+        {cloudSyncState && cloudSyncState.status === 'saved' && (
+          <span
+            className="hidden md:inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold bg-emerald-50/80 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/70"
+            title={`All changes saved to cloud${cloudSyncState.lastSavedAt ? ` at ${new Date(cloudSyncState.lastSavedAt).toLocaleTimeString()}` : ''}`}
+          >
+            <Cloud className="w-3 h-3" />
+            <CheckCircle2 className="w-2.5 h-2.5" />
+            <span>Saved</span>
+          </span>
+        )}
         {isNetworkOnline ? (
           <span
             className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"

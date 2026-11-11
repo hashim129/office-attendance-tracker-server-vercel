@@ -13,6 +13,9 @@ import {
 } from './types';
 import {
   clearSession,
+  CloudSyncState,
+  flushPendingCloudWrites,
+  getCloudSyncStatus,
   hasPendingCloudWrites,
   loadAttendanceRecords,
   loadCeoComments,
@@ -23,6 +26,7 @@ import {
   loadSettings,
   loadShifts,
   registerCloudSyncListener,
+  retryCloudOutboxNow,
   saveAttendanceRecords,
   saveCeoComments,
   saveEmployeeDelete,
@@ -32,6 +36,7 @@ import {
   saveSession,
   saveSettings,
   saveShifts,
+  subscribeCloudSyncStatus,
   syncDatabaseFromServer,
 } from './lib/storage';
 import {
@@ -80,6 +85,7 @@ export default function App() {
   const [isNetworkOnline, setIsNetworkOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
+  const [cloudSyncState, setCloudSyncState] = useState<CloudSyncState>(() => getCloudSyncStatus());
 
   // Current Session & Workspace Navigation
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
@@ -126,6 +132,7 @@ export default function App() {
       const loadedComments = loadCeoComments();
       const loadedSettings = loadSettings();
 
+      recordsRef.current = loadedRecords;
       setEmployees(loadedEmps);
       setShifts(loadedShifts);
       setRecords(loadedRecords);
@@ -148,6 +155,8 @@ export default function App() {
     // Load cached data immediately for instant UI, WITHOUT pushing stale records back to server!
     refreshFromLocal(false);
 
+    const unsubscribeStatus = subscribeCloudSyncStatus(setCloudSyncState);
+
     // Subscribe to post-write server merges so state reflects authoritative cloud DB
     registerCloudSyncListener(() => {
       refreshFromLocal(true);
@@ -159,8 +168,9 @@ export default function App() {
     });
 
     let bootFinished = false;
-    // Sync authoritative database from Cloud /api/db FIRST before any client auto-close writes
-    void syncDatabaseFromServer(true)
+    // Flush any queued offline outbox mutations FIRST before pulling from server, so nothing is ever lost on reload
+    void flushPendingCloudWrites()
+      .then(() => syncDatabaseFromServer(true))
       .then((updated) => {
         if (updated) {
           refreshFromLocal(true);
@@ -180,20 +190,32 @@ export default function App() {
           loadEmployees()
         );
         if (hasChanges) {
-          setRecords(updatedRecords);
-          const changedOne = updatedRecords.find(
-            (u, idx) => currentRecs[idx] && u.isAutoPunchedOut !== currentRecs[idx].isAutoPunchedOut
+          const changedBatch = updatedRecords.filter(
+            (u, idx) => currentRecs[idx] && u !== currentRecs[idx]
           );
-          if (changedOne) {
-            saveAttendanceRecords(updatedRecords, changedOne);
-          } else {
-            saveAttendanceRecords(updatedRecords);
+          if (changedBatch.length > 0) {
+            recordsRef.current = updatedRecords;
+            setRecords(updatedRecords);
+            saveAttendanceRecords(updatedRecords, changedBatch);
           }
         }
       });
 
+    let hiddenPollSkipCount = 0;
     const syncInterval = setInterval(() => {
       if (!bootFinished) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        hiddenPollSkipCount += 1;
+        if (hiddenPollSkipCount % 3 !== 0) return;
+      } else {
+        hiddenPollSkipCount = 0;
+      }
+
+      if (hasPendingCloudWrites()) {
+        void flushPendingCloudWrites();
+        return;
+      }
+
       void syncDatabaseFromServer(false)
         .then((updated) => {
           if (typeof navigator !== 'undefined' && navigator.onLine) {
@@ -204,28 +226,27 @@ export default function App() {
         .catch(() => {
           setIsNetworkOnline(false);
         });
-    }, 4000);
+    }, 6000);
 
     // Periodic check to auto punch out at 11:59 PM or >2h inactivity without requiring manual reload
     const autoPunchInterval = setInterval(() => {
       if (!bootFinished) return;
-      setRecords((prev) => {
-        const currentShifts = loadShifts();
-        const { updatedRecords, hasChanges } = autoCloseForgottenPunches(
-          prev,
-          currentShifts,
-          loadSettings(),
-          loadEmployees()
-        );
-        if (hasChanges) {
-          const changedOne = updatedRecords.find(
-            (u, idx) => prev[idx] && u.isAutoPunchedOut !== prev[idx].isAutoPunchedOut
-          );
-          saveAttendanceRecords(updatedRecords, changedOne);
-          return updatedRecords;
+      const prev = recordsRef.current;
+      const currentShifts = loadShifts();
+      const { updatedRecords, hasChanges } = autoCloseForgottenPunches(
+        prev,
+        currentShifts,
+        loadSettings(),
+        loadEmployees()
+      );
+      if (hasChanges) {
+        const changedBatch = updatedRecords.filter((u, idx) => prev[idx] && u !== prev[idx]);
+        if (changedBatch.length > 0) {
+          recordsRef.current = updatedRecords;
+          setRecords(updatedRecords);
+          saveAttendanceRecords(updatedRecords, changedBatch);
         }
-        return prev;
-      });
+      }
     }, 15000);
 
     const ipInterval = setInterval(() => {
@@ -250,6 +271,7 @@ export default function App() {
       clearInterval(ipInterval);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       registerCloudSyncListener(null);
+      unsubscribeStatus();
     };
   }, []);
 
@@ -443,14 +465,15 @@ export default function App() {
     const shift = shifts.find((s) => s.id === emp?.shiftId) || shifts[0];
     const late = isLateArrival(nowTime, shift);
 
-    const existingIdx = records.findIndex(
+    const currentRecords = recordsRef.current;
+    const existingIdx = currentRecords.findIndex(
       (r) => r.employeeId === employeeId && r.date === todayStr
     );
 
     // DAILY LIMIT ENFORCEMENT: Each employee is restricted to 1 attendance punch daily
-    if (existingIdx >= 0 && records[existingIdx].timeIn) {
+    if (existingIdx >= 0 && currentRecords[existingIdx].timeIn) {
       alert(
-        `Daily Punch Limit: ${emp.name} already clocked in today at ${records[existingIdx].timeIn}. Only ONE clock-in is permitted per day. If a modification is required, contact the Administrator.`
+        `Daily Punch Limit: ${emp.name} already clocked in today at ${currentRecords[existingIdx].timeIn}. Only ONE clock-in is permitted per day. If a modification is required, contact the Administrator.`
       );
       return;
     }
@@ -461,6 +484,7 @@ export default function App() {
     const nowIso = new Date().toISOString();
     const isOnlineNow = typeof navigator !== 'undefined' ? navigator.onLine : true;
     lastInteractionRef.current = Date.now();
+    const actorRole = appMode === 'kiosk' ? 'employee' : currentUserRef.current?.role || emp.role;
 
     const presenceFields: Partial<AttendanceRecord> =
       appMode === 'kiosk'
@@ -474,7 +498,7 @@ export default function App() {
             monitoringPaused: false,
           };
 
-    let nextRecords = [...records];
+    let nextRecords = [...currentRecords];
     let changedRecord: AttendanceRecord;
 
     if (existingIdx >= 0) {
@@ -491,6 +515,9 @@ export default function App() {
         deviceMismatchReason: isMismatch
           ? `Punched from device "${deviceLabel}" instead of approved phone "${emp.registeredDeviceName || 'Registered Phone'}"`
           : undefined,
+        recordUpdatedAt: nowIso,
+        lastEditedByRole: actorRole,
+        actorAction: 'time_in',
       };
       nextRecords[existingIdx] = changedRecord;
     } else {
@@ -514,29 +541,40 @@ export default function App() {
           ? `Punched from device "${deviceLabel}" instead of approved phone "${emp.registeredDeviceName || 'Registered Phone'}"`
           : undefined,
         ...presenceFields,
+        recordUpdatedAt: nowIso,
+        lastEditedByRole: actorRole,
+        actorAction: 'time_in',
       };
       nextRecords = [changedRecord, ...nextRecords];
     }
 
+    recordsRef.current = nextRecords;
     setRecords(nextRecords);
-    saveAttendanceRecords(nextRecords, changedRecord);
+    saveAttendanceRecords(nextRecords, changedRecord, actorRole);
   };
 
   const handleUpdatePunchNote = (employeeId: string, notes: string) => {
     const todayStr = getTodayDateString();
-    const existingIdx = records.findIndex(
+    const currentRecords = recordsRef.current;
+    const existingIdx = currentRecords.findIndex(
       (r) => r.employeeId === employeeId && r.date === todayStr
     );
 
     if (existingIdx >= 0) {
-      const updatedRecords = [...records];
-      const changedRecord = {
+      const nowIso = new Date().toISOString();
+      const actorRole = currentUserRef.current?.role || 'employee';
+      const updatedRecords = [...currentRecords];
+      const changedRecord: AttendanceRecord = {
         ...updatedRecords[existingIdx],
         notes,
+        recordUpdatedAt: nowIso,
+        lastEditedByRole: actorRole,
+        actorAction: 'update_note',
       };
       updatedRecords[existingIdx] = changedRecord;
+      recordsRef.current = updatedRecords;
       setRecords(updatedRecords);
-      saveAttendanceRecords(updatedRecords, changedRecord);
+      saveAttendanceRecords(updatedRecords, changedRecord, actorRole);
     }
   };
 
@@ -546,13 +584,16 @@ export default function App() {
     const emp = employees.find((e) => e.id === employeeId);
     const shift = shifts.find((s) => s.id === emp?.shiftId) || shifts[0];
 
-    const existingIdx = records.findIndex(
+    const currentRecords = recordsRef.current;
+    const existingIdx = currentRecords.findIndex(
       (r) => r.employeeId === employeeId && r.date === todayStr
     );
 
     if (existingIdx === -1) return;
 
-    const currentRec = records[existingIdx];
+    const currentRec = currentRecords[existingIdx];
+    const nowIso = new Date().toISOString();
+    const actorRole = appMode === 'kiosk' ? 'employee' : currentUserRef.current?.role || 'employee';
 
     // Close any active open break
     const updatedBreaks = currentRec.breaks.map((b) => {
@@ -575,6 +616,8 @@ export default function App() {
     const updated: AttendanceRecord = {
       ...currentRec,
       timeOut: nowTime,
+      clearTimeOut: false,
+      adminKeepOpen: false,
       breaks: updatedBreaks,
       totalWorkedMinutes: worked.totalWorkedMinutes,
       regularMinutes: worked.regularMinutes,
@@ -586,12 +629,16 @@ export default function App() {
       deviceMismatchReason:
         currentRec.deviceMismatchReason ||
         (isMismatch ? `Punched out from unapproved device "${deviceLabel}"` : undefined),
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
+      actorAction: 'time_out',
     };
 
-    const nextRecords = [...records];
+    const nextRecords = [...currentRecords];
     nextRecords[existingIdx] = updated;
+    recordsRef.current = nextRecords;
     setRecords(nextRecords);
-    saveAttendanceRecords(nextRecords, updated);
+    saveAttendanceRecords(nextRecords, updated, actorRole);
   };
 
   const handleStartBreak = (
@@ -600,7 +647,8 @@ export default function App() {
   ) => {
     const todayStr = getTodayDateString();
     const nowTime = getCurrentTimeString();
-    const existingIdx = records.findIndex(
+    const currentRecords = recordsRef.current;
+    const existingIdx = currentRecords.findIndex(
       (r) => r.employeeId === employeeId && r.date === todayStr
     );
 
@@ -608,7 +656,8 @@ export default function App() {
 
     const nowIso = new Date().toISOString();
     lastInteractionRef.current = Date.now();
-    const currentRec = records[existingIdx];
+    const currentRec = currentRecords[existingIdx];
+    const actorRole = appMode === 'kiosk' ? 'employee' : currentUserRef.current?.role || 'employee';
     const newBreak = {
       id: `brk-${Date.now()}`,
       start: nowTime,
@@ -619,6 +668,9 @@ export default function App() {
       ...currentRec,
       breaks: [...currentRec.breaks, newBreak],
       lastActivityAt: nowIso,
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
+      actorAction: 'start_break',
       ...(appMode !== 'kiosk'
         ? {
             lastHeartbeatAt: nowIso,
@@ -627,16 +679,18 @@ export default function App() {
         : {}),
     };
 
-    const nextRecords = [...records];
+    const nextRecords = [...currentRecords];
     nextRecords[existingIdx] = updated;
+    recordsRef.current = nextRecords;
     setRecords(nextRecords);
-    saveAttendanceRecords(nextRecords, updated);
+    saveAttendanceRecords(nextRecords, updated, actorRole);
   };
 
   const handleEndBreak = (employeeId: string) => {
     const todayStr = getTodayDateString();
     const nowTime = getCurrentTimeString();
-    const existingIdx = records.findIndex(
+    const currentRecords = recordsRef.current;
+    const existingIdx = currentRecords.findIndex(
       (r) => r.employeeId === employeeId && r.date === todayStr
     );
 
@@ -644,7 +698,8 @@ export default function App() {
 
     const nowIso = new Date().toISOString();
     lastInteractionRef.current = Date.now();
-    const currentRec = records[existingIdx];
+    const currentRec = currentRecords[existingIdx];
+    const actorRole = appMode === 'kiosk' ? 'employee' : currentUserRef.current?.role || 'employee';
     const updatedBreaks = currentRec.breaks.map((b) => {
       if (!b.end) {
         return { ...b, end: nowTime };
@@ -657,6 +712,9 @@ export default function App() {
       breaks: updatedBreaks,
       lastActivityAt: nowIso,
       disconnectedAt: undefined,
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
+      actorAction: 'end_break',
       ...(appMode !== 'kiosk'
         ? {
             lastHeartbeatAt: nowIso,
@@ -666,47 +724,67 @@ export default function App() {
         : {}),
     };
 
-    const nextRecords = [...records];
+    const nextRecords = [...currentRecords];
     nextRecords[existingIdx] = updated;
+    recordsRef.current = nextRecords;
     setRecords(nextRecords);
-    saveAttendanceRecords(nextRecords, updated);
+    saveAttendanceRecords(nextRecords, updated, actorRole);
   };
 
   // -------------------------------------------------------------
   // Admin Data Modification Handlers
   // -------------------------------------------------------------
   const handleAddEmployee = (empData: Omit<Employee, 'id'>) => {
+    const nowIso = new Date().toISOString();
+    const actorRole = currentUserRef.current?.role || 'admin';
     const newEmp: Employee = {
       ...empData,
       id: `emp-${Date.now()}`,
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
     };
     const nextEmps = [...employees, newEmp];
     setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, newEmp);
+    saveEmployeeUpsert(nextEmps, newEmp, { actorRole });
   };
 
   const handleUpdateEmployee = (updatedEmp: Employee) => {
-    const nextEmps = employees.map((e) => (e.id === updatedEmp.id ? updatedEmp : e));
+    const nowIso = new Date().toISOString();
+    const actorRole = currentUserRef.current?.role || 'admin';
+    const stampedEmp: Employee = {
+      ...updatedEmp,
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
+    };
+    const nextEmps = employees.map((e) => (e.id === stampedEmp.id ? stampedEmp : e));
     setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, updatedEmp);
-    if (currentUser?.id === updatedEmp.id) {
-      setCurrentUser(updatedEmp);
+    saveEmployeeUpsert(nextEmps, stampedEmp, { actorRole });
+    if (currentUser?.id === stampedEmp.id) {
+      setCurrentUser(stampedEmp);
     }
   };
 
   const handleDeleteEmployee = (empId: string) => {
+    const actorRole = currentUserRef.current?.role || 'admin';
     const nextEmps = employees.filter((e) => e.id !== empId);
     setEmployees(nextEmps);
-    saveEmployeeDelete(nextEmps, empId);
+    saveEmployeeDelete(nextEmps, empId, actorRole);
   };
 
   const handleUpdatePin = (employeeId: string, newPin: string) => {
     const target = employees.find((e) => e.id === employeeId);
     if (!target) return;
-    const updatedEmp: Employee = { ...target, pin: newPin };
+    const nowIso = new Date().toISOString();
+    const actorRole = currentUserRef.current?.role || 'employee';
+    const updatedEmp: Employee = {
+      ...target,
+      pin: newPin,
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
+    };
     const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
     setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, updatedEmp);
+    saveEmployeeUpsert(nextEmps, updatedEmp, { actorRole });
     if (currentUser?.id === employeeId) {
       setCurrentUser(updatedEmp);
     }
@@ -721,6 +799,8 @@ export default function App() {
     const emp = employees.find((e) => e.id === employeeId);
     if (!emp) return;
 
+    const nowIso = new Date().toISOString();
+    const actorRole = currentUserRef.current?.role || emp.role;
     const request: DeviceChangeRequest = {
       id: `devreq-${Date.now()}`,
       employeeId,
@@ -729,7 +809,7 @@ export default function App() {
       requestedDeviceName,
       previousDeviceId: emp.registeredDeviceId,
       previousDeviceName: emp.registeredDeviceName,
-      requestedAt: new Date().toISOString(),
+      requestedAt: nowIso,
       reason,
       status: 'pending',
     };
@@ -737,11 +817,13 @@ export default function App() {
     const updatedEmp: Employee = {
       ...emp,
       pendingDeviceRequest: request,
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
     };
 
     const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
     setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, updatedEmp);
+    saveEmployeeUpsert(nextEmps, updatedEmp, { actorRole });
     if (currentUser?.id === employeeId) {
       setCurrentUser(updatedEmp);
     }
@@ -751,6 +833,8 @@ export default function App() {
     const emp = employees.find((e) => e.id === employeeId);
     if (!emp || !emp.pendingDeviceRequest) return;
 
+    const nowIso = new Date().toISOString();
+    const actorRole = currentUserRef.current?.role || 'admin';
     const req = emp.pendingDeviceRequest;
     const historyEntry: DeviceHistoryEntry = {
       id: `hist-${Date.now()}`,
@@ -758,7 +842,7 @@ export default function App() {
       deviceId: req.requestedDeviceId,
       deviceName: req.requestedDeviceName,
       changedBy: currentUser?.name || 'Administrator',
-      changedAt: new Date().toISOString(),
+      changedAt: nowIso,
       reason: req.reason || 'Admin approval',
     };
 
@@ -766,16 +850,18 @@ export default function App() {
       ...emp,
       registeredDeviceId: req.requestedDeviceId,
       registeredDeviceName: req.requestedDeviceName,
-      registeredAt: new Date().toISOString(),
+      registeredAt: nowIso,
       deviceBoundApprovedBy: currentUser?.name || 'Administrator',
-      deviceBoundApprovedAt: new Date().toISOString(),
+      deviceBoundApprovedAt: nowIso,
       pendingDeviceRequest: undefined,
       deviceChangeHistory: [historyEntry, ...(emp.deviceChangeHistory || [])],
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
     };
 
     const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
     setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true });
+    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true, actorRole });
     if (currentUser?.id === employeeId) {
       setCurrentUser(updatedEmp);
     }
@@ -786,13 +872,15 @@ export default function App() {
     const emp = employees.find((e) => e.id === employeeId);
     if (!emp) return;
 
+    const nowIso = new Date().toISOString();
+    const actorRole = currentUserRef.current?.role || 'admin';
     const historyEntry: DeviceHistoryEntry = {
       id: `hist-${Date.now()}`,
       action: emp.registeredDeviceId ? 'changed' : 'bound',
       deviceId,
       deviceName,
       changedBy: currentUser?.name || 'Administrator',
-      changedAt: new Date().toISOString(),
+      changedAt: nowIso,
       reason: 'Admin direct binding from detected punch device',
     };
 
@@ -800,16 +888,18 @@ export default function App() {
       ...emp,
       registeredDeviceId: deviceId,
       registeredDeviceName: deviceName,
-      registeredAt: new Date().toISOString(),
+      registeredAt: nowIso,
       deviceBoundApprovedBy: currentUser?.name || 'Administrator',
-      deviceBoundApprovedAt: new Date().toISOString(),
+      deviceBoundApprovedAt: nowIso,
       pendingDeviceRequest: undefined,
       deviceChangeHistory: [historyEntry, ...(emp.deviceChangeHistory || [])],
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
     };
 
     const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
     setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true });
+    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true, actorRole });
     if (currentUser?.id === employeeId) {
       setCurrentUser(updatedEmp);
     }
@@ -819,14 +909,18 @@ export default function App() {
     const emp = employees.find((e) => e.id === employeeId);
     if (!emp || !emp.pendingDeviceRequest) return;
 
+    const nowIso = new Date().toISOString();
+    const actorRole = currentUserRef.current?.role || 'admin';
     const updatedEmp: Employee = {
       ...emp,
       pendingDeviceRequest: undefined,
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
     };
 
     const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
     setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true });
+    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true, actorRole });
     if (currentUser?.id === employeeId) {
       setCurrentUser(updatedEmp);
     }
@@ -845,13 +939,15 @@ export default function App() {
       return;
     }
 
+    const nowIso = new Date().toISOString();
+    const actorRole = currentUserRef.current?.role || 'admin';
     const historyEntry: DeviceHistoryEntry = {
       id: `hist-${Date.now()}`,
       action: 'reset',
       deviceId: emp.registeredDeviceId,
       deviceName: emp.registeredDeviceName,
       changedBy: currentUser?.name || 'Administrator',
-      changedAt: new Date().toISOString(),
+      changedAt: nowIso,
       reason: 'Admin reset device bound',
     };
 
@@ -864,6 +960,8 @@ export default function App() {
       deviceBoundApprovedAt: undefined,
       pendingDeviceRequest: undefined,
       deviceChangeHistory: [historyEntry, ...(emp.deviceChangeHistory || [])],
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
     };
 
     const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
@@ -871,6 +969,7 @@ export default function App() {
     saveEmployeeUpsert(nextEmps, updatedEmp, {
       allowClearDevice: true,
       clearPendingRequest: true,
+      actorRole,
     });
     if (currentUser?.id === employeeId) {
       setCurrentUser(updatedEmp);
@@ -884,27 +983,31 @@ export default function App() {
     };
     const nextShifts = [...shifts, newShift];
     setShifts(nextShifts);
-    saveShifts(nextShifts);
+    saveShifts(nextShifts, currentUserRef.current?.role || 'admin');
   };
 
   const handleUpdateShift = (updatedShift: ShiftSchedule) => {
     const nextShifts = shifts.map((s) => (s.id === updatedShift.id ? updatedShift : s));
     setShifts(nextShifts);
-    saveShifts(nextShifts);
+    saveShifts(nextShifts, currentUserRef.current?.role || 'admin');
   };
 
   const handleApplyLeave = (
     leaveData: Omit<LeaveRequest, 'id' | 'appliedAt' | 'status'>
   ) => {
+    const nowIso = new Date().toISOString();
+    const actorRole = currentUserRef.current?.role || 'employee';
     const newLeave: LeaveRequest = {
       ...leaveData,
       id: `leave-${Date.now()}`,
       status: 'pending',
-      appliedAt: new Date().toISOString(),
+      appliedAt: nowIso,
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
     };
     const nextLeaves = [newLeave, ...leaves];
     setLeaves(nextLeaves);
-    saveLeaves(nextLeaves, newLeave);
+    saveLeaves(nextLeaves, newLeave, actorRole);
   };
 
   const handleReviewLeave = (
@@ -912,6 +1015,8 @@ export default function App() {
     status: 'approved' | 'rejected',
     reviewNote?: string
   ) => {
+    const nowIso = new Date().toISOString();
+    const actorRole = currentUserRef.current?.role || 'admin';
     let changedLeave: LeaveRequest | undefined;
     const nextLeaves = leaves.map((l) => {
       if (l.id === leaveId) {
@@ -920,29 +1025,87 @@ export default function App() {
           status,
           reviewNote,
           reviewedBy: currentUser?.id,
+          recordUpdatedAt: nowIso,
+          lastEditedByRole: actorRole,
         };
         return changedLeave;
       }
       return l;
     });
     setLeaves(nextLeaves);
-    saveLeaves(nextLeaves, changedLeave);
+    saveLeaves(nextLeaves, changedLeave, actorRole);
   };
 
   const handleUpdateRecord = (updatedRecord: AttendanceRecord) => {
-    const existingIdx = records.findIndex((r) => r.id === updatedRecord.id);
+    const nowIso = new Date().toISOString();
+    const actorRole = updatedRecord.lastEditedByRole || currentUserRef.current?.role || 'admin';
+    const serverPayload: AttendanceRecord = {
+      ...updatedRecord,
+      recordUpdatedAt: updatedRecord.recordUpdatedAt || nowIso,
+      lastEditedByRole: actorRole,
+      ...(actorRole === 'admin' && updatedRecord.actorAction !== 'verify'
+        ? { adminOverrideAt: updatedRecord.adminOverrideAt || nowIso }
+        : {}),
+    };
+
     // Clean local state copy without transient clearTimeOut flag
-    const localRec = { ...updatedRecord };
+    const localRec: AttendanceRecord = { ...serverPayload };
     delete localRec.clearTimeOut;
 
-    let nextRecords = [...records];
+    const currentRecords = recordsRef.current;
+    const existingIdx = currentRecords.findIndex((r) => r.id === localRec.id);
+    let nextRecords = [...currentRecords];
     if (existingIdx >= 0) {
       nextRecords[existingIdx] = localRec;
     } else {
       nextRecords = [localRec, ...nextRecords];
     }
+
+    recordsRef.current = nextRecords;
     setRecords(nextRecords);
-    saveAttendanceRecords(nextRecords, updatedRecord);
+    saveAttendanceRecords(nextRecords, serverPayload, actorRole);
+  };
+
+  const handleBatchUpdateRecords = (updates: AttendanceRecord[]) => {
+    if (!updates || updates.length === 0) return;
+    const nowIso = new Date().toISOString();
+    const defaultRole = currentUserRef.current?.role || 'admin';
+
+    const serverPayloads: AttendanceRecord[] = updates.map((u) => {
+      const role = u.lastEditedByRole || defaultRole;
+      return {
+        ...u,
+        recordUpdatedAt: u.recordUpdatedAt || nowIso,
+        lastEditedByRole: role,
+        ...(role === 'admin' && u.actorAction !== 'verify'
+          ? { adminOverrideAt: u.adminOverrideAt || nowIso }
+          : {}),
+      };
+    });
+
+    const payloadMap = new Map(serverPayloads.map((u) => [u.id, u]));
+    const currentRecords = recordsRef.current;
+    const existingIds = new Set(currentRecords.map((r) => r.id));
+
+    const nextRecords = currentRecords.map((r) => {
+      const upd = payloadMap.get(r.id);
+      if (!upd) return r;
+      const clean = { ...upd };
+      delete clean.clearTimeOut;
+      return clean;
+    });
+
+    for (const upd of serverPayloads) {
+      if (!existingIds.has(upd.id)) {
+        const clean = { ...upd };
+        delete clean.clearTimeOut;
+        nextRecords.unshift(clean);
+      }
+    }
+
+    recordsRef.current = nextRecords;
+    setRecords(nextRecords);
+    saveAttendanceRecords(nextRecords, serverPayloads, defaultRole);
   };
 
   const handleAddCeoComment = (commentData: Omit<CeoComment, 'id' | 'createdAt'>) => {
@@ -954,7 +1117,7 @@ export default function App() {
     };
     const nextComments = [newComment, ...ceoComments];
     setCeoComments(nextComments);
-    saveCeoComments(nextComments, newComment);
+    saveCeoComments(nextComments, newComment, currentUserRef.current?.role || 'ceo');
   };
 
   const handleMarkCeoCommentRead = (commentId: string) => {
@@ -967,12 +1130,16 @@ export default function App() {
       return c;
     });
     setCeoComments(nextComments);
-    saveCeoComments(nextComments, changedComment);
+    saveCeoComments(nextComments, changedComment, currentUserRef.current?.role || 'employee');
   };
 
   const handleUpdateSettings = (newSettings: OfficeSettings) => {
-    setSettings(newSettings);
-    saveSettings(newSettings);
+    const stamped: OfficeSettings = {
+      ...newSettings,
+      settingsUpdatedAt: new Date().toISOString(),
+    };
+    setSettings(stamped);
+    saveSettings(stamped, currentUserRef.current?.role || 'admin');
   };
 
   const handleReloadAllData = () => {
@@ -1045,6 +1212,8 @@ export default function App() {
             onMarkCeoCommentRead={handleMarkCeoCommentRead}
             onOpenChangePassword={() => setIsChangePasswordOpen(true)}
             isNetworkOnline={isNetworkOnline}
+            cloudSyncState={cloudSyncState}
+            onRetrySync={() => void retryCloudOutboxNow()}
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
@@ -1112,6 +1281,7 @@ export default function App() {
                   shifts={shifts}
                   settings={settings}
                   onUpdateRecord={handleUpdateRecord}
+                  onBatchUpdateRecords={handleBatchUpdateRecords}
                   adminUser={currentUser}
                   currentUser={currentUser}
                   ceoComments={ceoComments}

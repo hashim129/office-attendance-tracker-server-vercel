@@ -149,11 +149,6 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     e.preventDefault();
     if (!editingEmployee || !editingRecord || !onUpdateRecord) return;
 
-    if (!editAuditReason.trim()) {
-      alert('Please provide an audit reason for modifying official attendance records.');
-      return;
-    }
-
     const shift = shifts.find((s) => s.id === editingEmployee.shiftId) || shifts[0];
     const nowTime = new Date().toTimeString().slice(0, 8);
     const nowIso = new Date().toISOString();
@@ -206,20 +201,48 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
       ? calculateWorkedMinutes(finalTimeIn, undefined, updatedBreaks, shift.expectedHours)
       : { totalWorkedMinutes: 0, regularMinutes: 0, overtimeMinutes: 0 };
 
+    const actorRole = currentUser?.role || 'admin';
+    const isReopeningActiveShift = shouldClearTimeOut && editWorkingStatus !== 'absent' && Boolean(finalTimeIn);
+    const isExistingDesktopMonitored =
+      editingRecord.heartbeatSource === 'web-client' ||
+      editingRecord.heartbeatSource === 'windows-agent';
+
+    let finalPunchNote = editPunchNote.trim();
+    if (isReopeningActiveShift && finalPunchNote) {
+      finalPunchNote = finalPunchNote
+        .replace(/\s*·?\s*(Clocked Out by Admin|Auto system Punched out|Auto Punched Out\s*\([^)]*\))/gi, '')
+        .trim();
+    }
+
+    const finalAuditReason =
+      editAuditReason.trim() ||
+      (isReopeningActiveShift
+        ? 'Marked Currently Working by Administrator'
+        : editWorkingStatus === 'absent'
+        ? 'Marked Absent by Administrator'
+        : 'Manual attendance adjustment by Administrator');
+
     const updated: AttendanceRecord = {
       ...editingRecord,
       timeIn: finalTimeIn,
       timeOut: finalTimeOut,
       clearTimeOut: shouldClearTimeOut,
-      isAutoPunchedOut: shouldClearTimeOut ? false : editingRecord.isAutoPunchedOut,
-      autoPunchOutReason: shouldClearTimeOut ? undefined : editingRecord.autoPunchOutReason,
-      ...(shouldClearTimeOut && editWorkingStatus !== 'absent'
+      isAutoPunchedOut: false,
+      autoPunchOutReason: undefined,
+      disconnectedAt: isReopeningActiveShift ? undefined : editingRecord.disconnectedAt,
+      monitoringPaused: false,
+      ...(isReopeningActiveShift
         ? {
-            connectionStatus: 'online' as const,
-            lastHeartbeatAt: nowIso,
-            lastActivityAt: nowIso,
-            disconnectedAt: undefined,
-            monitoringPaused: false,
+            heartbeatSource: isExistingDesktopMonitored
+              ? editingRecord.heartbeatSource
+              : editingRecord.heartbeatSource || 'kiosk',
+            ...(isExistingDesktopMonitored
+              ? {
+                  connectionStatus: 'online' as const,
+                  lastHeartbeatAt: nowIso,
+                  lastActivityAt: nowIso,
+                }
+              : {}),
           }
         : {}),
       breaks: updatedBreaks,
@@ -227,10 +250,15 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
       regularMinutes: worked.regularMinutes,
       overtimeMinutes: worked.overtimeMinutes,
       status: finalStatus,
-      notes: editPunchNote.trim() || undefined,
+      notes: finalPunchNote || undefined,
       isManuallyAdjusted: true,
-      adjustmentNote: editAuditReason.trim(),
+      adjustmentNote: finalAuditReason,
       adjustedBy: `${currentUser?.name || 'Administrator'} (${currentUser?.employeeCode || currentUser?.role?.toUpperCase() || 'ADMIN'})`,
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: actorRole,
+      actorAction: 'admin_edit',
+      adminOverrideAt: nowIso,
+      adminKeepOpen: isReopeningActiveShift,
     };
 
     onUpdateRecord(updated);
@@ -889,6 +917,16 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                     setHasPunchIn(true);
                     setHasPunchOut(false);
                     if (editStatus === 'absent') setEditStatus('present');
+                    setEditPunchNote((prev) =>
+                      prev
+                        .replace(/\s*·?\s*(Clocked Out by Admin|Auto system Punched out|Auto Punched Out\s*\([^)]*\))/gi, '')
+                        .trim()
+                    );
+                    setEditAuditReason((prev) =>
+                      !prev.trim() || /Quick Clock Out|Auto system Punched out/i.test(prev)
+                        ? 'Re-opened to Currently Working by Administrator'
+                        : prev
+                    );
                   }}
                   className={`p-2.5 rounded-lg border text-left flex items-start gap-2 transition-all cursor-pointer ${
                     editWorkingStatus === 'working'
@@ -933,6 +971,11 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                     setHasPunchIn(true);
                     setHasPunchOut(false);
                     if (editStatus === 'absent') setEditStatus('present');
+                    setEditPunchNote((prev) =>
+                      prev
+                        .replace(/\s*·?\s*(Clocked Out by Admin|Auto system Punched out|Auto Punched Out\s*\([^)]*\))/gi, '')
+                        .trim()
+                    );
                   }}
                   className={`p-2.5 rounded-lg border text-left flex items-start gap-2 transition-all cursor-pointer ${
                     editWorkingStatus === 'break'
@@ -1069,6 +1112,16 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                         }
                       } else {
                         setEditWorkingStatus('working');
+                        setEditPunchNote((prev) =>
+                          prev
+                            .replace(/\s*·?\s*(Clocked Out by Admin|Auto system Punched out|Auto Punched Out\s*\([^)]*\))/gi, '')
+                            .trim()
+                        );
+                        setEditAuditReason((prev) =>
+                          !prev.trim() || /Quick Clock Out|Auto system Punched out/i.test(prev)
+                            ? 'Re-opened to Currently Working by Administrator'
+                            : prev
+                        );
                       }
                     }}
                     className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer disabled:opacity-50"
@@ -1166,14 +1219,13 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
             {/* 5. Mandatory Audit Note */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Mandatory Reason for Manual Adjustment / Override
+                Audit Reason for Manual Adjustment / Override
               </label>
               <textarea
                 value={editAuditReason}
                 onChange={(e) => setEditAuditReason(e.target.value)}
-                placeholder="Required for HR audit: Explain why this punch record or working status is being adjusted."
+                placeholder="Explain why this punch record or working status is being adjusted."
                 rows={2}
-                required
                 className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <p className="text-[10px] text-slate-500 mt-1">

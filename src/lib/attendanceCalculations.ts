@@ -28,14 +28,18 @@ export function deriveLiveAttendanceState(params: {
   const activeBreak = Array.isArray(record.breaks) && record.breaks.some((b) => !b.end);
   if (activeBreak) return 'break';
 
+  const isKioskSession =
+    record.heartbeatSource === 'kiosk' ||
+    (!record.heartbeatSource && String(record.notes || '').startsWith('Lobby Kiosk Punch'));
+
   if (settings?.enableDisconnectStatusTracking !== false && record.date === todayStr) {
     if (isCurrentUserOffline) return 'no_internet';
     if (record.connectionStatus === 'no_internet') return 'no_internet';
 
     if (
+      !isKioskSession &&
       record.lastHeartbeatAt &&
-      !record.monitoringPaused &&
-      record.heartbeatSource !== 'kiosk'
+      !record.monitoringPaused
     ) {
       const lastHbMs = Date.parse(record.lastHeartbeatAt);
       const disconnectMs = Math.max(1, settings?.disconnectThresholdMinutes ?? 3) * 60 * 1000;
@@ -256,13 +260,17 @@ function finalizeAutoClosedRecord(params: {
     notes: finalNotes,
     isAutoPunchedOut: true,
     autoPunchOutReason: reason,
+    adminKeepOpen: false,
+    actorAction: 'auto_close',
+    recordUpdatedAt: new Date().toISOString(),
   };
 }
 
 /**
  * Auto punch out forgotten punches at 11:59 PM (23:59:00) AND records whose
  * monitored device remained non-active for more than the configured inactivity window (default 2h).
- * Explicitly skips active Breaks during the workday ("if employee sets on break then it is break").
+ * Explicitly skips active Breaks during the workday ("if employee sets on break then it is break"),
+ * respects explicit Admin keep-open overrides made after 23:59, and ignores Kiosk punches.
  */
 export function autoCloseForgottenPunches(
   records: AttendanceRecord[],
@@ -293,10 +301,16 @@ export function autoCloseForgottenPunches(
     const shift = (emp && shiftMap.get(emp.shiftId)) || defaultShift;
     const expectedHours = shift.expectedHours || 8;
 
+    const adminOverrideMs = record.adminOverrideAt ? Date.parse(record.adminOverrideAt) : 0;
+    const midnightCutoffMs = record.date ? Date.parse(`${record.date}T23:59:00+05:00`) : 0;
+    const adminKeptOpenPastCutoff =
+      record.adminKeepOpen === true ||
+      (adminOverrideMs > 0 && midnightCutoffMs > 0 && adminOverrideMs > midnightCutoffMs);
+
     const isPastDay = record.date < today;
     const isPastMidnightToday = record.date === today && nowTime >= '23:59:00';
 
-    if (isPastDay || isPastMidnightToday) {
+    if ((isPastDay || isPastMidnightToday) && !adminKeptOpenPastCutoff) {
       hasChanges = true;
       return finalizeAutoClosedRecord({
         record,
@@ -307,20 +321,30 @@ export function autoCloseForgottenPunches(
       });
     }
 
-    // Same-day >2h device inactivity check (skip if currently On Break)
+    // Same-day >2h device inactivity check (skip if currently On Break or Kiosk punch)
     const onBreak = Array.isArray(record.breaks) && record.breaks.some((b) => !b.end);
+    const isKioskSession =
+      record.heartbeatSource === 'kiosk' ||
+      (!record.heartbeatSource && String(record.notes || '').startsWith('Lobby Kiosk Punch'));
+
     if (
       !onBreak &&
+      !isKioskSession &&
       inactiveMs > 0 &&
       record.date === today &&
       record.lastHeartbeatAt &&
-      !record.monitoringPaused &&
-      record.heartbeatSource !== 'kiosk'
+      !record.monitoringPaused
     ) {
       const lastActMs = Date.parse(record.lastActivityAt || record.lastHeartbeatAt);
+      const effectiveActMs =
+        record.adminKeepOpen && adminOverrideMs > 0
+          ? Math.max(Number.isNaN(lastActMs) ? 0 : lastActMs, adminOverrideMs)
+          : lastActMs;
+
       if (
-        !Number.isNaN(lastActMs) &&
-        nowMs - lastActMs > inactiveMs &&
+        !Number.isNaN(effectiveActMs) &&
+        effectiveActMs > 0 &&
+        nowMs - effectiveActMs > inactiveMs &&
         parseTimeToMinutes(nowTime) >= parseTimeToMinutes(record.timeIn)
       ) {
         hasChanges = true;

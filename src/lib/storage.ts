@@ -4,6 +4,7 @@ import {
   Employee,
   LeaveRequest,
   OfficeSettings,
+  Role,
   ShiftSchedule,
 } from '../types';
 import {
@@ -135,35 +136,117 @@ export function generateInitialAttendanceRecords(): AttendanceRecord[] {
 }
 
 // Server Sync Helper (for standalone .exe, Express server, and Vercel Gist DB)
-let isSyncingFromServer = false;
-let pendingPushCount = 0;
-let pushQueue: Promise<void> = Promise.resolve();
-let cloudSyncListener: (() => void) | null = null;
+export interface CloudSyncState {
+  status: 'idle' | 'saving' | 'saved' | 'retrying' | 'error';
+  pendingCount: number;
+  lastSavedAt?: string;
+  lastError?: string;
+}
 
 const STORAGE_KEY_UPDATED_AT = 'office_attend_updated_at_v1';
+const STORAGE_KEY_OUTBOX = 'office_attend_outbox_v1';
+
+export type DbMutationPayload =
+  | {
+      scope: 'attendance';
+      changedRecord?: AttendanceRecord;
+      changedRecords?: AttendanceRecord[];
+      actorRole?: Role;
+    }
+  | {
+      scope: 'employee_upsert';
+      employee: Employee;
+      allowClearDevice?: boolean;
+      clearPendingRequest?: boolean;
+      actorRole?: Role;
+    }
+  | { scope: 'employee_delete'; deletedEmployeeId: string; actorRole?: Role }
+  | { scope: 'shifts'; actorRole?: Role }
+  | { scope: 'leaves'; changedLeave?: LeaveRequest; actorRole?: Role }
+  | { scope: 'ceoComments'; changedComment?: CeoComment; actorRole?: Role }
+  | { scope: 'settings'; actorRole?: Role }
+  | { scope: 'full_restore'; actorRole?: Role }
+  | { scope: 'legacy_bulk'; actorRole?: Role };
+
+interface QueuedOutboxItem {
+  id: string;
+  enqueuedAt: string;
+  mutation: DbMutationPayload;
+}
+
+let isSyncingFromServer = false;
+let isFlushingOutbox = false;
+let activeFlushPromise: Promise<void> | null = null;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryAttempt = 0;
+let cloudSyncListener: (() => void) | null = null;
+const statusListeners = new Set<(state: CloudSyncState) => void>();
+
+let currentSyncState: CloudSyncState = {
+  status: 'idle',
+  pendingCount: 0,
+};
+
+function readOutbox(): QueuedOutboxItem[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_OUTBOX);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeOutbox(items: QueuedOutboxItem[]): void {
+  try {
+    if (items.length === 0) {
+      localStorage.removeItem(STORAGE_KEY_OUTBOX);
+    } else {
+      localStorage.setItem(STORAGE_KEY_OUTBOX, JSON.stringify(items));
+    }
+  } catch {
+    // ignore storage quota edge cases
+  }
+}
+
+function emitSyncState(next: Partial<CloudSyncState>): void {
+  currentSyncState = {
+    ...currentSyncState,
+    ...next,
+    pendingCount: readOutbox().length,
+  };
+  statusListeners.forEach((fn) => {
+    try {
+      fn(currentSyncState);
+    } catch {
+      // ignore UI listener error
+    }
+  });
+}
+
+export function getCloudSyncStatus(): CloudSyncState {
+  return {
+    ...currentSyncState,
+    pendingCount: readOutbox().length,
+  };
+}
+
+export function subscribeCloudSyncStatus(listener: (state: CloudSyncState) => void): () => void {
+  statusListeners.add(listener);
+  listener(getCloudSyncStatus());
+  return () => {
+    statusListeners.delete(listener);
+  };
+}
 
 export function registerCloudSyncListener(listener: (() => void) | null): void {
   cloudSyncListener = listener;
 }
 
 export function hasPendingCloudWrites(): boolean {
-  return pendingPushCount > 0;
+  return isFlushingOutbox || readOutbox().length > 0;
 }
-
-export type DbMutationPayload =
-  | { scope: 'attendance'; changedRecord?: AttendanceRecord }
-  | {
-      scope: 'employee_upsert';
-      employee: Employee;
-      allowClearDevice?: boolean;
-      clearPendingRequest?: boolean;
-    }
-  | { scope: 'employee_delete'; deletedEmployeeId: string }
-  | { scope: 'shifts' }
-  | { scope: 'leaves'; changedLeave?: LeaveRequest }
-  | { scope: 'ceoComments'; changedComment?: CeoComment }
-  | { scope: 'settings' }
-  | { scope: 'full_restore' };
 
 function applyServerDbToLocal(data: {
   updatedAt?: string;
@@ -190,110 +273,221 @@ function applyServerDbToLocal(data: {
   }
 }
 
-export function pushDatabaseToServer(mutation?: DbMutationPayload): Promise<void> {
-  if (isSyncingFromServer) return Promise.resolve();
+function buildServerPayload(mutation?: DbMutationPayload): Record<string, unknown> {
+  const nowIso = new Date().toISOString();
+  const scope = mutation?.scope || 'legacy_bulk';
 
-  pendingPushCount += 1;
+  let payload: Record<string, unknown> = {
+    version: '1.0',
+    updatedAt: nowIso,
+    scope,
+    actorRole: mutation?.actorRole,
+  };
 
-  const task = pushQueue.then(async () => {
-    try {
-      const nowIso = new Date().toISOString();
-      const scope = mutation?.scope || 'legacy_bulk';
+  if (mutation?.scope === 'attendance') {
+    if (mutation.changedRecords && mutation.changedRecords.length > 0) {
+      payload.changedRecords = mutation.changedRecords;
+    } else if (mutation.changedRecord) {
+      payload.changedRecord = mutation.changedRecord;
+    } else {
+      payload.attendance =
+        JSON.parse(localStorage.getItem(STORAGE_KEY_ATTENDANCE) || 'null') || [];
+    }
+  } else if (mutation?.scope === 'employee_upsert') {
+    payload.employee = mutation.employee;
+    payload.allowClearDevice = Boolean(mutation.allowClearDevice);
+    payload.clearPendingRequest = Boolean(mutation.clearPendingRequest);
+  } else if (mutation?.scope === 'employee_delete') {
+    payload.deletedEmployeeId = mutation.deletedEmployeeId;
+  } else if (mutation?.scope === 'shifts') {
+    payload.shifts =
+      JSON.parse(localStorage.getItem(STORAGE_KEY_SHIFTS) || 'null') || INITIAL_SHIFTS;
+  } else if (mutation?.scope === 'settings') {
+    payload.settings =
+      JSON.parse(localStorage.getItem(STORAGE_KEY_SETTINGS) || 'null') || INITIAL_SETTINGS;
+  } else if (mutation?.scope === 'leaves') {
+    payload.changedLeave = mutation.changedLeave;
+    if (!mutation.changedLeave) {
+      payload.leaves = JSON.parse(localStorage.getItem(STORAGE_KEY_LEAVES) || 'null') || [];
+    }
+  } else if (mutation?.scope === 'ceoComments') {
+    payload.changedComment = mutation.changedComment;
+    if (!mutation.changedComment) {
+      payload.ceoComments =
+        JSON.parse(localStorage.getItem(STORAGE_KEY_CEO_COMMENTS) || 'null') || [];
+    }
+  } else {
+    payload = {
+      ...payload,
+      settings:
+        JSON.parse(localStorage.getItem(STORAGE_KEY_SETTINGS) || 'null') || INITIAL_SETTINGS,
+      shifts:
+        JSON.parse(localStorage.getItem(STORAGE_KEY_SHIFTS) || 'null') || INITIAL_SHIFTS,
+      employees:
+        JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEES) || 'null') || INITIAL_EMPLOYEES,
+      attendance: JSON.parse(localStorage.getItem(STORAGE_KEY_ATTENDANCE) || 'null') || [],
+      leaves: JSON.parse(localStorage.getItem(STORAGE_KEY_LEAVES) || 'null') || [],
+      ceoComments:
+        JSON.parse(localStorage.getItem(STORAGE_KEY_CEO_COMMENTS) || 'null') || [],
+    };
+  }
 
-      let payload: Record<string, unknown> = {
-        version: '1.0',
-        updatedAt: nowIso,
-        scope,
-      };
+  return payload;
+}
 
-      if (mutation?.scope === 'attendance') {
-        payload.changedRecord = mutation.changedRecord;
-        if (!mutation.changedRecord) {
-          payload.attendance =
-            JSON.parse(localStorage.getItem(STORAGE_KEY_ATTENDANCE) || 'null') || [];
-        }
-      } else if (mutation?.scope === 'employee_upsert') {
-        payload.employee = mutation.employee;
-        payload.allowClearDevice = Boolean(mutation.allowClearDevice);
-        payload.clearPendingRequest = Boolean(mutation.clearPendingRequest);
-      } else if (mutation?.scope === 'employee_delete') {
-        payload.deletedEmployeeId = mutation.deletedEmployeeId;
-      } else if (mutation?.scope === 'shifts') {
-        payload.shifts =
-          JSON.parse(localStorage.getItem(STORAGE_KEY_SHIFTS) || 'null') || INITIAL_SHIFTS;
-      } else if (mutation?.scope === 'settings') {
-        payload.settings =
-          JSON.parse(localStorage.getItem(STORAGE_KEY_SETTINGS) || 'null') || INITIAL_SETTINGS;
-      } else if (mutation?.scope === 'leaves') {
-        payload.changedLeave = mutation.changedLeave;
-        if (!mutation.changedLeave) {
-          payload.leaves = JSON.parse(localStorage.getItem(STORAGE_KEY_LEAVES) || 'null') || [];
-        }
-      } else if (mutation?.scope === 'ceoComments') {
-        payload.changedComment = mutation.changedComment;
-        if (!mutation.changedComment) {
-          payload.ceoComments =
-            JSON.parse(localStorage.getItem(STORAGE_KEY_CEO_COMMENTS) || 'null') || [];
-        }
-      } else {
-        // full_restore or legacy_bulk
-        payload = {
-          ...payload,
-          settings:
-            JSON.parse(localStorage.getItem(STORAGE_KEY_SETTINGS) || 'null') || INITIAL_SETTINGS,
-          shifts:
-            JSON.parse(localStorage.getItem(STORAGE_KEY_SHIFTS) || 'null') || INITIAL_SHIFTS,
-          employees:
-            JSON.parse(localStorage.getItem(STORAGE_KEY_EMPLOYEES) || 'null') || INITIAL_EMPLOYEES,
-          attendance: JSON.parse(localStorage.getItem(STORAGE_KEY_ATTENDANCE) || 'null') || [],
-          leaves: JSON.parse(localStorage.getItem(STORAGE_KEY_LEAVES) || 'null') || [],
-          ceoComments:
-            JSON.parse(localStorage.getItem(STORAGE_KEY_CEO_COMMENTS) || 'null') || [],
-        };
+function scheduleOutboxRetry(): void {
+  if (retryTimer) return;
+  const delayMs = Math.min(12000, 1500 * Math.pow(2, Math.min(3, retryAttempt)));
+  retryAttempt += 1;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    void flushPendingCloudWrites();
+  }, delayMs);
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    if (readOutbox().length > 0) {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
       }
+      void flushPendingCloudWrites();
+    }
+  });
+}
 
-      const res = await fetch(`/api/db?t=${Date.now()}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify(payload),
-      });
+export function flushPendingCloudWrites(): Promise<void> {
+  if (activeFlushPromise) {
+    return activeFlushPromise;
+  }
 
-      if (res.ok) {
+  const run = (async () => {
+    if (readOutbox().length === 0) return;
+
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+
+    isFlushingOutbox = true;
+    emitSyncState({ status: 'saving', lastError: undefined });
+
+    let lastServerDb: Record<string, unknown> | null = null;
+    let lastUpdatedAt: string | undefined;
+
+    try {
+      while (true) {
+        const queue = readOutbox();
+        if (queue.length === 0) break;
+
+        const currentItem = queue[0];
+        const payload = buildServerPayload(currentItem.mutation);
+
+        const res = await fetch(`/api/db?t=${Date.now()}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify(payload),
+        });
+
+        if (!res.ok) {
+          let errMsg = `HTTP ${res.status}`;
+          try {
+            const errJson = await res.json();
+            if (errJson?.error) errMsg = String(errJson.error);
+          } catch {
+            // ignore non-json error
+          }
+          emitSyncState({ status: 'retrying', lastError: errMsg });
+          scheduleOutboxRetry();
+          return;
+        }
+
         const data = await res.json();
-        // Only apply authoritative server DB once no newer local writes are queued behind this one
-        if (pendingPushCount === 1 && data && data.db) {
-          applyServerDbToLocal(data.db);
+        retryAttempt = 0;
+
+        // Pop only the committed item so newly added mutations stay in queue
+        const latestQueue = readOutbox();
+        const remaining = latestQueue.filter((q) => q.id !== currentItem.id);
+        writeOutbox(remaining);
+
+        if (data?.updatedAt) {
+          lastUpdatedAt = String(data.updatedAt);
+          localStorage.setItem(STORAGE_KEY_UPDATED_AT, lastUpdatedAt);
+        }
+        if (data?.db) {
+          lastServerDb = data.db;
+        }
+
+        if (remaining.length === 0 && lastServerDb) {
+          applyServerDbToLocal(lastServerDb as Parameters<typeof applyServerDbToLocal>[0]);
           if (cloudSyncListener) {
             cloudSyncListener();
           }
-        } else if (data && data.updatedAt) {
-          localStorage.setItem(STORAGE_KEY_UPDATED_AT, data.updatedAt);
-        } else {
-          localStorage.setItem(STORAGE_KEY_UPDATED_AT, nowIso);
         }
       }
-    } catch {
-      // Graceful fallback if running offline
-    } finally {
-      pendingPushCount = Math.max(0, pendingPushCount - 1);
-    }
-  });
 
-  pushQueue = task;
-  return task;
+      emitSyncState({
+        status: 'saved',
+        lastSavedAt: lastUpdatedAt || new Date().toISOString(),
+        lastError: undefined,
+      });
+    } catch (err) {
+      emitSyncState({
+        status: 'retrying',
+        lastError: err instanceof Error ? err.message : 'Network unavailable',
+      });
+      scheduleOutboxRetry();
+    } finally {
+      isFlushingOutbox = false;
+      activeFlushPromise = null;
+      // If another item arrived right before finally cleared activeFlushPromise, flush it promptly
+      if (readOutbox().length > 0 && !retryTimer && currentSyncState.status !== 'retrying') {
+        void flushPendingCloudWrites();
+      }
+    }
+  })();
+
+  activeFlushPromise = run;
+  return run;
+}
+
+export function retryCloudOutboxNow(): Promise<void> {
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+  retryAttempt = 0;
+  return flushPendingCloudWrites();
+}
+
+export function pushDatabaseToServer(mutation?: DbMutationPayload): Promise<void> {
+  if (isSyncingFromServer) return Promise.resolve();
+
+  const item: QueuedOutboxItem = {
+    id: `mut-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    enqueuedAt: new Date().toISOString(),
+    mutation: mutation || { scope: 'legacy_bulk' },
+  };
+
+  const current = readOutbox();
+  writeOutbox([...current, item]);
+  emitSyncState({ status: 'saving', lastError: undefined });
+
+  return flushPendingCloudWrites();
 }
 
 export async function syncDatabaseFromServer(forceAccept = false): Promise<boolean> {
-  if (pendingPushCount > 0 || isSyncingFromServer) {
+  if (hasPendingCloudWrites() || isSyncingFromServer) {
     return false;
   }
   try {
     const res = await fetch(`/api/db?t=${Date.now()}`, { cache: 'no-store' });
     if (!res.ok) return false;
 
-    // Abort applying poll result if a local write started while GET was in-flight
-    if (pendingPushCount > 0) {
+    // Abort applying poll result if any local write entered the outbox while GET was in-flight
+    if (hasPendingCloudWrites()) {
       return false;
     }
 
@@ -304,8 +498,7 @@ export async function syncDatabaseFromServer(forceAccept = false): Promise<boole
         return false;
       }
 
-      // Final check right before modifying localStorage
-      if (pendingPushCount > 0) {
+      if (hasPendingCloudWrites()) {
         return false;
       }
 
@@ -336,7 +529,7 @@ export function loadEmployees(): Employee[] {
 export function saveEmployees(employees: Employee[]): void {
   try {
     localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(employees));
-    void pushDatabaseToServer();
+    void pushDatabaseToServer({ scope: 'legacy_bulk' });
   } catch (err) {
     console.error('Failed to save employees:', err);
   }
@@ -345,7 +538,7 @@ export function saveEmployees(employees: Employee[]): void {
 export function saveEmployeeUpsert(
   employees: Employee[],
   changedEmployee: Employee,
-  options?: { allowClearDevice?: boolean; clearPendingRequest?: boolean }
+  options?: { allowClearDevice?: boolean; clearPendingRequest?: boolean; actorRole?: Role }
 ): void {
   try {
     localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(employees));
@@ -354,18 +547,24 @@ export function saveEmployeeUpsert(
       employee: changedEmployee,
       allowClearDevice: options?.allowClearDevice,
       clearPendingRequest: options?.clearPendingRequest,
+      actorRole: options?.actorRole,
     });
   } catch (err) {
     console.error('Failed to save employee:', err);
   }
 }
 
-export function saveEmployeeDelete(employees: Employee[], deletedEmployeeId: string): void {
+export function saveEmployeeDelete(
+  employees: Employee[],
+  deletedEmployeeId: string,
+  actorRole?: Role
+): void {
   try {
     localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(employees));
     void pushDatabaseToServer({
       scope: 'employee_delete',
       deletedEmployeeId,
+      actorRole,
     });
   } catch (err) {
     console.error('Failed to delete employee:', err);
@@ -386,14 +585,25 @@ export function loadAttendanceRecords(): AttendanceRecord[] {
 
 export function saveAttendanceRecords(
   records: AttendanceRecord[],
-  changedRecord?: AttendanceRecord
+  changedOrBatch?: AttendanceRecord | AttendanceRecord[],
+  actorRole?: Role
 ): void {
   try {
     localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(records));
-    void pushDatabaseToServer({
-      scope: 'attendance',
-      changedRecord,
-    });
+    if (Array.isArray(changedOrBatch)) {
+      if (changedOrBatch.length === 0) return;
+      void pushDatabaseToServer({
+        scope: 'attendance',
+        changedRecords: changedOrBatch,
+        actorRole,
+      });
+    } else {
+      void pushDatabaseToServer({
+        scope: 'attendance',
+        changedRecord: changedOrBatch,
+        actorRole,
+      });
+    }
   } catch (err) {
     console.error('Failed to save attendance records:', err);
   }
@@ -411,10 +621,10 @@ export function loadShifts(): ShiftSchedule[] {
   }
 }
 
-export function saveShifts(shifts: ShiftSchedule[]): void {
+export function saveShifts(shifts: ShiftSchedule[], actorRole?: Role): void {
   try {
     localStorage.setItem(STORAGE_KEY_SHIFTS, JSON.stringify(shifts));
-    void pushDatabaseToServer({ scope: 'shifts' });
+    void pushDatabaseToServer({ scope: 'shifts', actorRole });
   } catch (err) {
     console.error('Failed to save shifts:', err);
   }
@@ -432,10 +642,14 @@ export function loadLeaves(): LeaveRequest[] {
   }
 }
 
-export function saveLeaves(leaves: LeaveRequest[], changedLeave?: LeaveRequest): void {
+export function saveLeaves(
+  leaves: LeaveRequest[],
+  changedLeave?: LeaveRequest,
+  actorRole?: Role
+): void {
   try {
     localStorage.setItem(STORAGE_KEY_LEAVES, JSON.stringify(leaves));
-    void pushDatabaseToServer({ scope: 'leaves', changedLeave });
+    void pushDatabaseToServer({ scope: 'leaves', changedLeave, actorRole });
   } catch (err) {
     console.error('Failed to save leaves:', err);
   }
@@ -450,10 +664,14 @@ export function loadCeoComments(): CeoComment[] {
   }
 }
 
-export function saveCeoComments(comments: CeoComment[], changedComment?: CeoComment): void {
+export function saveCeoComments(
+  comments: CeoComment[],
+  changedComment?: CeoComment,
+  actorRole?: Role
+): void {
   try {
     localStorage.setItem(STORAGE_KEY_CEO_COMMENTS, JSON.stringify(comments));
-    void pushDatabaseToServer({ scope: 'ceoComments', changedComment });
+    void pushDatabaseToServer({ scope: 'ceoComments', changedComment, actorRole });
   } catch (err) {
     console.error('Failed to save CEO comments:', err);
   }
@@ -499,10 +717,14 @@ export function loadSettings(): OfficeSettings {
   }
 }
 
-export function saveSettings(settings: OfficeSettings): void {
+export function saveSettings(settings: OfficeSettings, actorRole?: Role): void {
   try {
-    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
-    void pushDatabaseToServer({ scope: 'settings' });
+    const stamped: OfficeSettings = {
+      ...settings,
+      settingsUpdatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(stamped));
+    void pushDatabaseToServer({ scope: 'settings', actorRole });
   } catch (err) {
     console.error('Failed to save settings:', err);
   }
@@ -596,7 +818,7 @@ export function importDatabaseBackup(jsonString: string): boolean {
     if (data.attendance) localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(data.attendance));
     if (data.leaves) localStorage.setItem(STORAGE_KEY_LEAVES, JSON.stringify(data.leaves));
     if (data.ceoComments) localStorage.setItem(STORAGE_KEY_CEO_COMMENTS, JSON.stringify(data.ceoComments));
-    void pushDatabaseToServer({ scope: 'full_restore' });
+    void pushDatabaseToServer({ scope: 'full_restore', actorRole: 'admin' });
     return true;
   } catch (err) {
     console.error('Failed to import database backup:', err);
@@ -612,6 +834,7 @@ export function resetToFactoryDefaults(): void {
   localStorage.removeItem(STORAGE_KEY_SETTINGS);
   localStorage.removeItem(STORAGE_KEY_CEO_COMMENTS);
   localStorage.removeItem(STORAGE_KEY_UPDATED_AT);
+  localStorage.removeItem(STORAGE_KEY_OUTBOX);
   localStorage.removeItem(STORAGE_KEY_SESSION);
   sessionStorage.removeItem(STORAGE_KEY_SESSION);
 }

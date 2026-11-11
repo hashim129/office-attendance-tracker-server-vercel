@@ -48,6 +48,7 @@ interface TeamAttendanceTabProps {
   shifts: ShiftSchedule[];
   settings: OfficeSettings;
   onUpdateRecord: (updated: AttendanceRecord) => void;
+  onBatchUpdateRecords?: (updates: AttendanceRecord[]) => void;
   adminUser: Employee;
   currentUser?: Employee;
   ceoComments?: CeoComment[];
@@ -61,6 +62,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
   shifts,
   settings,
   onUpdateRecord,
+  onBatchUpdateRecords,
   adminUser,
   currentUser,
   ceoComments = [],
@@ -113,28 +115,36 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
   // Verification Handlers
   const handleToggleAdminVerify = (record: AttendanceRecord) => {
     const isCurrentlyVerified = !!record.adminVerification?.verified;
+    const nowIso = new Date().toISOString();
     const updated: AttendanceRecord = {
       ...record,
       adminVerification: {
         verified: !isCurrentlyVerified,
-        verifiedAt: !isCurrentlyVerified ? new Date().toISOString() : undefined,
+        verifiedAt: !isCurrentlyVerified ? nowIso : undefined,
         verifiedByName: !isCurrentlyVerified ? effectiveUser.name : undefined,
         verifiedById: !isCurrentlyVerified ? effectiveUser.id : undefined,
       },
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: effectiveUser.role,
+      actorAction: 'verify',
     };
     onUpdateRecord(updated);
   };
 
   const handleToggleAccountsVerify = (record: AttendanceRecord) => {
     const isCurrentlyVerified = !!record.accountsVerification?.verified;
+    const nowIso = new Date().toISOString();
     const updated: AttendanceRecord = {
       ...record,
       accountsVerification: {
         verified: !isCurrentlyVerified,
-        verifiedAt: !isCurrentlyVerified ? new Date().toISOString() : undefined,
+        verifiedAt: !isCurrentlyVerified ? nowIso : undefined,
         verifiedByName: !isCurrentlyVerified ? effectiveUser.name : undefined,
         verifiedById: !isCurrentlyVerified ? effectiveUser.id : undefined,
       },
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: effectiveUser.role,
+      actorAction: 'verify',
     };
     onUpdateRecord(updated);
   };
@@ -142,26 +152,35 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
   const handleBatchVerifyToday = (roleType: 'admin' | 'accounts') => {
     const targetKey = roleType === 'admin' ? 'adminVerification' : 'accountsVerification';
     const roleLabel = roleType === 'admin' ? 'Admin' : 'Accounts Officer';
-    let verifiedCount = 0;
+    const nowIso = new Date().toISOString();
+    const updates: AttendanceRecord[] = [];
 
     dateRecords.forEach((rec) => {
       if (rec.timeIn && (!rec[targetKey] || !rec[targetKey]?.verified)) {
-        verifiedCount++;
-        const updated: AttendanceRecord = {
+        updates.push({
           ...rec,
           [targetKey]: {
             verified: true,
-            verifiedAt: new Date().toISOString(),
+            verifiedAt: nowIso,
             verifiedByName: effectiveUser.name,
             verifiedById: effectiveUser.id,
           },
-        };
-        onUpdateRecord(updated);
+          recordUpdatedAt: nowIso,
+          lastEditedByRole: effectiveUser.role,
+          actorAction: 'verify',
+        });
       }
     });
 
-    if (verifiedCount === 0) {
+    if (updates.length === 0) {
       alert(`All attendance records for ${selectedDate} are already verified by ${roleLabel}.`);
+      return;
+    }
+
+    if (onBatchUpdateRecords) {
+      onBatchUpdateRecords(updates);
+    } else {
+      updates.forEach((u) => onUpdateRecord(u));
     }
   };
 
@@ -354,11 +373,17 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
   const handleQuickAdminPunch = (emp: Employee, action: 'in' | 'out') => {
     const shift = shiftMap.get(emp.shiftId) || shifts[0];
     const nowTime = new Date().toTimeString().slice(0, 8);
+    const nowIso = new Date().toISOString();
     const existing = dateRecordMap.get(emp.id);
 
     if (action === 'in') {
       const isLate = isLateArrival(nowTime, shift);
-      const nowIso = new Date().toISOString();
+      const isExistingDesktopMonitored =
+        existing?.heartbeatSource === 'web-client' || existing?.heartbeatSource === 'windows-agent';
+      const cleanedNotes = (existing?.notes || '')
+        .replace(/\s*·?\s*(Clocked Out by Admin|Auto system Punched out|Auto Punched Out\s*\([^)]*\))/gi, '')
+        .trim();
+
       const updated: AttendanceRecord = {
         ...(existing || {
           id: `att-${selectedDate}-${emp.id}`,
@@ -373,17 +398,30 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         isAutoPunchedOut: false,
         autoPunchOutReason: undefined,
         disconnectedAt: undefined,
-        connectionStatus: 'online',
-        lastHeartbeatAt: nowIso,
-        lastActivityAt: nowIso,
+        monitoringPaused: false,
+        heartbeatSource: isExistingDesktopMonitored
+          ? existing?.heartbeatSource
+          : existing?.heartbeatSource || 'kiosk',
+        ...(isExistingDesktopMonitored
+          ? {
+              connectionStatus: 'online' as const,
+              lastHeartbeatAt: nowIso,
+              lastActivityAt: nowIso,
+            }
+          : {}),
         totalWorkedMinutes: 0,
         regularMinutes: 0,
         overtimeMinutes: 0,
         status: isLate ? 'late' : 'present',
-        notes: existing?.notes ? `${existing.notes} · Clocked In by Admin` : 'Clocked In by Admin',
+        notes: cleanedNotes ? `${cleanedNotes} · Clocked In by Admin` : 'Clocked In by Admin',
         isManuallyAdjusted: true,
         adjustmentNote: `Quick Clock In by ${effectiveUser.name}`,
         adjustedBy: `${effectiveUser.name} (${effectiveUser.role.toUpperCase()})`,
+        recordUpdatedAt: nowIso,
+        lastEditedByRole: effectiveUser.role,
+        actorAction: 'admin_edit',
+        adminOverrideAt: nowIso,
+        adminKeepOpen: true,
       };
       onUpdateRecord(updated);
     } else {
@@ -399,6 +437,8 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         ...existing,
         timeOut: nowTime,
         clearTimeOut: false,
+        isAutoPunchedOut: false,
+        autoPunchOutReason: undefined,
         breaks: closedBreaks,
         totalWorkedMinutes: worked.totalWorkedMinutes,
         regularMinutes: worked.regularMinutes,
@@ -407,6 +447,11 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         isManuallyAdjusted: true,
         adjustmentNote: `Quick Clock Out by ${effectiveUser.name}`,
         adjustedBy: `${effectiveUser.name} (${effectiveUser.role.toUpperCase()})`,
+        recordUpdatedAt: nowIso,
+        lastEditedByRole: effectiveUser.role,
+        actorAction: 'admin_edit',
+        adminOverrideAt: nowIso,
+        adminKeepOpen: false,
       };
       onUpdateRecord(updated);
     }
@@ -415,11 +460,6 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
   const handleSaveAdjustment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingEmployee) return;
-
-    if (!editAuditReason.trim()) {
-      alert('Please provide an audit reason for modifying official attendance records.');
-      return;
-    }
 
     const shift = shiftMap.get(editingEmployee.shiftId) || shifts[0];
     const nowTime = new Date().toTimeString().slice(0, 8);
@@ -474,6 +514,26 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       ? calculateWorkedMinutes(finalTimeIn, undefined, updatedBreaks, shift.expectedHours)
       : { totalWorkedMinutes: 0, regularMinutes: 0, overtimeMinutes: 0 };
 
+    const isReopeningActiveShift = shouldClearTimeOut && editWorkingStatus !== 'absent' && Boolean(finalTimeIn);
+    const isExistingDesktopMonitored =
+      editingRecord?.heartbeatSource === 'web-client' ||
+      editingRecord?.heartbeatSource === 'windows-agent';
+
+    let finalPunchNote = editPunchNote.trim();
+    if (isReopeningActiveShift && finalPunchNote) {
+      finalPunchNote = finalPunchNote
+        .replace(/\s*·?\s*(Clocked Out by Admin|Auto system Punched out|Auto Punched Out\s*\([^)]*\))/gi, '')
+        .trim();
+    }
+
+    const finalAuditReason =
+      editAuditReason.trim() ||
+      (isReopeningActiveShift
+        ? 'Marked Currently Working by Administrator'
+        : editWorkingStatus === 'absent'
+        ? 'Marked Absent by Administrator'
+        : 'Manual attendance adjustment by Administrator');
+
     const updated: AttendanceRecord = {
       ...(editingRecord || {
         id: `att-${selectedDate}-${editingEmployee.id}`,
@@ -485,15 +545,22 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       timeIn: finalTimeIn,
       timeOut: finalTimeOut,
       clearTimeOut: shouldClearTimeOut,
-      isAutoPunchedOut: shouldClearTimeOut ? false : editingRecord?.isAutoPunchedOut,
-      autoPunchOutReason: shouldClearTimeOut ? undefined : editingRecord?.autoPunchOutReason,
-      ...(shouldClearTimeOut && editWorkingStatus !== 'absent'
+      isAutoPunchedOut: shouldClearTimeOut ? false : false,
+      autoPunchOutReason: undefined,
+      disconnectedAt: isReopeningActiveShift ? undefined : editingRecord?.disconnectedAt,
+      monitoringPaused: false,
+      ...(isReopeningActiveShift
         ? {
-            connectionStatus: 'online' as const,
-            lastHeartbeatAt: nowIso,
-            lastActivityAt: nowIso,
-            disconnectedAt: undefined,
-            monitoringPaused: false,
+            heartbeatSource: isExistingDesktopMonitored
+              ? editingRecord?.heartbeatSource
+              : editingRecord?.heartbeatSource || 'kiosk',
+            ...(isExistingDesktopMonitored
+              ? {
+                  connectionStatus: 'online' as const,
+                  lastHeartbeatAt: nowIso,
+                  lastActivityAt: nowIso,
+                }
+              : {}),
           }
         : {}),
       breaks: updatedBreaks,
@@ -501,10 +568,15 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       regularMinutes: worked.regularMinutes,
       overtimeMinutes: worked.overtimeMinutes,
       status: finalStatus,
-      notes: editPunchNote.trim() || undefined,
+      notes: finalPunchNote || undefined,
       isManuallyAdjusted: true,
-      adjustmentNote: editAuditReason.trim(),
+      adjustmentNote: finalAuditReason,
       adjustedBy: `${effectiveUser.name} (${effectiveUser.employeeCode || effectiveUser.role.toUpperCase()})`,
+      recordUpdatedAt: nowIso,
+      lastEditedByRole: effectiveUser.role,
+      actorAction: 'admin_edit',
+      adminOverrideAt: nowIso,
+      adminKeepOpen: isReopeningActiveShift,
     };
 
     onUpdateRecord(updated);
@@ -1148,6 +1220,16 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                     setHasPunchIn(true);
                     setHasPunchOut(false);
                     if (editStatus === 'absent') setEditStatus('present');
+                    setEditPunchNote((prev) =>
+                      prev
+                        .replace(/\s*·?\s*(Clocked Out by Admin|Auto system Punched out|Auto Punched Out\s*\([^)]*\))/gi, '')
+                        .trim()
+                    );
+                    setEditAuditReason((prev) =>
+                      !prev.trim() || /Quick Clock Out|Auto system Punched out/i.test(prev)
+                        ? 'Re-opened to Currently Working by Administrator'
+                        : prev
+                    );
                   }}
                   className={`p-2.5 rounded-lg border text-left flex items-start gap-2 transition-all cursor-pointer ${
                     editWorkingStatus === 'working'
@@ -1192,6 +1274,11 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                     setHasPunchIn(true);
                     setHasPunchOut(false);
                     if (editStatus === 'absent') setEditStatus('present');
+                    setEditPunchNote((prev) =>
+                      prev
+                        .replace(/\s*·?\s*(Clocked Out by Admin|Auto system Punched out|Auto Punched Out\s*\([^)]*\))/gi, '')
+                        .trim()
+                    );
                   }}
                   className={`p-2.5 rounded-lg border text-left flex items-start gap-2 transition-all cursor-pointer ${
                     editWorkingStatus === 'break'
@@ -1328,6 +1415,16 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                         }
                       } else {
                         setEditWorkingStatus('working');
+                        setEditPunchNote((prev) =>
+                          prev
+                            .replace(/\s*·?\s*(Clocked Out by Admin|Auto system Punched out|Auto Punched Out\s*\([^)]*\))/gi, '')
+                            .trim()
+                        );
+                        setEditAuditReason((prev) =>
+                          !prev.trim() || /Quick Clock Out|Auto system Punched out/i.test(prev)
+                            ? 'Re-opened to Currently Working by Administrator'
+                            : prev
+                        );
                       }
                     }}
                     className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300 cursor-pointer disabled:opacity-50"
@@ -1425,14 +1522,13 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
             {/* 5. Mandatory Audit Note */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Mandatory Reason for Manual Adjustment / Override
+                Audit Reason for Manual Adjustment / Override
               </label>
               <textarea
                 value={editAuditReason}
                 onChange={(e) => setEditAuditReason(e.target.value)}
                 placeholder="e.g. Employee punch was corrected by administrator due to forgotten badge or network issue."
                 rows={2}
-                required
                 className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <p className="text-[10px] text-slate-400 mt-1">
