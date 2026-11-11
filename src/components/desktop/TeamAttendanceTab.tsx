@@ -42,6 +42,34 @@ import {
 import { exportAttendanceToCsv } from '../../lib/exportUtils';
 import { Modal } from '../common/Modal';
 
+/** Resolves accurate offline/disconnect badge copy and tooltip for still-clocked-in employees. */
+function getOfflineBadgeMeta(record?: AttendanceRecord | null): {
+  timeOutLabel: string;
+  statusLabel: string;
+  tooltip: string;
+} {
+  if (!record?.lastHeartbeatAt) {
+    return {
+      timeOutLabel: 'Offline (In)',
+      statusLabel: 'Offline · In',
+      tooltip: 'Clocked in without an active online portal/desktop heartbeat (Kiosk or Admin punch)',
+    };
+  }
+  const lastSeen = new Date(record.lastHeartbeatAt).toLocaleTimeString();
+  if (record.monitoringPaused) {
+    return {
+      timeOutLabel: 'Offline · Tab Closed',
+      statusLabel: 'Offline · Tab Closed',
+      tooltip: `Browser tab closed · Last seen ${lastSeen} · Still Clocked In`,
+    };
+  }
+  return {
+    timeOutLabel: 'No Internet (In)',
+    statusLabel: 'No Internet · In',
+    tooltip: `Internet lost · Last seen ${lastSeen} · Still Clocked In`,
+  };
+}
+
 interface TeamAttendanceTabProps {
   employees: Employee[];
   records: AttendanceRecord[];
@@ -729,7 +757,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           <span className="text-[10px] text-slate-400">At desks / working</span>
         </div>
 
-        {/* No Internet (Still In) */}
+        {/* No Internet / Offline (Still In) */}
         <div className={`p-3 rounded-xl border shadow-2xs ${
           liveCounts.noInternetCount > 0
             ? 'bg-amber-50/90 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700'
@@ -737,14 +765,14 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         }`}>
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
-              No Internet (In)
+              Offline / No Internet (In)
             </span>
             <WifiOff className={`w-3 h-3 text-amber-600 ${liveCounts.noInternetCount > 0 ? 'animate-pulse' : 'opacity-40'}`} />
           </div>
           <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
             {liveCounts.noInternetCount}
           </div>
-          <span className="text-[10px] text-slate-400">Offline but in</span>
+          <span className="text-[10px] text-slate-400">No internet, tab closed, or offline</span>
         </div>
 
         {/* On Break */}
@@ -833,7 +861,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
             >
               <option value="all">All Statuses</option>
               <option value="in">Currently In (Online)</option>
-              <option value="no_internet">No Internet (In)</option>
+              <option value="no_internet">Offline / No Internet (In)</option>
               <option value="break">On Break</option>
               <option value="out">Shift Finished</option>
               <option value="late">Late Arrival</option>
@@ -970,10 +998,10 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                         ) : derivedStatus === 'no_internet' ? (
                           <span
                             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-100/90 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 font-bold text-[11px]"
-                            title={record?.lastHeartbeatAt ? `Last online heartbeat: ${new Date(record.lastHeartbeatAt).toLocaleTimeString()}` : 'Device internet disconnected'}
+                            title={getOfflineBadgeMeta(record).tooltip}
                           >
                             <WifiOff className="w-3 h-3 animate-pulse shrink-0" />
-                            <span>No Internet (In)</span>
+                            <span>{getOfflineBadgeMeta(record).timeOutLabel}</span>
                           </span>
                         ) : record?.timeIn ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-bold text-[11px] animate-pulse">
@@ -998,14 +1026,10 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                         ) : derivedStatus === 'no_internet' ? (
                           <span
                             className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700"
-                            title={
-                              record?.lastHeartbeatAt
-                                ? `Internet lost · Last seen ${new Date(record.lastHeartbeatAt).toLocaleTimeString()} · Still Clocked In`
-                                : 'Device lost internet connectivity while Clocked In'
-                            }
+                            title={getOfflineBadgeMeta(record).tooltip}
                           >
                             <WifiOff className="w-3 h-3 text-amber-600 dark:text-amber-400 animate-pulse" />
-                            <span>No Internet · In</span>
+                            <span>{getOfflineBadgeMeta(record).statusLabel}</span>
                           </span>
                         ) : derivedStatus === 'in' ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">

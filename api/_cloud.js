@@ -487,17 +487,19 @@ export function evaluateAttendancePresenceAndAutoClose(
       rec.heartbeatSource === 'kiosk' ||
       (!rec.heartbeatSource && String(rec.notes || '').startsWith('Lobby Kiosk Punch'));
 
-    // Monitor connectivity & inactivity only for active non-kiosk monitored sessions
-    if (!isKioskSession && rec.date === todayStr && rec.lastHeartbeatAt && !rec.monitoringPaused) {
+    // Monitor connectivity for active/paused non-kiosk desktop sessions; inactivity 2h auto-close stays gated on !monitoringPaused
+    if (!isKioskSession && rec.date === todayStr && rec.lastHeartbeatAt) {
       const lastHbMs = Date.parse(rec.lastHeartbeatAt);
       const lastActMs = Date.parse(rec.lastActivityAt || rec.lastHeartbeatAt);
       const effectiveActMs =
         rec.adminKeepOpen && adminOverrideMs > 0
           ? Math.max(Number.isNaN(lastActMs) ? 0 : lastActMs, adminOverrideMs)
           : lastActMs;
-      const isDisconnected = !Number.isNaN(lastHbMs) && nowMs - lastHbMs > disconnectMs;
+      const isPausedOffline = Boolean(rec.monitoringPaused) && !Number.isNaN(lastHbMs) && nowMs - lastHbMs > 15000;
+      const isDisconnected = !Number.isNaN(lastHbMs) && (nowMs - lastHbMs > disconnectMs || isPausedOffline);
 
       if (
+        !rec.monitoringPaused &&
         inactiveMs > 0 &&
         !Number.isNaN(effectiveActMs) &&
         effectiveActMs > 0 &&
@@ -527,7 +529,8 @@ export function evaluateAttendancePresenceAndAutoClose(
             connectionStatus: desiredConn,
           };
           if (desiredConn === 'no_internet') {
-            next.disconnectedAt = rec.disconnectedAt || new Date(lastHbMs + disconnectMs).toISOString();
+            next.disconnectedAt =
+              rec.disconnectedAt || new Date(lastHbMs + (isPausedOffline ? 15000 : disconnectMs)).toISOString();
           } else {
             delete next.disconnectedAt;
           }

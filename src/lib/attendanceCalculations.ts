@@ -28,24 +28,22 @@ export function deriveLiveAttendanceState(params: {
   const activeBreak = Array.isArray(record.breaks) && record.breaks.some((b) => !b.end);
   if (activeBreak) return 'break';
 
-  const isKioskSession =
-    record.heartbeatSource === 'kiosk' ||
-    (!record.heartbeatSource && String(record.notes || '').startsWith('Lobby Kiosk Punch'));
-
   if (settings?.enableDisconnectStatusTracking !== false && record.date === todayStr) {
     if (isCurrentUserOffline) return 'no_internet';
     if (record.connectionStatus === 'no_internet') return 'no_internet';
 
-    if (
-      !isKioskSession &&
-      record.lastHeartbeatAt &&
-      !record.monitoringPaused
-    ) {
-      const lastHbMs = Date.parse(record.lastHeartbeatAt);
-      const disconnectMs = Math.max(1, settings?.disconnectThresholdMinutes ?? 3) * 60 * 1000;
-      if (!Number.isNaN(lastHbMs) && nowMs - lastHbMs > disconnectMs) {
-        return 'no_internet';
-      }
+    const lastHbMs = record.lastHeartbeatAt ? Date.parse(record.lastHeartbeatAt) : NaN;
+    if (!record.lastHeartbeatAt || Number.isNaN(lastHbMs)) {
+      return 'no_internet';
+    }
+
+    if (record.monitoringPaused && nowMs - lastHbMs > 15000) {
+      return 'no_internet';
+    }
+
+    const disconnectMs = Math.max(1, settings?.disconnectThresholdMinutes ?? 3) * 60 * 1000;
+    if (nowMs - lastHbMs > disconnectMs) {
+      return 'no_internet';
     }
   }
 
