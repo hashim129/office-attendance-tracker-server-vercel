@@ -926,6 +926,7 @@ export default function App() {
                   onRejectDeviceChange={handleRejectDeviceChange}
                   onResetDeviceBound={handleResetDeviceBound}
                   onDirectBindDevice={handleDirectBindDevice}
+                  companyName={settings.companyName}
                 />
               )}
 

@@ -18,9 +18,15 @@ import {
   Clock,
   ShieldCheck,
   History,
+  Terminal,
 } from 'lucide-react';
 import { Employee, Role, ShiftSchedule, AttendanceRecord } from '../../types';
 import { Modal } from '../common/Modal';
+import {
+  downloadWindowsBatFile,
+  generateEmployeeAutoStartBat,
+  generatePortalLauncherBat,
+} from '../../lib/autoStartScript';
 
 interface EmployeesDirectoryTabProps {
   employees: Employee[];
@@ -34,6 +40,7 @@ interface EmployeesDirectoryTabProps {
   onResetDeviceBound?: (empId: string) => void;
   onDirectBindDevice?: (empId: string, deviceId: string, deviceName: string) => void;
   currentUserId: string;
+  companyName?: string;
 }
 
 export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
@@ -48,6 +55,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
   onResetDeviceBound,
   onDirectBindDevice,
   currentUserId,
+  companyName = 'Office Attendance Tracker',
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedDept, setSelectedDept] = useState<string>('all');
@@ -600,7 +608,37 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
               </div>
 
               {/* Action Buttons */}
-              <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
+              <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const appUrl =
+                      typeof window !== 'undefined'
+                        ? window.location.origin
+                        : 'https://office-attendance-tracker-server-ve.vercel.app';
+                    if (!emp.registeredDeviceId && emp.role !== 'admin') {
+                      const fallbackConfirm = confirm(
+                        `${emp.name} does not have an approved Bound PC/Device yet.\n\nAutomated startup check-in (.bat) requires device binding (click "Bind Detected" above or approve their device request).\n\nWould you like to download the Universal App Startup Launcher (.bat) instead?`
+                      );
+                      if (!fallbackConfirm) return;
+                      const { filename, content } = generatePortalLauncherBat({ appUrl, companyName });
+                      downloadWindowsBatFile(filename, content);
+                      return;
+                    }
+                    const { filename, content } = await generateEmployeeAutoStartBat({
+                      employee: emp,
+                      appUrl,
+                      companyName,
+                    });
+                    downloadWindowsBatFile(filename, content);
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer"
+                  title="Download Windows startup auto check-in .bat app for this employee's PC"
+                >
+                  <Terminal className="w-3 h-3" />
+                  <span>Auto-Start .bat</span>
+                </button>
+
                 {emp.registeredDeviceId && (
                   <button
                     onClick={() => handleResetDevice(emp)}

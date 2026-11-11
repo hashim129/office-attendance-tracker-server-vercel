@@ -100,6 +100,7 @@ export const INITIAL_SETTINGS: OfficeSettings = {
   enforceDeviceBinding: true,
   allowAdminBypassDeviceBinding: true,
   allowKioskPunchWithoutDevice: true,
+  allowAutoStartPunch: true,
 };
 
 export const INITIAL_EMPLOYEES: Employee[] = [
@@ -478,6 +479,7 @@ export function loadSettings(): OfficeSettings {
       enforceDeviceBinding: parsed.enforceDeviceBinding ?? true,
       allowAdminBypassDeviceBinding: parsed.allowAdminBypassDeviceBinding ?? true,
       allowKioskPunchWithoutDevice: parsed.allowKioskPunchWithoutDevice ?? true,
+      allowAutoStartPunch: parsed.allowAutoStartPunch ?? true,
     };
     return upgraded;
   } catch {

@@ -16,6 +16,8 @@ import {
   Check,
   MessageSquare,
   Crown,
+  Terminal,
+  Download,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -36,6 +38,10 @@ import {
 } from '../../lib/attendanceCalculations';
 import { verifyOfficeIpAccess } from '../../lib/ipSecurity';
 import { verifyDeviceAccess, getDeviceDetails } from '../../lib/deviceSecurity';
+import {
+  canEmployeeAutoPunch,
+  downloadAutoStartScriptForUser,
+} from '../../lib/autoStartScript';
 
 interface PunchClockTabProps {
   currentUser: Employee;
@@ -76,6 +82,15 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   const [actionNotes, setActionNotes] = useState<string>('');
   const [showNoteInput, setShowNoteInput] = useState<boolean>(false);
   const [noteSavedFeedback, setNoteSavedFeedback] = useState<boolean>(false);
+  const [batDownloaded, setBatDownloaded] = useState<boolean>(false);
+
+  const canPersonalAutoStart = canEmployeeAutoPunch(currentUser, settings);
+
+  const handleDownloadAutoStartBat = async () => {
+    await downloadAutoStartScriptForUser({ employee: currentUser, settings });
+    setBatDownloaded(true);
+    setTimeout(() => setBatDownloaded(false), 3000);
+  };
 
   // Live timer interval
   useEffect(() => {
@@ -669,6 +684,53 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Windows Boot Auto-Start Card */}
+      {settings.allowAutoStartPunch !== false && (
+        <div className="bg-gradient-to-r from-indigo-50 via-blue-50 to-slate-50 dark:from-indigo-950/30 dark:via-blue-950/20 dark:to-slate-900 rounded-2xl p-4 sm:p-5 border border-indigo-200/80 dark:border-indigo-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center shrink-0">
+              <Terminal className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  {canPersonalAutoStart
+                    ? 'Automate Daily Check-In on Windows Startup'
+                    : 'Windows Portal Auto-Start Launcher'}
+                </h3>
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                  Windows .BAT
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
+                {canPersonalAutoStart
+                  ? 'Download and install once on your office Windows PC to auto-start on boot/login and punch Time In automatically on office Wi-Fi (1 punch/day).'
+                  : 'Bind your Windows PC via Device Approval to enable automatic daily punch-in on startup, or download the portal auto-launcher now.'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleDownloadAutoStartBat}
+            className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer shrink-0 ${
+              batDownloaded
+                ? 'bg-emerald-600 text-white'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+            }`}
+          >
+            {batDownloaded ? <Check className="w-4 h-4" /> : <Download className="w-4 h-4" />}
+            <span>
+              {batDownloaded
+                ? 'Downloaded .bat!'
+                : canPersonalAutoStart
+                ? 'Download Auto-Start (.bat)'
+                : 'Portal Launcher (.bat)'}
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

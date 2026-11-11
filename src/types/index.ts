@@ -158,6 +158,7 @@ export interface OfficeSettings {
   enforceDeviceBinding?: boolean; // Anti-proxy punching: 1 device per employee
   allowAdminBypassDeviceBinding?: boolean;
   allowKioskPunchWithoutDevice?: boolean;
+  allowAutoStartPunch?: boolean; // Allows Windows .bat startup auto check-in
 }
 
 export type AppMode = 'desktop' | 'kiosk';

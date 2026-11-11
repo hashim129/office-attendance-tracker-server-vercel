@@ -15,6 +15,8 @@ import {
   Globe,
   ShieldCheck,
   Smartphone,
+  Terminal,
+  Zap,
 } from 'lucide-react';
 import { OfficeSettings } from '../../types';
 import {
@@ -23,6 +25,10 @@ import {
   resetToFactoryDefaults,
 } from '../../lib/storage';
 import { detectClientNetwork } from '../../lib/ipSecurity';
+import {
+  downloadWindowsBatFile,
+  generatePortalLauncherBat,
+} from '../../lib/autoStartScript';
 
 interface OfficeSettingsTabProps {
   settings: OfficeSettings;
@@ -531,7 +537,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
             Prevents coworkers from sharing PINs or clocking in for absent colleagues while connected to the office network. When enabled, each employee's account is permanently paired to their personal mobile phone on their first punch.
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -594,6 +600,27 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
                 </span>
               </div>
             </label>
+
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.allowAutoStartPunch !== false}
+                onChange={(e) => {
+                  const updated = { ...formData, allowAutoStartPunch: e.target.checked };
+                  setFormData(updated);
+                  onUpdateSettings(updated);
+                }}
+                className="mt-1 w-4 h-4 rounded text-blue-600"
+              />
+              <div className="text-xs">
+                <span className="font-semibold text-slate-900 dark:text-slate-100 block">
+                  Allow Startup Auto Check-In (.bat)
+                </span>
+                <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                  Automatically clocks staff in at Windows login when on Office Wi-Fi &amp; bound PC
+                </span>
+              </div>
+            </label>
           </div>
         </div>
 
@@ -617,6 +644,60 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
           </button>
         </div>
       </form>
+
+      {/* Automated Windows Boot / Login Check-In & Launcher (.bat) */}
+      <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border-2 border-emerald-500/40 dark:border-emerald-500/30 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
+            <Terminal className="w-4 h-4 text-emerald-600" />
+            <span>Windows Startup Auto-Attendance Agent (.bat)</span>
+          </div>
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 self-start">
+            <Zap className="w-3 h-3" />
+            <span>Runs Automatically on PC Boot / Login (No Admin Rights Needed)</span>
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+          Eliminate forgotten morning punches. Install the lightweight Windows <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">.bat</code> agent on staff Windows 10/11 PCs so the attendance system starts automatically on boot/sign-in, verifies Office Wi-Fi &amp; bound Device ID, clocks them in automatically once per day, and displays a Windows tray confirmation popup.
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+          <div className="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 space-y-2">
+            <h4 className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+              1. Per-Employee Automated Check-In (.bat)
+            </h4>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400">
+              To generate an employee&apos;s personalized script that silently marks their daily Time In on Windows startup, open <strong>Staff Directory</strong> and click <strong>Auto-Start .bat</strong> on their employee card (or have the employee download it inside their own portal).
+            </p>
+          </div>
+
+          <div className="p-4 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 flex flex-col justify-between gap-3">
+            <div className="space-y-1">
+              <h4 className="text-xs font-bold text-blue-900 dark:text-blue-200">
+                2. Universal App Startup Launcher (.bat)
+              </h4>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                Auto-opens the Attendance Portal as a Windows desktop window upon login without auto-punching (ideal for reception kiosk terminals or shared PCs).
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const { filename, content } = generatePortalLauncherBat({
+                  appUrl: typeof window !== 'undefined' ? window.location.origin : 'https://office-attendance-tracker-server-ve.vercel.app',
+                  companyName: formData.companyName,
+                });
+                downloadWindowsBatFile(filename, content);
+              }}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download Universal Portal Auto-Start (.bat)</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Database Backup & Disaster Recovery Card */}
       <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
