@@ -380,31 +380,25 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto justify-end">
-          {settings.allowAutoStartPunch !== false && (
-            <button
-              type="button"
-              onClick={handleDownloadAutoStartBat}
-              className={`flex-1 md:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                batDownloaded
-                  ? 'bg-emerald-600 text-white border-emerald-600'
-                  : 'bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
-              }`}
-              title={
-                canPersonalAutoStart
-                  ? 'Download Windows startup app (.bat) to auto-start portal & auto mark Time In when booting on office Wi-Fi'
-                  : 'Device not bound yet — downloads Windows Portal Auto-Launcher (.bat) until admin approves your PC binding'
-              }
-            >
-              <Terminal className="w-3.5 h-3.5" />
-              <span>
-                {batDownloaded
-                  ? 'Downloaded .bat!'
-                  : canPersonalAutoStart
-                  ? 'Download Auto-Start App (.bat)'
-                  : 'Download Portal Launcher (.bat)'}
-              </span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleDownloadAutoStartBat}
+            className={`flex-1 md:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+              batDownloaded
+                ? 'bg-emerald-600 text-white border-emerald-600'
+                : 'bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+            }`}
+            title={
+              canPersonalAutoStart
+                ? 'Download Windows startup app (.bat) to auto-start portal & auto mark Time In when booting on office Wi-Fi'
+                : 'Download Windows auto-start launcher (.bat) to auto-open Attendance Tracker on Windows startup for manual ID/PIN punching'
+            }
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            <span>
+              {batDownloaded ? 'Downloaded .bat!' : 'Download Auto-Start (.bat)'}
+            </span>
+          </button>
 
           {onOpenRequestDevice && (
             <button

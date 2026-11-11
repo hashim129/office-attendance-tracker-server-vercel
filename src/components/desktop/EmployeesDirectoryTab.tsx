@@ -41,6 +41,7 @@ interface EmployeesDirectoryTabProps {
   onDirectBindDevice?: (empId: string, deviceId: string, deviceName: string) => void;
   currentUserId: string;
   companyName?: string;
+  allowAutoStartPunch?: boolean;
 }
 
 export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
@@ -56,6 +57,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
   onDirectBindDevice,
   currentUserId,
   companyName = 'Office Attendance Tracker',
+  allowAutoStartPunch = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedDept, setSelectedDept] = useState<string>('all');
@@ -616,12 +618,27 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                       typeof window !== 'undefined'
                         ? window.location.origin
                         : 'https://office-attendance-tracker-server-ve.vercel.app';
+                    if (!allowAutoStartPunch) {
+                      const { filename, content } = generatePortalLauncherBat({
+                        appUrl,
+                        companyName,
+                        employeeCode: emp.employeeCode,
+                        employeeName: emp.name,
+                      });
+                      downloadWindowsBatFile(filename, content);
+                      return;
+                    }
                     if (!emp.registeredDeviceId && emp.role !== 'admin') {
                       const fallbackConfirm = confirm(
-                        `${emp.name} does not have an approved Bound PC/Device yet.\n\nAutomated startup check-in (.bat) requires device binding (click "Bind Detected" above or approve their device request).\n\nWould you like to download the Universal App Startup Launcher (.bat) instead?`
+                        `${emp.name} does not have an approved Bound PC/Device yet.\n\nAutomated startup check-in (.bat) requires device binding (click "Bind Detected" above or approve their device request).\n\nWould you like to download the Auto-Start Portal Launcher (.bat) instead?`
                       );
                       if (!fallbackConfirm) return;
-                      const { filename, content } = generatePortalLauncherBat({ appUrl, companyName });
+                      const { filename, content } = generatePortalLauncherBat({
+                        appUrl,
+                        companyName,
+                        employeeCode: emp.employeeCode,
+                        employeeName: emp.name,
+                      });
                       downloadWindowsBatFile(filename, content);
                       return;
                     }
@@ -632,8 +649,12 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                     });
                     downloadWindowsBatFile(filename, content);
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer"
-                  title="Download Windows startup auto check-in .bat app for this employee's PC"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-300 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
+                  title={
+                    allowAutoStartPunch
+                      ? 'Download Windows startup auto check-in .bat app for this employee'
+                      : 'Download Windows startup launcher (.bat) pre-selected with this Employee ID for manual PIN & punch'
+                  }
                 >
                   <Terminal className="w-3 h-3" />
                   <span>Auto-Start .bat</span>

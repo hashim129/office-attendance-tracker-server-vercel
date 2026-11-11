@@ -100,7 +100,7 @@ export const INITIAL_SETTINGS: OfficeSettings = {
   enforceDeviceBinding: true,
   allowAdminBypassDeviceBinding: true,
   allowKioskPunchWithoutDevice: true,
-  allowAutoStartPunch: true,
+  allowAutoStartPunch: false,
   enableDisconnectStatusTracking: true,
   autoPunchOutOnInactiveHours: 2,
   disconnectThresholdMinutes: 3,
@@ -482,7 +482,7 @@ export function loadSettings(): OfficeSettings {
       enforceDeviceBinding: parsed.enforceDeviceBinding ?? true,
       allowAdminBypassDeviceBinding: parsed.allowAdminBypassDeviceBinding ?? true,
       allowKioskPunchWithoutDevice: parsed.allowKioskPunchWithoutDevice ?? true,
-      allowAutoStartPunch: parsed.allowAutoStartPunch ?? true,
+      allowAutoStartPunch: parsed.allowAutoStartPunch ?? false,
       enableDisconnectStatusTracking: parsed.enableDisconnectStatusTracking ?? true,
       autoPunchOutOnInactiveHours:
         parsed.autoPunchOutOnInactiveHours !== undefined

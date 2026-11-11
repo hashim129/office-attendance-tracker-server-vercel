@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Clock, KeyRound, User, ArrowRight, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Clock, KeyRound, User, ArrowRight, RefreshCw, Terminal, Download } from 'lucide-react';
 import { Employee } from '../../types';
+import { downloadWindowsBatFile, generatePortalLauncherBat } from '../../lib/autoStartScript';
 
 interface LoginViewProps {
   employees: Employee[];
@@ -26,10 +27,25 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [manualCode, setManualCode] = useState<string>('');
   const [mode, setMode] = useState<'picker' | 'manual'>('picker');
+  const appliedUrlEmpRef = useRef<boolean>(false);
 
   // Re-sync selected employee whenever cloud database finishes loading or updates
   useEffect(() => {
     if (activeEmployees.length > 0) {
+      if (!appliedUrlEmpRef.current && typeof window !== 'undefined') {
+        const empParam = new URLSearchParams(window.location.search).get('emp');
+        if (empParam) {
+          const urlMatched = activeEmployees.find(
+            (e) => e.employeeCode.toLowerCase() === empParam.trim().toLowerCase()
+          );
+          if (urlMatched) {
+            appliedUrlEmpRef.current = true;
+            setSelectedEmpId(urlMatched.id);
+            setManualCode(urlMatched.employeeCode);
+            return;
+          }
+        }
+      }
       const stillExists = activeEmployees.some((e) => e.id === selectedEmpId);
       if (!selectedEmpId || !stillExists) {
         setSelectedEmpId(activeEmployees[0].id);
@@ -304,6 +320,30 @@ export const LoginView: React.FC<LoginViewProps> = ({
             </button>
           </form>
         )}
+
+        {/* Windows Startup Auto-Start App (.bat) Download */}
+        <div className="mt-6 pt-4 border-t border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+            <Terminal className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <span>Auto-open on Windows startup (Manual ID Punch)</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const appUrl =
+                typeof window !== 'undefined'
+                  ? window.location.origin
+                  : 'https://office-attendance-tracker-server-ve.vercel.app';
+              const { filename, content } = generatePortalLauncherBat({ appUrl, companyName });
+              downloadWindowsBatFile(filename, content);
+            }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer shrink-0"
+            title="Download Windows .bat to auto-start this app on boot/login so you can select your ID and punch manually"
+          >
+            <Download className="w-3 h-3" />
+            <span>Get .bat</span>
+          </button>
+        </div>
       </div>
     </div>
   );

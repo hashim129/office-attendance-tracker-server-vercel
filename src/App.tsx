@@ -1134,6 +1134,7 @@ export default function App() {
                   onResetDeviceBound={handleResetDeviceBound}
                   onDirectBindDevice={handleDirectBindDevice}
                   companyName={settings.companyName}
+                  allowAutoStartPunch={Boolean(settings.allowAutoStartPunch)}
                 />
               )}
 

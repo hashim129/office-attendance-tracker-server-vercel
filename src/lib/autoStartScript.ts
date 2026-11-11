@@ -27,6 +27,11 @@ function sanitizeFilename(input: string): string {
     .replace(/^_+|_+$/g, '');
 }
 
+function getShortcutFilename(safeCompany: string): string {
+  const clean = safeCompany || 'Office Attendance Tracker';
+  return /attendance/i.test(clean) ? `${clean}.url` : `${clean} Attendance.url`;
+}
+
 /**
  * Trigger browser file download with Windows CRLF line endings (\r\n)
  */
@@ -56,6 +61,7 @@ export async function generateEmployeeAutoStartBat(params: {
   const authToken = await computeAutoStartToken(employee);
   const cleanUrl = appUrl.replace(/\/+$/, '');
   const safeCompany = sanitizeSafeAscii(companyName || 'Office Attendance Tracker');
+  const shortcutName = getShortcutFilename(safeCompany);
   const safeName = sanitizeSafeAscii(employee.name);
   const safeCode = sanitizeSafeAscii(employee.employeeCode);
   const safeDeviceId = sanitizeSafeAscii(employee.registeredDeviceId || '');
@@ -151,7 +157,7 @@ echo [3/4] Registering Windows Startup auto-launch (no admin required)...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$q=[char]34; Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name $env:REG_NAME -Value ('wscript.exe ' + $q + $env:APP_DIR + '\\launch_hidden.vbs' + $q)"
 
 echo [4/4] Creating Desktop shortcut...
-set "SHORTCUT_NAME=${safeCompany} Attendance.url"
+set "SHORTCUT_NAME=${shortcutName}"
 set "PORTAL_URL=${cleanUrl}"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFolderPath('Desktop'); if(-not $d){$d=Join-Path $env:USERPROFILE 'Desktop'}; $p=Join-Path $d $env:SHORTCUT_NAME; $c=@('[InternetShortcut]',('URL='+$env:PORTAL_URL),'IconFile=%SystemRoot%\\System32\\SHELL32.dll','IconIndex=20') -join [Environment]::NewLine; [System.IO.File]::WriteAllText($p,$c,(New-Object System.Text.UTF8Encoding($false)))"
 
@@ -194,9 +200,9 @@ if exist "%APP_DIR%\\agent.pid" (
   powershell -NoProfile -ExecutionPolicy Bypass -Command "$pf=Join-Path $env:APP_DIR 'agent.pid'; if(Test-Path $pf){$p=Get-Content $pf -ErrorAction SilentlyContinue; if($p){Stop-Process -Id ([int]$p) -Force -ErrorAction SilentlyContinue}}" >nul 2>&1
 )
 if exist "%APP_DIR%" rmdir /s /q "%APP_DIR%"
-set "SHORTCUT_NAME=${safeCompany} Attendance.url"
+set "SHORTCUT_NAME=${shortcutName}"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFolderPath('Desktop'); if($d){Remove-Item (Join-Path $d $env:SHORTCUT_NAME) -Force -ErrorAction SilentlyContinue}"
-del "%USERPROFILE%\\Desktop\\${safeCompany} Attendance.url" >nul 2>&1
+del "%USERPROFILE%\\Desktop\\${shortcutName}" >nul 2>&1
 echo.
 echo Auto-Start Attendance has been completely removed from this PC.
 pause
@@ -482,19 +488,28 @@ exit 0
 }
 
 /**
- * Generates a universal Windows .bat startup launcher (opens Portal as a Desktop App on login)
- * Useful for Lobby Kiosk terminals or staff PCs without headless check-in credentials.
+ * Generates a clean Windows .bat startup app launcher for the current Attendance Tracker.
+ * Automatically starts the software when Windows boots or signs in so staff can select
+ * their Employee ID / PIN and punch manually without disrupting device binding or PIN rules.
  */
 export function generatePortalLauncherBat(params: {
   appUrl: string;
   companyName: string;
+  employeeCode?: string;
+  employeeName?: string;
 }): { filename: string; content: string } {
   const cleanUrl = params.appUrl.replace(/\/+$/, '');
   const safeCompany = sanitizeSafeAscii(params.companyName || 'Office Attendance Tracker');
+  const shortcutName = getShortcutFilename(safeCompany);
+  const safeCode = params.employeeCode ? sanitizeSafeAscii(params.employeeCode) : '';
+  const safeName = params.employeeName ? sanitizeSafeAscii(params.employeeName) : '';
+  const targetUrl = safeCode
+    ? `${cleanUrl}/?emp=${encodeURIComponent(safeCode)}`
+    : cleanUrl;
 
   const batContent = `@echo off
 setlocal EnableExtensions DisableDelayedExpansion
-title ${safeCompany} - Windows Startup App Launcher
+title ${safeCompany} - Windows Auto-Start App Installer
 color 0B
 
 set "APP_DIR=%LOCALAPPDATA%\\OfficeAttendanceLauncher"
@@ -505,14 +520,15 @@ set "SELF_BAT=%~f0"
 :MENU
 cls
 echo ============================================================================
-echo   ${safeCompany} - Windows Auto-Start Portal Installer
+echo   ${safeCompany} - Windows Auto-Start Attendance Software
 echo ============================================================================
-echo   Portal URL : ${cleanUrl}
+echo   Portal URL : ${targetUrl}
+${safeCode ? `echo   Employee   : ${safeName || safeCode} - ${safeCode}\n` : ''}echo   Punch Mode : Manual Selection by Employee ID & PIN (Startup Auto-Open)
 echo ============================================================================
 echo.
-echo     [1] Install Auto-Launch on Windows Startup + Open App Now
-echo     [2] Open Attendance Portal App Now
-echo     [3] Uninstall Auto-Launch from This PC
+echo     [1] Install Auto-Start on Windows Startup + Desktop Shortcut + Launch Now
+echo     [2] Launch Attendance Tracker Window Now
+echo     [3] Uninstall Auto-Start from This PC
 echo     [4] Exit
 echo.
 set /p CHOICE="Enter choice [1-4] (Default 1): "
@@ -527,7 +543,8 @@ goto MENU
 :INSTALL
 if not exist "%APP_DIR%" mkdir "%APP_DIR%"
 set "TARGET_PS=%APP_DIR%\\launch_portal.ps1"
-set "PORTAL_URL=${cleanUrl}"
+set "PORTAL_URL=${targetUrl}"
+set "SHORTCUT_NAME=${shortcutName}"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$raw=[System.IO.File]::ReadAllText($env:SELF_BAT); $parts=$raw -split '::##PS_START##\\r?\\n',2; if($parts.Length -eq 2){ $script=$parts[1].Replace('__PORTAL_URL__',$env:PORTAL_URL); [System.IO.File]::WriteAllText($env:TARGET_PS, $script, (New-Object System.Text.UTF8Encoding($false))) }"
 
@@ -538,10 +555,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$raw=[System.IO.File]::R
   echo objShell.Run cmd, 0, False
 ) > "%APP_DIR%\\launch_hidden.vbs"
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$q=[char]34; Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name $env:REG_NAME -Value ('wscript.exe ' + $q + $env:APP_DIR + '\\launch_hidden.vbs' + $q)"
+echo Registering Windows Startup auto-launch (no admin required)...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$q=[char]34; Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name $env:REG_NAME -Value ('wscript.exe ' + $q + $env:APP_DIR + '\\launch_hidden.vbs' + $q); Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'OfficeAttendanceAutoStart' -ErrorAction SilentlyContinue"
+
+echo Creating Desktop shortcut...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFolderPath('Desktop'); if(-not $d){$d=Join-Path $env:USERPROFILE 'Desktop'}; $p=Join-Path $d $env:SHORTCUT_NAME; $c=@('[InternetShortcut]',('URL='+$env:PORTAL_URL),'IconFile=%SystemRoot%\\System32\\SHELL32.dll','IconIndex=20') -join [Environment]::NewLine; [System.IO.File]::WriteAllText($p,$c,(New-Object System.Text.UTF8Encoding($false)))"
 
 echo.
-echo Installed! Attendance Tracker will auto-start cleanly on every Windows login.
+echo ============================================================================
+echo   SUCCESS! Attendance Tracker will auto-start at every Windows login.
+echo ============================================================================
+echo   - Punches stay manual: select your Employee ID & PIN when the window opens.
+echo   - Desktop shortcut created: "%SHORTCUT_NAME%"
+echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%APP_DIR%\\launch_portal.ps1"
 pause
 exit /b 0
@@ -550,13 +576,16 @@ exit /b 0
 if exist "%APP_DIR%\\launch_portal.ps1" (
   powershell -NoProfile -ExecutionPolicy Bypass -File "%APP_DIR%\\launch_portal.ps1"
 ) else (
-  start "" "${cleanUrl}"
+  start "" "${targetUrl}"
 )
 exit /b 0
 
 :UNINSTALL
 reg delete "%REG_KEY%" /v "%REG_NAME%" /f >nul 2>&1
 if exist "%APP_DIR%" rmdir /s /q "%APP_DIR%"
+set "SHORTCUT_NAME=${shortcutName}"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=[Environment]::GetFolderPath('Desktop'); if($d){Remove-Item (Join-Path $d $env:SHORTCUT_NAME) -Force -ErrorAction SilentlyContinue}"
+del "%USERPROFILE%\\Desktop\\${shortcutName}" >nul 2>&1
 echo Auto-launch uninstalled from this PC.
 pause
 exit /b 0
@@ -586,15 +615,19 @@ if ($browserExe) {
 }
 `;
 
-  const filename = `AutoLaunch_${sanitizeFilename(safeCompany)}_Portal.bat`;
+  const filename = safeCode
+    ? `AutoStart_${sanitizeFilename(safeName || safeCode)}_${sanitizeFilename(safeCode)}.bat`
+    : `AutoStart_${sanitizeFilename(safeCompany)}_App.bat`;
   return { filename, content: batContent };
 }
 
 /**
- * Determine if the employee can use personalized boot auto-punch (.bat)
- * vs. the universal portal launcher.
+ * Determine if the employee can use personalized silent boot auto-punch (.bat)
+ * instead of the standard manual-ID portal auto-start launcher.
+ * Requires explicit Administrator opt-in (`settings.allowAutoStartPunch === true`).
  */
 export function canEmployeeAutoPunch(employee: Employee, settings: OfficeSettings): boolean {
+  if (settings.allowAutoStartPunch !== true) return false;
   return (
     !!employee.registeredDeviceId ||
     employee.role === 'admin' ||
@@ -625,8 +658,11 @@ export async function downloadAutoStartScriptForUser(params: {
   const { filename, content } = generatePortalLauncherBat({
     appUrl: resolvedUrl,
     companyName,
+    employeeCode: employee.employeeCode,
+    employeeName: employee.name,
   });
   downloadWindowsBatFile(filename, content);
   return 'portal';
 }
+
 
