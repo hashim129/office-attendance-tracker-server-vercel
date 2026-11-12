@@ -189,6 +189,7 @@ export type ActiveDesktopTab =
   | 'clock'
   | 'my-attendance'
   | 'team-attendance'
+  | 'insights'
   | 'employees'
   | 'shifts'
   | 'leaves'

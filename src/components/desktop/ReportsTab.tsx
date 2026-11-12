@@ -41,6 +41,7 @@ import {
   getTodayDateString,
 } from '../../lib/attendanceCalculations';
 import { exportAttendanceToCsv } from '../../lib/exportUtils';
+import { downloadOfficialTimesheetPdf } from '../../lib/pdfTimesheet';
 import { Modal } from '../common/Modal';
 
 interface ReportsTabProps {
@@ -413,7 +414,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
         </div>
 
         {/* Export Buttons */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={handleDownloadFullCsv}
             className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 shadow-2xs transition-colors cursor-pointer"
@@ -423,11 +424,30 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
           </button>
 
           <button
+            type="button"
+            onClick={() => {
+              const singleEmp = selectedEmpId !== 'all' ? empMap.get(selectedEmpId) || null : null;
+              downloadOfficialTimesheetPdf({
+                employee: singleEmp,
+                allEmployees: employees,
+                records: filteredRecords,
+                shifts,
+                settings,
+                generatedBy: currentUser || null,
+              });
+            }}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download Official PDF</span>
+          </button>
+
+          <button
             onClick={handleOpenPrintPreview}
             className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer"
           >
             <FileText className="w-3.5 h-3.5" />
-            <span>Print Official Timesheet (PDF)</span>
+            <span>Timesheet Preview</span>
           </button>
         </div>
       </div>
@@ -649,7 +669,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                 <th className="py-3 px-4 text-center">Status</th>
                 <th className="py-3 px-4 text-center">Verification</th>
                 <th className="py-3 px-4">Notes</th>
-                {(currentUser?.role === 'ceo' || currentUser?.role === 'admin') && (
+                {(currentUser?.role === 'ceo' || currentUser?.role === 'admin' || currentUser?.role === 'accounts') && (
                   <th className="py-3 px-4 text-right">Actions</th>
                 )}
               </tr>
@@ -657,7 +677,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={currentUser?.role === 'ceo' || currentUser?.role === 'admin' ? 13 : 12} className="py-12 text-center text-slate-400">
+                  <td colSpan={currentUser?.role === 'ceo' || currentUser?.role === 'admin' || currentUser?.role === 'accounts' ? 13 : 12} className="py-12 text-center text-slate-400">
                     No records found for the selected reporting criteria.
                   </td>
                 </tr>
@@ -847,9 +867,25 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                         {r.notes || (r.isManuallyAdjusted ? `Adjusted: ${r.adjustmentNote}` : '—')}
                       </td>
 
-                      {(currentUser?.role === 'ceo' || currentUser?.role === 'admin') && (
+                      {(currentUser?.role === 'ceo' || currentUser?.role === 'admin' || currentUser?.role === 'accounts') && (
                         <td className="py-3 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            {emp && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenPrintModal(
+                                    emp,
+                                    filteredRecords.filter((recItem) => recItem.employeeId === emp.id)
+                                  )
+                                }
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-colors cursor-pointer"
+                                title={`Download / preview official PDF timesheet for ${emp.name}`}
+                              >
+                                <FileText className="w-3 h-3" />
+                                <span>PDF</span>
+                              </button>
+                            )}
                             {currentUser?.role === 'admin' && onUpdateRecord && (
                               <button
                                 onClick={() => handleOpenAdjustment(r)}
@@ -860,7 +896,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                                 <span>Edit Punch</span>
                               </button>
                             )}
-                            {emp && onAddCeoComment && (
+                            {emp && (currentUser?.role === 'ceo' || currentUser?.role === 'admin') && onAddCeoComment && (
                               <button
                                 onClick={() => handleOpenMentionModal(emp)}
                                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition-colors cursor-pointer"

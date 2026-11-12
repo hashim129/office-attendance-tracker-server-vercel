@@ -102,6 +102,8 @@ export default async function handler(req, res) {
         const existingHbMs = existing.lastHeartbeatAt ? Date.parse(existing.lastHeartbeatAt) : 0;
         const existingActMs = existing.lastActivityAt ? Date.parse(existing.lastActivityAt) : 0;
 
+        const prevToggleMs = existing.monitoringToggledAt ? Date.parse(existing.monitoringToggledAt) : 0;
+
         // Never let a browser tab close interrupt an independently running Windows .bat background agent
         if (event === 'tab_closed') {
           if (existing.heartbeatSource === 'windows-agent' && nowMs - existingHbMs < 180000) {
@@ -116,7 +118,13 @@ export default async function handler(req, res) {
               result: { ok: true, state: onBreak ? 'break' : 'working', keptOtherDevice: true },
             };
           }
-          if (existing.monitoringPaused || existing.connectionStatus === 'no_internet' || !canWriteBackgroundGist(55)) {
+          const inReloadCooldown = prevToggleMs > 0 && nowMs - prevToggleMs < 120000;
+          if (
+            existing.monitoringPaused ||
+            existing.connectionStatus === 'no_internet' ||
+            inReloadCooldown ||
+            !canWriteBackgroundGist(60)
+          ) {
             return {
               skipWrite: true,
               result: { ok: true, state: 'paused' },
@@ -126,6 +134,7 @@ export default async function handler(req, res) {
           nextAttendance[idx] = {
             ...existing,
             monitoringPaused: true,
+            monitoringToggledAt: nowIso,
           };
           return {
             nextDb: { ...db, updatedAt: nowIso, attendance: nextAttendance },
@@ -171,6 +180,7 @@ export default async function handler(req, res) {
           heartbeatDeviceId: effectiveDeviceId,
           heartbeatIntervalMs: adaptivePersistMs,
           monitoringPaused: false,
+          ...(existing.monitoringPaused ? { monitoringToggledAt: nowIso } : {}),
         };
         delete updatedRec.disconnectedAt;
 

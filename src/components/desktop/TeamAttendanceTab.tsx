@@ -21,6 +21,9 @@ import {
   Send,
   LogOut,
   WifiOff,
+  FileText,
+  Download,
+  X,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -41,7 +44,18 @@ import {
   isLateArrival,
 } from '../../lib/attendanceCalculations';
 import { exportAttendanceToCsv } from '../../lib/exportUtils';
+import { downloadOfficialTimesheetPdf } from '../../lib/pdfTimesheet';
 import { Modal } from '../common/Modal';
+
+export type RosterCategoryKey =
+  | 'present'
+  | 'absent'
+  | 'in'
+  | 'no_internet'
+  | 'break'
+  | 'out'
+  | 'admin_verified'
+  | 'accounts_verified';
 
 /** Resolves accurate offline/disconnect badge copy and tooltip for still-clocked-in employees. */
 function getOfflineBadgeMeta(record?: AttendanceRecord | null): {
@@ -82,6 +96,7 @@ interface TeamAttendanceTabProps {
   currentUser?: Employee;
   ceoComments?: CeoComment[];
   onAddCeoComment?: (comment: Omit<CeoComment, 'id' | 'createdAt'>) => void;
+  onOpenPrintModal?: (employee: Employee | null, filteredRecords: AttendanceRecord[]) => void;
   isNetworkOnline?: boolean;
 }
 
@@ -96,6 +111,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
   currentUser,
   ceoComments = [],
   onAddCeoComment,
+  onOpenPrintModal,
   isNetworkOnline = true,
 }) => {
   const effectiveUser = currentUser || adminUser;
@@ -108,6 +124,8 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [categoryModalKey, setCategoryModalKey] = useState<RosterCategoryKey | null>(null);
+  const [categorySearch, setCategorySearch] = useState<string>('');
 
   // Comprehensive Adjustment Modal State
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
@@ -250,12 +268,15 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           return false;
         }
         if (statusFilter !== 'all') {
+          if (statusFilter === 'present' && !item.record?.timeIn) return false;
           if (statusFilter === 'in' && item.derivedStatus !== 'in') return false;
           if (statusFilter === 'no_internet' && item.derivedStatus !== 'no_internet') return false;
           if (statusFilter === 'break' && item.derivedStatus !== 'break') return false;
           if (statusFilter === 'out' && item.derivedStatus !== 'out') return false;
           if (statusFilter === 'absent' && item.derivedStatus !== 'absent') return false;
           if (statusFilter === 'late' && item.record?.status !== 'late') return false;
+          if (statusFilter === 'admin_verified' && !item.record?.adminVerification?.verified) return false;
+          if (statusFilter === 'accounts_verified' && !item.record?.accountsVerification?.verified) return false;
           if (statusFilter === 'admin_unverified') {
             if (!item.record || item.record.adminVerification?.verified) return false;
           }
@@ -367,6 +388,129 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       absentACount,
     };
   }, [employees, dateRecordMap, settings, todayStr, isNetworkOnline, effectiveUser.id]);
+
+  const ROSTER_CATEGORY_META: Record<
+    RosterCategoryKey,
+    { title: string; subtitle: string; badgeClass: string }
+  > = {
+    present: {
+      title: "Present ('P') Employees",
+      subtitle: 'All staff who marked attendance / clocked in on this date',
+      badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-200',
+    },
+    absent: {
+      title: "Absent ('A') Employees",
+      subtitle: 'Staff who have not arrived or have no check-in record on this date',
+      badgeClass: 'bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/60 dark:text-rose-200',
+    },
+    in: {
+      title: 'Clocked In (Online)',
+      subtitle: 'Staff actively online and working at their desks',
+      badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-200',
+    },
+    no_internet: {
+      title: 'Offline / No Internet (Still In)',
+      subtitle: 'Clocked-in staff without an active heartbeat, internet loss, or tab closed',
+      badgeClass: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-200',
+    },
+    break: {
+      title: 'Employees Currently On Break',
+      subtitle: 'Staff on temporary lunch, coffee, or short break pause',
+      badgeClass: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-200',
+    },
+    out: {
+      title: 'Shift Ended (Punched Out)',
+      subtitle: 'Staff who have completed their shift or auto-punched out on this date',
+      badgeClass: 'bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-200',
+    },
+    admin_verified: {
+      title: 'Admin Verified Attendance',
+      subtitle: 'Attendance logs verified by Office Administrator',
+      badgeClass: 'bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-950/60 dark:text-purple-200',
+    },
+    accounts_verified: {
+      title: 'Accounts Verified Attendance',
+      subtitle: 'Attendance logs verified by Accounts Officer',
+      badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-200',
+    },
+  };
+
+  const categoryListItems = useMemo(() => {
+    if (!categoryModalKey) return [];
+    const q = categorySearch.trim().toLowerCase();
+
+    return employees
+      .filter((emp) => emp.isActive)
+      .map((emp) => {
+        const record = dateRecordMap.get(emp.id);
+        const shift = shiftMap.get(emp.shiftId) || shifts[0];
+        const derivedStatus = deriveLiveAttendanceState({
+          record,
+          settings,
+          todayStr,
+          isCurrentUserOffline: !isNetworkOnline && emp.id === effectiveUser.id,
+          isCurrentUserConnected: isNetworkOnline && emp.id === effectiveUser.id,
+        });
+        return { employee: emp, record, shift, derivedStatus };
+      })
+      .filter((item) => {
+        if (departmentFilter !== 'all' && item.employee.department !== departmentFilter) {
+          return false;
+        }
+        if (categoryModalKey === 'present') return Boolean(item.record?.timeIn);
+        if (categoryModalKey === 'absent') return !item.record?.timeIn;
+        if (categoryModalKey === 'in') return item.derivedStatus === 'in';
+        if (categoryModalKey === 'no_internet') return item.derivedStatus === 'no_internet';
+        if (categoryModalKey === 'break') return item.derivedStatus === 'break';
+        if (categoryModalKey === 'out') return item.derivedStatus === 'out';
+        if (categoryModalKey === 'admin_verified') return Boolean(item.record?.adminVerification?.verified);
+        if (categoryModalKey === 'accounts_verified') return Boolean(item.record?.accountsVerification?.verified);
+        return true;
+      })
+      .filter((item) => {
+        if (!q) return true;
+        return (
+          item.employee.name.toLowerCase().includes(q) ||
+          item.employee.employeeCode.toLowerCase().includes(q) ||
+          item.employee.department.toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => a.employee.name.localeCompare(b.employee.name));
+  }, [
+    categoryModalKey,
+    categorySearch,
+    employees,
+    dateRecordMap,
+    shiftMap,
+    shifts,
+    departmentFilter,
+    settings,
+    todayStr,
+    isNetworkOnline,
+    effectiveUser.id,
+  ]);
+
+  const handleClickCategoryCard = (key: RosterCategoryKey) => {
+    setCategorySearch('');
+    setStatusFilter(key);
+    setCategoryModalKey(key);
+  };
+
+  const handleOpenEmployeeTimesheet = (emp: Employee) => {
+    const empRecords = records.filter((r) => r.employeeId === emp.id);
+    if (onOpenPrintModal) {
+      onOpenPrintModal(emp, empRecords);
+    } else {
+      downloadOfficialTimesheetPdf({
+        employee: emp,
+        allEmployees: employees,
+        records: empRecords,
+        shifts,
+        settings,
+        generatedBy: effectiveUser,
+      });
+    }
+  };
 
   // Open adjustment modal with separate options for punch in, punch out, and working status
   const handleOpenAdjustment = (emp: Employee, existingRecord?: AttendanceRecord) => {
@@ -721,6 +865,32 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
             </button>
           )}
 
+          {canManage && (
+            <button
+              type="button"
+              onClick={() => {
+                if (onOpenPrintModal) {
+                  onOpenPrintModal(null, dateRecords);
+                } else {
+                  downloadOfficialTimesheetPdf({
+                    employee: null,
+                    allEmployees: employees,
+                    records: dateRecords,
+                    shifts,
+                    settings,
+                    periodLabel: `Roster Date: ${selectedDate}`,
+                    generatedBy: effectiveUser,
+                  });
+                }
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors cursor-pointer"
+              title="Download or preview official A4 PDF timesheet"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Official PDF</span>
+            </button>
+          )}
+
           <button
             onClick={handleExportToday}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer"
@@ -731,10 +901,19 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         </div>
       </div>
 
-      {/* Presence & Verification KPI Summary Cards */}
+      {/* Clickable Presence & Verification KPI Summary Cards (Click any tab for employee list) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2.5">
         {/* Total Present ('P') */}
-        <div className="p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border-2 border-emerald-400/90 dark:border-emerald-600 shadow-2xs">
+        <button
+          type="button"
+          onClick={() => handleClickCategoryCard('present')}
+          title="Click to view list of all Present ('P') employees"
+          className={`text-left p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border-2 shadow-2xs transition-all hover:scale-[1.01] hover:shadow-sm cursor-pointer ${
+            statusFilter === 'present'
+              ? 'border-emerald-600 ring-2 ring-emerald-400/50'
+              : 'border-emerald-400/90 dark:border-emerald-600'
+          }`}
+        >
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wider">
               Present ('P')
@@ -744,11 +923,20 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           <div className="text-xl font-black font-mono text-emerald-700 dark:text-emerald-300 mt-1">
             {liveCounts.presentPCount}
           </div>
-          <span className="text-[10px] font-medium text-emerald-600/90 dark:text-emerald-400">Active present</span>
-        </div>
+          <span className="text-[10px] font-medium text-emerald-600/90 dark:text-emerald-400">Active present · View list</span>
+        </button>
 
         {/* Total Absent ('A') */}
-        <div className="p-3 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 shadow-2xs">
+        <button
+          type="button"
+          onClick={() => handleClickCategoryCard('absent')}
+          title="Click to view list of all Absent ('A') employees"
+          className={`text-left p-3 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border shadow-2xs transition-all hover:scale-[1.01] hover:shadow-sm cursor-pointer ${
+            statusFilter === 'absent'
+              ? 'border-rose-600 ring-2 ring-rose-400/50'
+              : 'border-rose-300 dark:border-rose-800'
+          }`}
+        >
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider">
               Absent ('A')
@@ -758,26 +946,42 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           <div className="text-xl font-black font-mono text-rose-700 dark:text-rose-300 mt-1">
             {liveCounts.absentACount}
           </div>
-          <span className="text-[10px] font-medium text-rose-600/90 dark:text-rose-400">Not arrived / leave</span>
-        </div>
+          <span className="text-[10px] font-medium text-rose-600/90 dark:text-rose-400">Not arrived · View list</span>
+        </button>
 
         {/* Working at desk (Online) */}
-        <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+        <button
+          type="button"
+          onClick={() => handleClickCategoryCard('in')}
+          title="Click to view list of all Clocked In (Online) employees"
+          className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-emerald-400 hover:shadow-sm cursor-pointer ${
+            statusFilter === 'in'
+              ? 'border-emerald-500 ring-2 ring-emerald-400/40'
+              : 'border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
             Clocked In (Online)
           </span>
           <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
             {liveCounts.inCount}
           </div>
-          <span className="text-[10px] text-slate-400">At desks / working</span>
-        </div>
+          <span className="text-[10px] text-slate-400">At desks · View list</span>
+        </button>
 
         {/* No Internet / Offline (Still In) */}
-        <div className={`p-3 rounded-xl border shadow-2xs ${
-          liveCounts.noInternetCount > 0
-            ? 'bg-amber-50/90 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700'
-            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-        }`}>
+        <button
+          type="button"
+          onClick={() => handleClickCategoryCard('no_internet')}
+          title="Click to view list of all Offline / No Internet (In) employees"
+          className={`text-left p-3 rounded-xl border shadow-2xs transition-all hover:scale-[1.01] hover:shadow-sm cursor-pointer ${
+            statusFilter === 'no_internet'
+              ? 'border-amber-600 ring-2 ring-amber-400/50 bg-amber-50 dark:bg-amber-950/60'
+              : liveCounts.noInternetCount > 0
+              ? 'bg-amber-50/90 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700'
+              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+          }`}
+        >
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
               Offline / No Internet (In)
@@ -787,52 +991,88 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
             {liveCounts.noInternetCount}
           </div>
-          <span className="text-[10px] text-slate-400">No internet, tab closed, or offline</span>
-        </div>
+          <span className="text-[10px] text-slate-400">No internet · View list</span>
+        </button>
 
         {/* On Break */}
-        <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+        <button
+          type="button"
+          onClick={() => handleClickCategoryCard('break')}
+          title="Click to view list of employees currently On Break"
+          className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-amber-400 hover:shadow-sm cursor-pointer ${
+            statusFilter === 'break'
+              ? 'border-amber-500 ring-2 ring-amber-400/40'
+              : 'border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
             On Break
           </span>
           <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
             {liveCounts.breakCount}
           </div>
-          <span className="text-[10px] text-slate-400">Temporary pause</span>
-        </div>
+          <span className="text-[10px] text-slate-400">Temporary pause · List</span>
+        </button>
 
-        {/* Completed */}
-        <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+        {/* Completed / Shift Ended */}
+        <button
+          type="button"
+          onClick={() => handleClickCategoryCard('out')}
+          title="Click to view list of employees whose Shift Ended"
+          className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-slate-400 hover:shadow-sm cursor-pointer ${
+            statusFilter === 'out'
+              ? 'border-slate-600 ring-2 ring-slate-400/40'
+              : 'border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
             Shift Ended
           </span>
           <div className="text-xl font-bold font-mono text-slate-700 dark:text-slate-300 mt-1">
             {liveCounts.completedCount}
           </div>
-          <span className="text-[10px] text-slate-400">Punched out</span>
-        </div>
+          <span className="text-[10px] text-slate-400">Punched out · View list</span>
+        </button>
 
         {/* Admin Verified */}
-        <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-purple-200/60 dark:border-purple-900/40 shadow-2xs">
+        <button
+          type="button"
+          onClick={() => handleClickCategoryCard('admin_verified')}
+          title="Click to view list of Admin Verified employees"
+          className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-purple-400 hover:shadow-sm cursor-pointer ${
+            statusFilter === 'admin_verified'
+              ? 'border-purple-500 ring-2 ring-purple-400/40'
+              : 'border-purple-200/60 dark:border-purple-900/40'
+          }`}
+        >
           <span className="text-[10px] font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
             Admin Verified
           </span>
           <div className="text-xl font-bold font-mono text-purple-700 dark:text-purple-300 mt-1">
             {liveCounts.adminVerifiedCount}
           </div>
-          <span className="text-[10px] text-slate-400">Validated by Admin</span>
-        </div>
+          <span className="text-[10px] text-slate-400">Validated · View list</span>
+        </button>
 
         {/* Accounts Verified */}
-        <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200/60 dark:border-emerald-900/40 shadow-2xs">
+        <button
+          type="button"
+          onClick={() => handleClickCategoryCard('accounts_verified')}
+          title="Click to view list of Accounts Verified employees"
+          className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-emerald-400 hover:shadow-sm cursor-pointer ${
+            statusFilter === 'accounts_verified'
+              ? 'border-emerald-500 ring-2 ring-emerald-400/40'
+              : 'border-emerald-200/60 dark:border-emerald-900/40'
+          }`}
+        >
           <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
             Accounts Verified
           </span>
           <div className="text-xl font-bold font-mono text-emerald-700 dark:text-emerald-300 mt-1">
             {liveCounts.accountsVerifiedCount}
           </div>
-          <span className="text-[10px] text-slate-400">Validated by Accounts</span>
-        </div>
+          <span className="text-[10px] text-slate-400">Validated · View list</span>
+        </button>
       </div>
 
       {/* Filter and Search Bar */}
@@ -850,7 +1090,17 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         </div>
 
         {/* Department and Status Selectors */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {statusFilter !== 'all' && (
+            <button
+              type="button"
+              onClick={() => setStatusFilter('all')}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-200 border border-blue-300 dark:border-blue-700 hover:bg-blue-200 cursor-pointer"
+            >
+              <span>Filter: {statusFilter.replace('_', ' ')}</span>
+              <X className="w-3 h-3" />
+            </button>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500">Dept:</span>
             <select
@@ -875,12 +1125,15 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
               className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100"
             >
               <option value="all">All Statuses</option>
+              <option value="present">Present ('P')</option>
               <option value="in">Currently In (Online)</option>
               <option value="no_internet">Offline / No Internet (In)</option>
               <option value="break">On Break</option>
               <option value="out">Shift Finished</option>
               <option value="late">Late Arrival</option>
-              <option value="absent">Not In</option>
+              <option value="absent">Absent / Not In</option>
+              <option value="admin_verified">Admin Verified</option>
+              <option value="accounts_verified">Accounts Verified</option>
               <option value="admin_unverified">Pending Admin Verification</option>
               <option value="accounts_unverified">Pending Accounts Verification</option>
               <option value="auto_punched">All Auto Punched Out</option>
@@ -1131,7 +1384,17 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                       {/* Actions Column (Admin, Accounts Officer & CEO) */}
                       {(isAdmin || isAccountsOfficer || isCeo) && (
                         <td className="py-3 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
+                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEmployeeTimesheet(employee)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-colors cursor-pointer"
+                              title={`Preview & download official PDF timesheet for ${employee.name}`}
+                            >
+                              <FileText className="w-3 h-3" />
+                              <span>PDF</span>
+                            </button>
+
                             {/* CEO / Management Mention Directive */}
                             {(isCeo || isAdmin) && onAddCeoComment && (
                               <button
@@ -1646,6 +1909,151 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+      {/* Category Drill-Down Employee List Modal (Triggered on clicking Present / Absent / Clocked In / Offline / Break / Shift End cards) */}
+      {categoryModalKey && (
+        <Modal
+          isOpen={!!categoryModalKey}
+          onClose={() => setCategoryModalKey(null)}
+          title={`${ROSTER_CATEGORY_META[categoryModalKey].title} (${categoryListItems.length})`}
+          subtitle={`${ROSTER_CATEGORY_META[categoryModalKey].subtitle} · Date: ${selectedDate}`}
+          maxWidth="xl"
+        >
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="relative flex-1 min-w-[200px]">
+                <input
+                  type="text"
+                  value={categorySearch}
+                  onChange={(e) => setCategorySearch(e.target.value)}
+                  placeholder="Filter list by name, ID, or department..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100 focus:outline-none"
+                />
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+              </div>
+
+              <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold border ${ROSTER_CATEGORY_META[categoryModalKey].badgeClass}`}>
+                {categoryListItems.length} Employee{categoryListItems.length === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-[55vh] overflow-y-auto">
+              {categoryListItems.length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-400">
+                  No employees currently fall under this category for {selectedDate}.
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                    <tr>
+                      <th className="py-2 px-3">#</th>
+                      <th className="py-2 px-3">Employee</th>
+                      <th className="py-2 px-3">Department & Shift</th>
+                      <th className="py-2 px-3">Time In</th>
+                      <th className="py-2 px-3">Time Out</th>
+                      <th className="py-2 px-3 text-right">Worked</th>
+                      <th className="py-2 px-3">Status Detail</th>
+                      {canManage && <th className="py-2 px-3 text-right">Timesheet</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {categoryListItems.map(({ employee, record, shift, derivedStatus }, idx) => {
+                      const workedMins = record
+                        ? getLiveWorkedStats({ record, shift, settings, liveState: derivedStatus }).totalWorkedMinutes
+                        : 0;
+                      const detailLabel =
+                        derivedStatus === 'in'
+                          ? 'Clocked In (Online)'
+                          : derivedStatus === 'no_internet'
+                          ? getOfflineBadgeMeta(record).statusLabel
+                          : derivedStatus === 'break'
+                          ? 'On Break'
+                          : derivedStatus === 'out'
+                          ? record?.isAutoPunchedOut
+                            ? 'Shift Ended (Auto Out)'
+                            : 'Shift Ended'
+                          : 'Absent / Not Punched In';
+
+                      return (
+                        <tr key={employee.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="py-2.5 px-3 font-mono text-slate-400">{idx + 1}</td>
+                          <td className="py-2.5 px-3">
+                            <p className="font-semibold text-slate-900 dark:text-slate-100">{employee.name}</p>
+                            <p className="text-[10px] font-mono text-slate-400">{employee.employeeCode}</p>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <p className="text-slate-700 dark:text-slate-300">{employee.department}</p>
+                            <p className="text-[10px] text-slate-400">{shift?.name || 'Standard'}</p>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono font-semibold text-emerald-700 dark:text-emerald-300">
+                            {record?.timeIn ? formatTime12h(record.timeIn) : '—'}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-700 dark:text-slate-300">
+                            {record?.timeOut ? formatTime12h(record.timeOut) : '—'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold">
+                            {record?.timeIn ? formatMinutesToHoursMinutes(workedMins) : '0h 00m'}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                derivedStatus === 'in'
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                  : derivedStatus === 'no_internet' || derivedStatus === 'break'
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                  : derivedStatus === 'out'
+                                  ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                  : 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
+                              }`}
+                            >
+                              {detailLabel}
+                            </span>
+                          </td>
+                          {canManage && (
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCategoryModalKey(null);
+                                  handleOpenEmployeeTimesheet(employee);
+                                }}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>PDF</span>
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter('all');
+                  setCategoryModalKey(null);
+                }}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Reset Table Filter (Show All)
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCategoryModalKey(null)}
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white dark:bg-blue-600 dark:hover:bg-blue-700 cursor-pointer"
+              >
+                Done / View Filtered Roster
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

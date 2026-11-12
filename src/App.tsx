@@ -61,6 +61,7 @@ import { EmployeesDirectoryTab } from './components/desktop/EmployeesDirectoryTa
 import { ShiftManagementTab } from './components/desktop/ShiftManagementTab';
 import { LeaveManagementTab } from './components/desktop/LeaveManagementTab';
 import { ReportsTab } from './components/desktop/ReportsTab';
+import { SmartInsightsTab } from './components/desktop/SmartInsightsTab';
 import { OfficeSettingsTab } from './components/desktop/OfficeSettingsTab';
 import { PrintableTimesheetModal } from './components/desktop/PrintableTimesheetModal';
 import { ChangePasswordModal } from './components/common/ChangePasswordModal';
@@ -91,6 +92,7 @@ export default function App() {
   // Current Session & Workspace Navigation
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveDesktopTab>('clock');
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
 
   // Password & Device Modals
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState<boolean>(false);
@@ -300,8 +302,8 @@ export default function App() {
     }
 
     const nowMs = Date.now();
-    // Deduplicate bursts faster than 5s unless recovery/initial sync needed
-    if (!forceActive && nowMs - lastHeartbeatSentAtRef.current < 5000) return;
+    // Deduplicate reload/focus bursts faster than 10s (3s even on forced recovery)
+    if (nowMs - lastHeartbeatSentAtRef.current < (forceActive ? 3000 : 10000)) return;
     lastHeartbeatSentAtRef.current = nowMs;
 
     const idleSeconds = forceActive
@@ -1291,6 +1293,7 @@ export default function App() {
             onRetrySync={() => void retryCloudOutboxNow()}
             pendingDeviceRequestsCount={pendingDeviceRequestsCount}
             onOpenEmployeesDirectory={() => setActiveTab('employees')}
+            onOpenMobileNav={() => setIsMobileNavOpen(true)}
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
@@ -1302,9 +1305,11 @@ export default function App() {
               pendingLeavesCount={pendingLeavesCount}
               pendingDeviceRequestsCount={pendingDeviceRequestsCount}
               settings={settings}
+              isMobileOpen={isMobileNavOpen}
+              onCloseMobile={() => setIsMobileNavOpen(false)}
             />
 
-            <main className="flex-1 p-6 lg:p-8 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/40">
+            <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto overflow-x-hidden bg-slate-50/50 dark:bg-slate-950/40">
               {activeTab === 'clock' && (
                 <PunchClockTab
                   currentUser={currentUser}
@@ -1365,6 +1370,7 @@ export default function App() {
                   ceoComments={ceoComments}
                   onAddCeoComment={handleAddCeoComment}
                   isNetworkOnline={isNetworkOnline}
+                  onOpenPrintModal={handleOpenPrintModal}
                 />
               )}
 
@@ -1383,6 +1389,7 @@ export default function App() {
                   onDirectBindDevice={handleDirectBindDevice}
                   companyName={settings.companyName}
                   allowAutoStartPunch={Boolean(settings.allowAutoStartPunch)}
+                  onOpenPrintModal={handleOpenPrintModal}
                 />
               )}
 
@@ -1393,6 +1400,21 @@ export default function App() {
                   onUpdateShift={handleUpdateShift}
                 />
               )}
+
+              {/* Smart Attendance Insights - Strictly Restricted to Admin, Accounts, and CEO */}
+              {(currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.role === 'ceo') &&
+                activeTab === 'insights' && (
+                  <SmartInsightsTab
+                    currentUser={currentUser}
+                    employees={employees}
+                    records={records}
+                    shifts={shifts}
+                    leaves={leaves}
+                    settings={settings}
+                    onOpenPrintModal={handleOpenPrintModal}
+                    isNetworkOnline={isNetworkOnline}
+                  />
+                )}
 
               {/* Reports & Payroll - Allowed for Admin, Accounts Officer, and CEO */}
               {(currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.role === 'ceo') &&
@@ -1438,7 +1460,9 @@ export default function App() {
           employee={printModalState.employee}
           allEmployees={employees}
           records={printModalState.filteredRecords}
+          shifts={shifts}
           settings={settings}
+          currentUser={currentUser}
         />
       )}
 

@@ -9,6 +9,8 @@ import {
   Settings,
   CalendarDays,
   Building2,
+  BarChart3,
+  X,
 } from 'lucide-react';
 import { ActiveDesktopTab, Employee, OfficeSettings } from '../../types';
 
@@ -19,6 +21,8 @@ interface DesktopSidebarProps {
   pendingLeavesCount: number;
   pendingDeviceRequestsCount?: number;
   settings: OfficeSettings;
+  isMobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }
 
 export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
@@ -28,17 +32,35 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   pendingLeavesCount,
   pendingDeviceRequestsCount = 0,
   settings,
+  isMobileOpen = false,
+  onCloseMobile,
 }) => {
   const isAdmin = currentUser.role === 'admin';
   const isCeo = currentUser.role === 'ceo';
   const isAccounts = currentUser.role === 'accounts';
 
+  const handleTabClick = (tab: ActiveDesktopTab) => {
+    onSelectTab(tab);
+    onCloseMobile?.();
+  };
+
   return (
-    <aside className="w-64 bg-slate-50/70 dark:bg-slate-900/60 border-r border-slate-200 dark:border-slate-800 flex flex-col shrink-0 select-none">
+    <>
+      {isMobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-2xs md:hidden"
+          onClick={() => onCloseMobile?.()}
+        />
+      )}
+      <aside
+        className={`${
+          isMobileOpen ? 'fixed inset-y-0 left-0 z-50 flex shadow-2xl' : 'hidden'
+        } md:static md:flex w-64 bg-slate-50/95 md:bg-slate-50/70 dark:bg-slate-900/95 md:dark:bg-slate-900/60 border-r border-slate-200 dark:border-slate-800 flex-col shrink-0 select-none`}
+      >
       {/* Brand & Office Server Header */}
-      <div className="p-4 border-b border-slate-200/80 dark:border-slate-800/80">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-xs">
+      <div className="p-4 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-xs shrink-0">
             <Building2 className="w-5 h-5" />
           </div>
           <div className="min-w-0">
@@ -50,10 +72,23 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             </p>
           </div>
         </div>
+        {onCloseMobile && (
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            className="md:hidden p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+            aria-label="Close Menu"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Nav List */}
-      <div className="flex-1 py-4 px-3 space-y-6 overflow-y-auto">
+      <div className="flex-1 py-4 px-3 space-y-6 overflow-y-auto" onClick={(e) => {
+        const btn = (e.target as HTMLElement).closest('button');
+        if (btn && onCloseMobile) onCloseMobile();
+      }}>
         {/* Employee Section (Available to All) */}
         <div>
           <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">
@@ -61,7 +96,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           </p>
           <div className="space-y-1">
             <button
-              onClick={() => onSelectTab('clock')}
+              onClick={() => handleTabClick('clock')}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                 activeTab === 'clock'
                   ? 'bg-blue-600 text-white shadow-xs'
@@ -138,6 +173,24 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               </button>
 
               <button
+                onClick={() => onSelectTab('insights')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  activeTab === 'insights'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                }`}
+                title="Smart graphical bar insights per employee & team"
+              >
+                <span className="flex items-center gap-3">
+                  <BarChart3 className="w-4 h-4 shrink-0" />
+                  <span>Smart Insights</span>
+                </span>
+                <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${activeTab === 'insights' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'}`}>
+                  NEW
+                </span>
+              </button>
+
+              <button
                 onClick={() => onSelectTab('reports')}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                   activeTab === 'reports'
@@ -173,6 +226,24 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               </button>
 
               <button
+                onClick={() => onSelectTab('insights')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  activeTab === 'insights'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                }`}
+                title="Smart graphical bar insights per employee & team"
+              >
+                <span className="flex items-center gap-3">
+                  <BarChart3 className="w-4 h-4 shrink-0" />
+                  <span>Smart Insights & Graphs</span>
+                </span>
+                <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${activeTab === 'insights' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'}`}>
+                  NEW
+                </span>
+              </button>
+
+              <button
                 onClick={() => onSelectTab('reports')}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                   activeTab === 'reports'
@@ -205,6 +276,24 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               >
                 <UserCheck className="w-4 h-4 shrink-0" />
                 <span>Team Roster & Logs</span>
+              </button>
+
+              <button
+                onClick={() => onSelectTab('insights')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  activeTab === 'insights'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                }`}
+                title="Smart graphical bar insights per employee & team"
+              >
+                <span className="flex items-center gap-3">
+                  <BarChart3 className="w-4 h-4 shrink-0" />
+                  <span>Smart Insights & Graphs</span>
+                </span>
+                <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${activeTab === 'insights' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'}`}>
+                  NEW
+                </span>
               </button>
 
               <button
@@ -279,5 +368,6 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         </div>
       </div>
     </aside>
+    </>
   );
 };

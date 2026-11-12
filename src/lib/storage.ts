@@ -353,7 +353,17 @@ function coalesceQueuedBatch(queue: QueuedOutboxItem[]): {
   mutation: DbMutationPayload;
   consumedIds: string[];
 } {
-  const first = queue[0];
+  // Never let an older legacy_bulk item starve critical scoped mutations (attendance punches or device requests)
+  const firstPriorityIdx = queue.findIndex(
+    (q) =>
+      q.mutation.scope !== 'legacy_bulk' &&
+      q.mutation.scope !== 'full_restore'
+  );
+  const startIdx =
+    queue[0]?.mutation.scope === 'legacy_bulk' && firstPriorityIdx > 0
+      ? firstPriorityIdx
+      : 0;
+  const first = queue[startIdx];
   const consumedIds: string[] = [first.id];
 
   if (first.mutation.scope === 'attendance') {
@@ -374,7 +384,7 @@ function coalesceQueuedBatch(queue: QueuedOutboxItem[]): {
     if (hasExplicitRecords(first.mutation)) {
       pushItem(first.mutation);
       const baseRole = first.mutation.actorRole;
-      for (let i = 1; i < queue.length; i++) {
+      for (let i = startIdx + 1; i < queue.length; i++) {
         const nextItem = queue[i];
         if (hasExplicitRecords(nextItem.mutation) && nextItem.mutation.actorRole === baseRole) {
           pushItem(nextItem.mutation);
@@ -396,18 +406,16 @@ function coalesceQueuedBatch(queue: QueuedOutboxItem[]): {
     }
   } else if (first.mutation.scope === 'settings' || first.mutation.scope === 'shifts') {
     let latest: DbMutationPayload = first.mutation;
-    for (let i = 1; i < queue.length; i++) {
+    for (let i = startIdx + 1; i < queue.length; i++) {
       if (queue[i].mutation.scope === first.mutation.scope) {
         latest = queue[i].mutation;
         consumedIds.push(queue[i].id);
-      } else {
-        break;
       }
     }
     return { mutation: latest, consumedIds };
   } else if (first.mutation.scope === 'employee_upsert') {
     let latest = first.mutation;
-    for (let i = 1; i < queue.length; i++) {
+    for (let i = startIdx + 1; i < queue.length; i++) {
       const m = queue[i].mutation;
       if (
         m.scope === 'employee_upsert' &&
@@ -418,8 +426,6 @@ function coalesceQueuedBatch(queue: QueuedOutboxItem[]): {
       ) {
         latest = m;
         consumedIds.push(queue[i].id);
-      } else {
-        break;
       }
     }
     return { mutation: latest, consumedIds };
@@ -471,12 +477,14 @@ export function flushPendingCloudWrites(options?: { respectCooldown?: boolean })
 
         const { mutation, consumedIds } = coalesceQueuedBatch(queue);
         const payload = buildServerPayload(mutation);
+        const bodyStr = JSON.stringify(payload);
 
         const res = await fetch(`/api/db?t=${Date.now()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           cache: 'no-store',
-          body: JSON.stringify(payload),
+          keepalive: bodyStr.length < 60000,
+          body: bodyStr,
         });
 
         if (!res.ok) {
@@ -560,17 +568,50 @@ export function retryCloudOutboxNow(): Promise<boolean> {
   return flushPendingCloudWrites({ respectCooldown: false });
 }
 
+function isSupersedingOutboxItem(existing: QueuedOutboxItem, nextMut: DbMutationPayload): boolean {
+  const m = existing.mutation;
+  if (m.scope !== nextMut.scope) return false;
+  if (nextMut.scope === 'settings' || nextMut.scope === 'shifts') return true;
+  if (
+    nextMut.scope === 'employee_upsert' &&
+    m.scope === 'employee_upsert' &&
+    m.employee.id === nextMut.employee.id &&
+    Boolean(m.allowClearDevice) === Boolean(nextMut.allowClearDevice) &&
+    Boolean(m.clearPendingRequest) === Boolean(nextMut.clearPendingRequest) &&
+    m.actorRole === nextMut.actorRole
+  ) {
+    return true;
+  }
+  if (
+    nextMut.scope === 'attendance' &&
+    m.scope === 'attendance' &&
+    nextMut.changedRecord?.id &&
+    m.changedRecord?.id === nextMut.changedRecord.id &&
+    (m.changedRecord?.actorAction || '') === (nextMut.changedRecord.actorAction || '') &&
+    m.actorRole === nextMut.actorRole
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function pushDatabaseToServer(mutation?: DbMutationPayload): Promise<boolean> {
   if (isSyncingFromServer) return Promise.resolve(false);
 
+  const resolvedMutation = mutation || { scope: 'legacy_bulk' as const };
   const item: QueuedOutboxItem = {
     id: `mut-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     enqueuedAt: new Date().toISOString(),
-    mutation: mutation || { scope: 'legacy_bulk' },
+    mutation: resolvedMutation,
   };
 
+  // Deduplicate redundant retries while skipping item 0 if an active flush is currently transmitting it
   const current = readOutbox();
-  writeOutbox([...current, item]);
+  const protectedHeadId = isFlushingOutbox && current.length > 0 ? current[0].id : null;
+  const filtered = current.filter(
+    (q) => q.id === protectedHeadId || !isSupersedingOutboxItem(q, resolvedMutation)
+  );
+  writeOutbox([...filtered, item]);
   emitSyncState({ status: 'saving', lastError: undefined });
 
   return flushPendingCloudWrites({ respectCooldown: false });
@@ -694,18 +735,18 @@ export function saveAttendanceRecords(
   records: AttendanceRecord[],
   changedOrBatch?: AttendanceRecord | AttendanceRecord[],
   actorRole?: Role
-): void {
+): Promise<boolean> {
   try {
     localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(records));
     if (Array.isArray(changedOrBatch)) {
-      if (changedOrBatch.length === 0) return;
-      void pushDatabaseToServer({
+      if (changedOrBatch.length === 0) return Promise.resolve(true);
+      return pushDatabaseToServer({
         scope: 'attendance',
         changedRecords: changedOrBatch,
         actorRole,
       });
     } else {
-      void pushDatabaseToServer({
+      return pushDatabaseToServer({
         scope: 'attendance',
         changedRecord: changedOrBatch,
         actorRole,
@@ -713,6 +754,7 @@ export function saveAttendanceRecords(
     }
   } catch (err) {
     console.error('Failed to save attendance records:', err);
+    return Promise.resolve(false);
   }
 }
 

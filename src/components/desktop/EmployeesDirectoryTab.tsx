@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   History,
   Terminal,
+  FileText,
 } from 'lucide-react';
 import { Employee, Role, ShiftSchedule, AttendanceRecord } from '../../types';
 import { Modal } from '../common/Modal';
@@ -39,6 +40,7 @@ interface EmployeesDirectoryTabProps {
   onRejectDeviceChange?: (empId: string) => void;
   onResetDeviceBound?: (empId: string) => void;
   onDirectBindDevice?: (empId: string, deviceId: string, deviceName: string) => void;
+  onOpenPrintModal?: (employee: Employee | null, filteredRecords: AttendanceRecord[]) => void;
   currentUserId: string;
   companyName?: string;
   allowAutoStartPunch?: boolean;
@@ -55,6 +57,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
   onRejectDeviceChange,
   onResetDeviceBound,
   onDirectBindDevice,
+  onOpenPrintModal,
   currentUserId,
   companyName = 'Office Attendance Tracker',
   allowAutoStartPunch = false,
@@ -701,6 +704,23 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
 
               {/* Action Buttons */}
               <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-end gap-2">
+                {onOpenPrintModal && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenPrintModal(
+                        emp,
+                        records.filter((r) => r.employeeId === emp.id)
+                      )
+                    }
+                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer"
+                    title={`Preview & download official PDF timesheet for ${emp.name}`}
+                  >
+                    <FileText className="w-3 h-3" />
+                    <span>Timesheet PDF</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={async () => {

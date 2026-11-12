@@ -311,7 +311,7 @@ export function mutateCloudDb(
     let baseVersion = initialRead.version || null;
     let clobberedNeedsRestore = false;
 
-    const MAX_ATTEMPTS = 4;
+    const MAX_ATTEMPTS = 6;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const outcome = await mutatorFn(workingDb);
       if (outcome?.abort) {
@@ -336,7 +336,7 @@ export function mutateCloudDb(
         };
       }
 
-      const isCritical = priority !== 'background' || Boolean(outcome?.forceCritical);
+      const isCritical = clobberedNeedsRestore || priority !== 'background' || Boolean(outcome?.forceCritical);
       if (!isCritical && !canWriteBackgroundGist(minReserve)) {
         const skippedResult =
           outcome?.result && typeof outcome.result === 'object'
@@ -398,14 +398,23 @@ export function mutateCloudDb(
       }
 
       // Verify no other serverless instance slipped in between our Read and PATCH
-      if (baseVersion && patchRes.parentVersion && patchRes.parentVersion !== baseVersion && attempt < MAX_ATTEMPTS) {
+      if (baseVersion && patchRes.parentVersion && patchRes.parentVersion !== baseVersion) {
         const missed = await readGistRevision(token, patchRes.parentVersion, userAgent);
         if (missed.status === 'ok' && missed.data) {
           workingDb = missed.data;
           baseVersion = patchRes.headVersion;
           clobberedNeedsRestore = true;
-          await sleep(80 + Math.floor(Math.random() * 120));
-          continue;
+          if (attempt < MAX_ATTEMPTS) {
+            await sleep(80 + Math.floor(Math.random() * 120));
+            continue;
+          }
+          // Last-chance restore of the missed revision if concurrent writes exhausted attempts
+          await patchGistWithDetails(token, workingDb, userAgent);
+          return {
+            ok: false,
+            status: 503,
+            error: 'Concurrent database update conflict. Please retry.',
+          };
         }
       }
 

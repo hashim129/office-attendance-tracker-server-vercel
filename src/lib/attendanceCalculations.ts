@@ -374,6 +374,7 @@ function finalizeAutoClosedRecord(params: {
     isAutoPunchedOut: true,
     autoPunchOutReason: reason,
     adminKeepOpen: false,
+    lastEditedByRole: undefined,
     actorAction: 'auto_close',
     recordUpdatedAt: new Date().toISOString(),
   };
@@ -439,19 +440,21 @@ export function autoCloseForgottenPunches(
       (!record.heartbeatSource && String(record.notes || '').startsWith('Lobby Kiosk Punch'));
 
     const lastHbMs = record.lastHeartbeatAt ? Date.parse(record.lastHeartbeatAt) : NaN;
+    const adaptiveFloorMs = record.heartbeatIntervalMs ? Number(record.heartbeatIntervalMs) + 90000 : 0;
+    const effectiveDisconnectMs = Math.max(disconnectMs, adaptiveFloorMs);
     const isLiveConnected =
       !isKioskSession &&
       !Number.isNaN(lastHbMs) &&
       !record.monitoringPaused &&
       record.connectionStatus !== 'no_internet' &&
-      nowMs - lastHbMs <= disconnectMs;
+      nowMs - lastHbMs <= effectiveDisconnectMs;
 
     const adminReopenedAfterCheck =
       adminOverrideMs > 0 &&
       !Number.isNaN(checkAtMs) &&
       adminOverrideMs >= checkAtMs &&
       (record.adminKeepOpen === true ||
-        nowMs - adminOverrideMs < Math.max(overtimeGraceMs, disconnectMs));
+        nowMs - adminOverrideMs < Math.max(overtimeGraceMs, effectiveDisconnectMs));
 
     // 1. Shift-End + 2h evaluation: live & working -> overtime; offline / forgot to logout -> auto punch out
     if (

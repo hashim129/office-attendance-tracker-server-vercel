@@ -280,9 +280,16 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
     }
 
     // Only allow genuine fresh employee self-service actions strictly AFTER Admin's override
+    // (Include 'time_in' when the Admin-edited record has no punch-in yet, e.g. cleared or pre-marked)
+    const isFreshEmployeePunchIn =
+      a.actorAction === 'time_in' &&
+      !existing.timeIn &&
+      Boolean(a.timeIn) &&
+      (incomingUpdatedMs > existingAdminMs || existing.status !== 'absent');
     const validPostAdminEmployeeAction =
-      incomingUpdatedMs > existingAdminMs &&
-      ['time_out', 'start_break', 'end_break', 'update_note'].includes(a.actorAction || '');
+      isFreshEmployeePunchIn ||
+      (incomingUpdatedMs > existingAdminMs &&
+        ['time_out', 'start_break', 'end_break', 'update_note'].includes(a.actorAction || ''));
 
     if (!validPostAdminEmployeeAction) {
       // Do NOT let older/un-timestamped non-admin tabs overwrite Admin edits!
@@ -301,7 +308,18 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
   }
 
   // Case C: Non-admin write vs prior non-admin record -> reject strictly older client writes
-  if (existingUpdatedMs > 0 && incomingUpdatedMs > 0 && incomingUpdatedMs < existingUpdatedMs) {
+  // unless it is a genuine new state transition (punch-in or punch-out) within a 10-minute clock-skew window
+  const isNewPunchTransition =
+    (a.actorAction === 'time_in' && !existing.timeIn && Boolean(a.timeIn)) ||
+    (a.actorAction === 'time_out' && !existing.timeOut && Boolean(a.timeOut));
+  const withinClockSkewWindow =
+    isNewPunchTransition && existingUpdatedMs - incomingUpdatedMs < 10 * 60 * 1000;
+  if (
+    existingUpdatedMs > 0 &&
+    incomingUpdatedMs > 0 &&
+    incomingUpdatedMs < existingUpdatedMs &&
+    !withinClockSkewWindow
+  ) {
     return existing;
   }
 
