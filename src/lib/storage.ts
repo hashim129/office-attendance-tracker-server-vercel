@@ -460,6 +460,39 @@ function coalesceQueuedBatch(queue: QueuedOutboxItem[]): {
       }
     }
     return { mutation: latest, consumedIds, queuedAgeMs: computeQueueAgeMs(consumedItems) };
+  } else if (first.mutation.scope === 'leaves') {
+    let latest = first.mutation;
+    for (let i = startIdx + 1; i < queue.length; i++) {
+      const m = queue[i].mutation;
+      if (
+        m.scope === 'leaves' &&
+        m.changedLeave?.id &&
+        latest.changedLeave?.id &&
+        m.changedLeave.id === latest.changedLeave.id &&
+        m.actorRole === latest.actorRole
+      ) {
+        latest = m;
+        consumedItems.push(queue[i]);
+        consumedIds.push(queue[i].id);
+      }
+    }
+    return { mutation: latest, consumedIds, queuedAgeMs: computeQueueAgeMs(consumedItems) };
+  } else if (first.mutation.scope === 'ceoComments') {
+    let latest = first.mutation;
+    for (let i = startIdx + 1; i < queue.length; i++) {
+      const m = queue[i].mutation;
+      if (
+        m.scope === 'ceoComments' &&
+        m.changedComment?.id &&
+        latest.changedComment?.id &&
+        m.changedComment.id === latest.changedComment.id
+      ) {
+        latest = m;
+        consumedItems.push(queue[i]);
+        consumedIds.push(queue[i].id);
+      }
+    }
+    return { mutation: latest, consumedIds, queuedAgeMs: computeQueueAgeMs(consumedItems) };
   }
 
   return {
@@ -628,12 +661,27 @@ function isSupersedingOutboxItem(existing: QueuedOutboxItem, nextMut: DbMutation
   ) {
     return true;
   }
+  if (
+    nextMut.scope === 'leaves' &&
+    m.scope === 'leaves' &&
+    nextMut.changedLeave?.id &&
+    m.changedLeave?.id === nextMut.changedLeave.id &&
+    m.actorRole === nextMut.actorRole
+  ) {
+    return true;
+  }
+  if (
+    nextMut.scope === 'ceoComments' &&
+    m.scope === 'ceoComments' &&
+    nextMut.changedComment?.id &&
+    m.changedComment?.id === nextMut.changedComment.id
+  ) {
+    return true;
+  }
   return false;
 }
 
 export function pushDatabaseToServer(mutation?: DbMutationPayload): Promise<boolean> {
-  if (isSyncingFromServer) return Promise.resolve(false);
-
   const resolvedMutation = mutation || { scope: 'legacy_bulk' as const };
   const item: QueuedOutboxItem = {
     id: `mut-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -734,16 +782,17 @@ export function saveEmployeeDelete(
   employees: Employee[],
   deletedEmployeeId: string,
   actorRole?: Role
-): void {
+): Promise<boolean> {
   try {
     localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(employees));
-    void pushDatabaseToServer({
+    return pushDatabaseToServer({
       scope: 'employee_delete',
       deletedEmployeeId,
       actorRole,
     });
   } catch (err) {
     console.error('Failed to delete employee:', err);
+    return Promise.resolve(false);
   }
 }
 
@@ -806,12 +855,13 @@ export function loadShifts(): ShiftSchedule[] {
   }
 }
 
-export function saveShifts(shifts: ShiftSchedule[], actorRole?: Role): void {
+export function saveShifts(shifts: ShiftSchedule[], actorRole?: Role): Promise<boolean> {
   try {
     localStorage.setItem(STORAGE_KEY_SHIFTS, JSON.stringify(shifts));
-    void pushDatabaseToServer({ scope: 'shifts', actorRole });
+    return pushDatabaseToServer({ scope: 'shifts', actorRole });
   } catch (err) {
     console.error('Failed to save shifts:', err);
+    return Promise.resolve(false);
   }
 }
 
@@ -831,12 +881,13 @@ export function saveLeaves(
   leaves: LeaveRequest[],
   changedLeave?: LeaveRequest,
   actorRole?: Role
-): void {
+): Promise<boolean> {
   try {
     localStorage.setItem(STORAGE_KEY_LEAVES, JSON.stringify(leaves));
-    void pushDatabaseToServer({ scope: 'leaves', changedLeave, actorRole });
+    return pushDatabaseToServer({ scope: 'leaves', changedLeave, actorRole });
   } catch (err) {
     console.error('Failed to save leaves:', err);
+    return Promise.resolve(false);
   }
 }
 
@@ -853,12 +904,13 @@ export function saveCeoComments(
   comments: CeoComment[],
   changedComment?: CeoComment,
   actorRole?: Role
-): void {
+): Promise<boolean> {
   try {
     localStorage.setItem(STORAGE_KEY_CEO_COMMENTS, JSON.stringify(comments));
-    void pushDatabaseToServer({ scope: 'ceoComments', changedComment, actorRole });
+    return pushDatabaseToServer({ scope: 'ceoComments', changedComment, actorRole });
   } catch (err) {
     console.error('Failed to save CEO comments:', err);
+    return Promise.resolve(false);
   }
 }
 

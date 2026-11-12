@@ -353,17 +353,32 @@ export default function App() {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         lastInteractionRef.current = Date.now();
+        void flushPendingCloudWrites({ respectCooldown: false })
+          .then(() => syncDatabaseFromServer(true))
+          .then((updated) => {
+            if (updated && refreshFromLocalRef.current) refreshFromLocalRef.current(true);
+          });
         void sendWebHeartbeatNow(true);
       }
     };
 
     const handleFocus = () => {
       lastInteractionRef.current = Date.now();
+      void flushPendingCloudWrites({ respectCooldown: false })
+        .then(() => syncDatabaseFromServer(false))
+        .then((updated) => {
+          if (updated && refreshFromLocalRef.current) refreshFromLocalRef.current(true);
+        });
       void sendWebHeartbeatNow(true);
     };
 
     const handleOnline = () => {
       setIsNetworkOnline(true);
+      void flushPendingCloudWrites({ respectCooldown: false })
+        .then(() => syncDatabaseFromServer(true))
+        .then((updated) => {
+          if (updated && refreshFromLocalRef.current) refreshFromLocalRef.current(true);
+        });
       void sendWebHeartbeatNow(true);
     };
 
@@ -825,7 +840,7 @@ export default function App() {
     saveShifts(nextShifts, currentUserRef.current?.role || 'admin');
   };
 
-  const handleApplyLeave = (
+  const handleApplyLeave = async (
     leaveData: Omit<LeaveRequest, 'id' | 'appliedAt' | 'status'>
   ) => {
     const nowIso = new Date().toISOString();
@@ -840,10 +855,10 @@ export default function App() {
     };
     const nextLeaves = [newLeave, ...leaves];
     setLeaves(nextLeaves);
-    saveLeaves(nextLeaves, newLeave, actorRole);
+    await saveLeaves(nextLeaves, newLeave, actorRole);
   };
 
-  const handleReviewLeave = (
+  const handleReviewLeave = async (
     leaveId: string,
     status: 'approved' | 'rejected',
     reviewNote?: string
@@ -866,7 +881,7 @@ export default function App() {
       return l;
     });
     setLeaves(nextLeaves);
-    saveLeaves(nextLeaves, changedLeave, actorRole);
+    await saveLeaves(nextLeaves, changedLeave, actorRole);
   };
 
   const handleUpdateRecord = (updatedRecord: AttendanceRecord) => {

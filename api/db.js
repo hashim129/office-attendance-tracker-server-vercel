@@ -219,6 +219,7 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
     const mergedAdmin = {
       ...existing,
       ...a,
+      status: shouldClearTimeIn ? a.status || 'absent' : a.status || existing.status,
       timeIn: shouldClearTimeIn ? '' : a.timeIn !== undefined ? a.timeIn : existing.timeIn,
       notes: a.notes !== undefined ? a.notes : existing.notes,
       deviceId: a.deviceId || existing.deviceId,
@@ -345,7 +346,16 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
   const merged = {
     ...existing,
     ...a,
-    timeIn: shouldClearTimeIn ? '' : a.timeIn !== undefined ? a.timeIn : existing.timeIn,
+    timeIn: shouldClearTimeIn
+      ? ''
+      : a.timeIn
+      ? a.timeIn
+      : existing.timeIn || '',
+    status: shouldClearTimeIn
+      ? 'absent'
+      : (a.timeIn || existing.timeIn)
+      ? (a.status && a.status !== 'absent' ? a.status : existing.status && existing.status !== 'absent' ? existing.status : 'present')
+      : a.status || existing.status || 'absent',
     notes: a.notes !== undefined ? a.notes : existing.notes,
     deviceId: a.deviceId || existing.deviceId,
     deviceName: a.deviceName || existing.deviceName,
@@ -723,12 +733,23 @@ export default async function handler(req, res) {
               const incLeaveMs = hasQueuedAge
                 ? authoritativeMs
                 : parseIsoMs(incoming.changedLeave.recordUpdatedAt);
-              if (
+              const existingMs = parseIsoMs(existingLeave?.recordUpdatedAt);
+              const existingHasAdminDecision =
+                existingLeave &&
+                (existingLeave.lastEditedByRole === 'admin' ||
+                  existingLeave.reviewedBy ||
+                  existingLeave.status === 'approved' ||
+                  existingLeave.status === 'rejected');
+
+              // Rule: Admin decision is AUTHORITATIVE. An employee tab/device can NEVER revert an admin-approved/rejected leave!
+              const isAllowed =
                 !existingLeave ||
                 incoming.actorRole === 'admin' ||
-                incLeaveMs >= parseIsoMs(existingLeave.recordUpdatedAt)
-              ) {
+                (!existingHasAdminDecision && (incLeaveMs >= existingMs || existingMs === 0));
+
+              if (isAllowed) {
                 leaveMap.set(incoming.changedLeave.id, {
+                  ...(existingLeave || {}),
                   ...incoming.changedLeave,
                   recordUpdatedAt:
                     authoritativeIso || incoming.changedLeave.recordUpdatedAt || new Date().toISOString(),
@@ -736,7 +757,26 @@ export default async function handler(req, res) {
               }
             } else if (Array.isArray(incoming.leaves)) {
               for (const l of incoming.leaves) {
-                if (l && l.id) leaveMap.set(l.id, l);
+                if (l && l.id) {
+                  const existingLeave = leaveMap.get(l.id);
+                  const existingHasAdminDecision =
+                    existingLeave &&
+                    (existingLeave.lastEditedByRole === 'admin' ||
+                      existingLeave.reviewedBy ||
+                      existingLeave.status === 'approved' ||
+                      existingLeave.status === 'rejected');
+
+                  if (!existingLeave) {
+                    leaveMap.set(l.id, l);
+                  } else if (incoming.actorRole === 'admin') {
+                    leaveMap.set(l.id, { ...existingLeave, ...l });
+                  } else if (
+                    !existingHasAdminDecision &&
+                    parseIsoMs(l.recordUpdatedAt) >= parseIsoMs(existingLeave.recordUpdatedAt)
+                  ) {
+                    leaveMap.set(l.id, { ...existingLeave, ...l });
+                  }
+                }
               }
             }
             finalLeaves = Array.from(leaveMap.values());

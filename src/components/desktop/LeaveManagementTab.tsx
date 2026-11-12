@@ -16,8 +16,8 @@ interface LeaveManagementTabProps {
   currentUser: Employee;
   employees: Employee[];
   leaves: LeaveRequest[];
-  onApplyLeave: (leave: Omit<LeaveRequest, 'id' | 'appliedAt' | 'status'>) => void;
-  onReviewLeave: (leaveId: string, status: 'approved' | 'rejected', reviewNote?: string) => void;
+  onApplyLeave: (leave: Omit<LeaveRequest, 'id' | 'appliedAt' | 'status'>) => Promise<void> | void;
+  onReviewLeave: (leaveId: string, status: 'approved' | 'rejected', reviewNote?: string) => Promise<void> | void;
 }
 
 export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
@@ -33,6 +33,7 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
   const [reviewDecision, setReviewDecision] = useState<'approved' | 'rejected'>('approved');
   const [reviewNote, setReviewNote] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const [formData, setFormData] = useState({
     leaveType: 'annual' as LeaveType,
@@ -51,9 +52,9 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
     return true;
   }).sort((a, b) => b.appliedAt.localeCompare(a.appliedAt));
 
-  const handleApplySubmit = (e: React.FormEvent) => {
+  const handleApplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.reason.trim()) return;
+    if (!formData.reason.trim() || isSubmitting) return;
 
     // Calculate total days
     const start = new Date(formData.startDate);
@@ -61,32 +62,46 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
     const diffTime = Math.abs(end.getTime() - start.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
 
-    onApplyLeave({
-      employeeId: currentUser.id,
-      leaveType: formData.leaveType,
-      startDate: formData.startDate,
-      endDate: formData.endDate,
-      totalDays: Math.max(1, diffDays),
-      reason: formData.reason.trim(),
-    });
+    try {
+      setIsSubmitting(true);
+      await onApplyLeave({
+        employeeId: currentUser.id,
+        leaveType: formData.leaveType,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        totalDays: Math.max(1, diffDays),
+        reason: formData.reason.trim(),
+      });
 
-    setIsApplyModalOpen(false);
-    setFormData({
-      leaveType: 'annual',
-      startDate: new Date().toISOString().split('T')[0],
-      endDate: new Date().toISOString().split('T')[0],
-      totalDays: 1,
-      reason: '',
-    });
+      setIsApplyModalOpen(false);
+      setFormData({
+        leaveType: 'annual',
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: new Date().toISOString().split('T')[0],
+        totalDays: 1,
+        reason: '',
+      });
+    } catch (err) {
+      console.error('Error applying for leave:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleReviewSubmit = (e: React.FormEvent) => {
+  const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reviewingLeave) return;
+    if (!reviewingLeave || isSubmitting) return;
 
-    onReviewLeave(reviewingLeave.id, reviewDecision, reviewNote.trim() || undefined);
-    setReviewingLeave(null);
-    setReviewNote('');
+    try {
+      setIsSubmitting(true);
+      await onReviewLeave(reviewingLeave.id, reviewDecision, reviewNote.trim() || undefined);
+      setReviewingLeave(null);
+      setReviewNote('');
+    } catch (err) {
+      console.error('Error reviewing leave:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -293,16 +308,18 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={() => setIsApplyModalOpen(false)}
-                className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900"
+                className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs"
+                disabled={isSubmitting}
+                className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
-                Submit Application
+                {isSubmitting ? 'Saving to Cloud...' : 'Submit Application'}
               </button>
             </div>
           </form>
@@ -313,7 +330,7 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
       {reviewingLeave && (
         <Modal
           isOpen={!!reviewingLeave}
-          onClose={() => setReviewingLeave(null)}
+          onClose={() => !isSubmitting && setReviewingLeave(null)}
           title="Review Leave Application"
           subtitle={`Employee: ${empMap.get(reviewingLeave.employeeId)?.name}`}
         >
@@ -337,6 +354,7 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={() => setReviewDecision('approved')}
                   className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
                     reviewDecision === 'approved'
@@ -348,6 +366,7 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
                 </button>
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={() => setReviewDecision('rejected')}
                   className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
                     reviewDecision === 'rejected'
@@ -366,6 +385,7 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
               </label>
               <textarea
                 value={reviewNote}
+                disabled={isSubmitting}
                 onChange={(e) => setReviewNote(e.target.value)}
                 placeholder="e.g. Approved. Project tasks handed over to Robert."
                 rows={2}
@@ -376,16 +396,18 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={() => setReviewingLeave(null)}
-                className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900"
+                className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs"
+                disabled={isSubmitting}
+                className="px-4 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
-                Confirm Decision
+                {isSubmitting ? 'Saving to Cloud...' : 'Confirm Decision'}
               </button>
             </div>
           </form>
