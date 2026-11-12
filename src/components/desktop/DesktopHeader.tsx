@@ -14,7 +14,6 @@ import {
   RefreshCw,
   CheckCircle2,
   Cloud,
-  Smartphone,
   Menu,
 } from 'lucide-react';
 import { ActiveDesktopTab, AppMode, CeoComment, Employee } from '../../types';
@@ -31,8 +30,6 @@ interface DesktopHeaderProps {
   isNetworkOnline?: boolean;
   cloudSyncState?: CloudSyncState;
   onRetrySync?: () => void;
-  pendingDeviceRequestsCount?: number;
-  onOpenEmployeesDirectory?: () => void;
   onOpenMobileNav?: () => void;
 }
 
@@ -47,8 +44,6 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   isNetworkOnline = true,
   cloudSyncState,
   onRetrySync,
-  pendingDeviceRequestsCount = 0,
-  onOpenEmployeesDirectory,
   onOpenMobileNav,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
@@ -112,18 +107,6 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
 
       {/* Right Controls: Cloud Sync, Connection State, Notifications, Kiosk Mode Shortcut & User Profile */}
       <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-        {currentUser.role === 'admin' && pendingDeviceRequestsCount > 0 && onOpenEmployeesDirectory && (
-          <button
-            type="button"
-            onClick={onOpenEmployeesDirectory}
-            className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950/80 dark:text-amber-200 border border-amber-300 dark:border-amber-700 transition-colors cursor-pointer animate-pulse"
-            title="Click to review pending employee device binding approval requests"
-          >
-            <Smartphone className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span className="hidden sm:inline">{pendingDeviceRequestsCount} Device Approval</span>
-            <span className="sm:hidden">{pendingDeviceRequestsCount} Req</span>
-          </button>
-        )}
         {cloudSyncState && cloudSyncState.status === 'saving' && (
           <span
             className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800"

@@ -19,7 +19,6 @@ interface DesktopSidebarProps {
   activeTab: ActiveDesktopTab;
   onSelectTab: (tab: ActiveDesktopTab) => void;
   pendingLeavesCount: number;
-  pendingDeviceRequestsCount?: number;
   settings: OfficeSettings;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
@@ -30,7 +29,6 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   activeTab,
   onSelectTab,
   pendingLeavesCount,
-  pendingDeviceRequestsCount = 0,
   settings,
   isMobileOpen = false,
   onCloseMobile,
@@ -303,21 +301,12 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
                 }`}
-                title={
-                  pendingDeviceRequestsCount > 0
-                    ? `${pendingDeviceRequestsCount} pending device approval request(s)`
-                    : 'Manage employees and device bindings'
-                }
+                title="Manage employees and shift assignments"
               >
                 <div className="flex items-center gap-3">
                   <Users className="w-4 h-4 shrink-0" />
                   <span>Employees Directory</span>
                 </div>
-                {pendingDeviceRequestsCount > 0 && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white animate-pulse">
-                    {pendingDeviceRequestsCount}
-                  </span>
-                )}
               </button>
 
               <button

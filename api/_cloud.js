@@ -519,14 +519,17 @@ export function getClientIp(req) {
 }
 
 export function verifyAutoStartToken(emp, authToken) {
-  const expectedSig = crypto
-    .createHash('sha256')
-    .update(`${emp.id}|${emp.pin}|${emp.registeredDeviceId || 'UNBOUND'}|OFFICE_AUTO_V1`)
-    .digest('hex');
-
   const incomingBuf = Buffer.from(String(authToken || '').toLowerCase(), 'utf-8');
-  const expectedBuf = Buffer.from(expectedSig, 'utf-8');
-  return incomingBuf.length === expectedBuf.length && crypto.timingSafeEqual(incomingBuf, expectedBuf);
+  const candidates = [
+    `${emp.id}|${emp.pin}|OFFICE_AUTO_V1`,
+    `${emp.id}|${emp.pin}|${emp.registeredDeviceId || 'UNBOUND'}|OFFICE_AUTO_V1`,
+  ];
+
+  return candidates.some((payload) => {
+    const expectedSig = crypto.createHash('sha256').update(payload).digest('hex');
+    const expectedBuf = Buffer.from(expectedSig, 'utf-8');
+    return incomingBuf.length === expectedBuf.length && crypto.timingSafeEqual(incomingBuf, expectedBuf);
+  });
 }
 
 function addDaysYmd(ymd, deltaDays) {

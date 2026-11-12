@@ -98,7 +98,7 @@ export const INITIAL_SETTINGS: OfficeSettings = {
     },
   ],
   allowAdminBypassIpLock: true,
-  enforceDeviceBinding: true,
+  enforceDeviceBinding: false,
   allowAdminBypassDeviceBinding: true,
   allowKioskPunchWithoutDevice: true,
   allowAutoStartPunch: false,
@@ -274,7 +274,7 @@ function applyServerDbToLocal(data: {
   }
 }
 
-function buildServerPayload(mutation?: DbMutationPayload): Record<string, unknown> {
+function buildServerPayload(mutation?: DbMutationPayload, queuedAgeMs?: number): Record<string, unknown> {
   const nowIso = new Date().toISOString();
   const scope = mutation?.scope || 'legacy_bulk';
 
@@ -283,6 +283,9 @@ function buildServerPayload(mutation?: DbMutationPayload): Record<string, unknow
     updatedAt: nowIso,
     scope,
     actorRole: mutation?.actorRole,
+    ...(typeof queuedAgeMs === 'number' && Number.isFinite(queuedAgeMs)
+      ? { queuedAgeMs: Math.max(0, Math.round(queuedAgeMs)) }
+      : {}),
   };
 
   if (mutation?.scope === 'attendance') {
@@ -349,11 +352,24 @@ function scheduleOutboxRetry(explicitDelayMs?: number): void {
   }, delayMs);
 }
 
+function computeQueueAgeMs(items: QueuedOutboxItem[]): number {
+  let latestMs = 0;
+  for (const item of items) {
+    const parsed = Date.parse(item.enqueuedAt || '');
+    if (!Number.isNaN(parsed) && parsed > latestMs) {
+      latestMs = parsed;
+    }
+  }
+  if (latestMs <= 0) return 0;
+  return Math.max(0, Math.min(24 * 60 * 60 * 1000, Date.now() - latestMs));
+}
+
 function coalesceQueuedBatch(queue: QueuedOutboxItem[]): {
   mutation: DbMutationPayload;
   consumedIds: string[];
+  queuedAgeMs: number;
 } {
-  // Never let an older legacy_bulk item starve critical scoped mutations (attendance punches or device requests)
+  // Never let an older legacy_bulk item starve critical scoped mutations (attendance punches or settings)
   const firstPriorityIdx = queue.findIndex(
     (q) =>
       q.mutation.scope !== 'legacy_bulk' &&
@@ -364,17 +380,23 @@ function coalesceQueuedBatch(queue: QueuedOutboxItem[]): {
       ? firstPriorityIdx
       : 0;
   const first = queue[startIdx];
+  const consumedItems: QueuedOutboxItem[] = [first];
   const consumedIds: string[] = [first.id];
 
   if (first.mutation.scope === 'attendance') {
-    const byId = new Map<string, AttendanceRecord>();
+    const byKey = new Map<string, AttendanceRecord>();
     const pushItem = (m: Extract<DbMutationPayload, { scope: 'attendance' }>) => {
+      const addRec = (r: AttendanceRecord) => {
+        if (!r || !r.id) return;
+        const bucket = r.actorAction === 'verify' ? 'verify' : 'mutate';
+        byKey.set(`${r.id}::${bucket}`, r);
+      };
       if (Array.isArray(m.changedRecords)) {
         for (const r of m.changedRecords) {
-          if (r && r.id) byId.set(r.id, r);
+          addRec(r);
         }
       } else if (m.changedRecord && m.changedRecord.id) {
-        byId.set(m.changedRecord.id, m.changedRecord);
+        addRec(m.changedRecord);
       }
     };
 
@@ -388,19 +410,26 @@ function coalesceQueuedBatch(queue: QueuedOutboxItem[]): {
         const nextItem = queue[i];
         if (hasExplicitRecords(nextItem.mutation) && nextItem.mutation.actorRole === baseRole) {
           pushItem(nextItem.mutation);
+          consumedItems.push(nextItem);
           consumedIds.push(nextItem.id);
         } else {
           break;
         }
       }
-      if (byId.size > 0) {
+      if (byKey.size > 0) {
+        const orderedRecords = Array.from(byKey.values()).sort((a, b) => {
+          const aV = a.actorAction === 'verify' ? 1 : 0;
+          const bV = b.actorAction === 'verify' ? 1 : 0;
+          return aV - bV;
+        });
         return {
           mutation: {
             scope: 'attendance',
-            changedRecords: Array.from(byId.values()),
+            changedRecords: orderedRecords,
             actorRole: baseRole,
           },
           consumedIds,
+          queuedAgeMs: computeQueueAgeMs(consumedItems),
         };
       }
     }
@@ -409,10 +438,11 @@ function coalesceQueuedBatch(queue: QueuedOutboxItem[]): {
     for (let i = startIdx + 1; i < queue.length; i++) {
       if (queue[i].mutation.scope === first.mutation.scope) {
         latest = queue[i].mutation;
+        consumedItems.push(queue[i]);
         consumedIds.push(queue[i].id);
       }
     }
-    return { mutation: latest, consumedIds };
+    return { mutation: latest, consumedIds, queuedAgeMs: computeQueueAgeMs(consumedItems) };
   } else if (first.mutation.scope === 'employee_upsert') {
     let latest = first.mutation;
     for (let i = startIdx + 1; i < queue.length; i++) {
@@ -425,13 +455,18 @@ function coalesceQueuedBatch(queue: QueuedOutboxItem[]): {
         m.actorRole === latest.actorRole
       ) {
         latest = m;
+        consumedItems.push(queue[i]);
         consumedIds.push(queue[i].id);
       }
     }
-    return { mutation: latest, consumedIds };
+    return { mutation: latest, consumedIds, queuedAgeMs: computeQueueAgeMs(consumedItems) };
   }
 
-  return { mutation: first.mutation, consumedIds };
+  return {
+    mutation: first.mutation,
+    consumedIds,
+    queuedAgeMs: computeQueueAgeMs(consumedItems),
+  };
 }
 
 if (typeof window !== 'undefined') {
@@ -475,8 +510,8 @@ export function flushPendingCloudWrites(options?: { respectCooldown?: boolean })
         const queue = readOutbox();
         if (queue.length === 0) break;
 
-        const { mutation, consumedIds } = coalesceQueuedBatch(queue);
-        const payload = buildServerPayload(mutation);
+        const { mutation, consumedIds, queuedAgeMs } = coalesceQueuedBatch(queue);
+        const payload = buildServerPayload(mutation, queuedAgeMs);
         const bodyStr = JSON.stringify(payload);
 
         const res = await fetch(`/api/db?t=${Date.now()}`, {
@@ -523,7 +558,7 @@ export function flushPendingCloudWrites(options?: { respectCooldown?: boolean })
           lastServerDb = data.db;
         }
 
-        if (remaining.length === 0 && lastServerDb) {
+        if (remaining.length === 0 && readOutbox().length === 0 && lastServerDb) {
           applyServerDbToLocal(lastServerDb as Parameters<typeof applyServerDbToLocal>[0]);
           if (cloudSyncListener) {
             cloudSyncListener();
@@ -587,7 +622,8 @@ function isSupersedingOutboxItem(existing: QueuedOutboxItem, nextMut: DbMutation
     m.scope === 'attendance' &&
     nextMut.changedRecord?.id &&
     m.changedRecord?.id === nextMut.changedRecord.id &&
-    (m.changedRecord?.actorAction || '') === (nextMut.changedRecord.actorAction || '') &&
+    (m.changedRecord?.actorAction === 'verify' ? 'verify' : 'mutate') ===
+      (nextMut.changedRecord.actorAction === 'verify' ? 'verify' : 'mutate') &&
     m.actorRole === nextMut.actorRole
   ) {
     return true;
@@ -846,7 +882,7 @@ export function loadSettings(): OfficeSettings {
           ? parsed.allowedOfficeIsps
           : INITIAL_SETTINGS.allowedOfficeIsps,
       allowAdminBypassIpLock: parsed.allowAdminBypassIpLock ?? true,
-      enforceDeviceBinding: parsed.enforceDeviceBinding ?? true,
+      enforceDeviceBinding: false,
       allowAdminBypassDeviceBinding: parsed.allowAdminBypassDeviceBinding ?? true,
       allowKioskPunchWithoutDevice: parsed.allowKioskPunchWithoutDevice ?? true,
       allowAutoStartPunch: parsed.allowAutoStartPunch ?? false,

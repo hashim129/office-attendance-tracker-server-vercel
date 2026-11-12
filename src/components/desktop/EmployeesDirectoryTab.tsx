@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   Users,
   UserPlus,
@@ -10,14 +10,7 @@ import {
   Phone,
   Mail,
   Building,
-  Smartphone,
-  RotateCcw,
-  CheckCircle,
-  XCircle,
-  AlertTriangle,
-  Clock,
   ShieldCheck,
-  History,
   Terminal,
   FileText,
 } from 'lucide-react';
@@ -36,10 +29,6 @@ interface EmployeesDirectoryTabProps {
   onAddEmployee: (emp: Omit<Employee, 'id'>) => void;
   onUpdateEmployee: (emp: Employee) => void;
   onDeleteEmployee: (empId: string) => void;
-  onApproveDeviceChange?: (empId: string) => void;
-  onRejectDeviceChange?: (empId: string) => void;
-  onResetDeviceBound?: (empId: string) => void;
-  onDirectBindDevice?: (empId: string, deviceId: string, deviceName: string) => void;
   onOpenPrintModal?: (employee: Employee | null, filteredRecords: AttendanceRecord[]) => void;
   currentUserId: string;
   companyName?: string;
@@ -53,10 +42,6 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
   onAddEmployee,
   onUpdateEmployee,
   onDeleteEmployee,
-  onApproveDeviceChange,
-  onRejectDeviceChange,
-  onResetDeviceBound,
-  onDirectBindDevice,
   onOpenPrintModal,
   currentUserId,
   companyName = 'Office Attendance Tracker',
@@ -64,52 +49,11 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedDept, setSelectedDept] = useState<string>('all');
-  const [deviceFilter, setDeviceFilter] = useState<'all' | 'pending' | 'bound' | 'unbound'>('all');
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [editingEmp, setEditingEmp] = useState<Employee | null>(null);
   const [deletingEmp, setDeletingEmp] = useState<Employee | null>(null);
 
   const firstActiveShift = shifts.find((s) => s.isActive !== false) || shifts[0];
-
-  // Device Stats for Admin
-  const deviceStats = useMemo(() => {
-    const boundCount = employees.filter((e) => !!e.registeredDeviceId).length;
-    const pendingCount = employees.filter(
-      (e) => e.pendingDeviceRequest && e.pendingDeviceRequest.status === 'pending'
-    ).length;
-    const totalChangesReset = employees.reduce(
-      (acc, e) => acc + (e.deviceChangeHistory?.length || 0),
-      0
-    );
-    const mismatchedPunchesCount = records.filter((r) => r.isDeviceMismatch).length;
-    return {
-      boundCount,
-      pendingCount,
-      totalChangesReset,
-      mismatchedPunchesCount,
-    };
-  }, [employees, records]);
-
-  // Lookup most recent punch device per employee & mismatch count per employee
-  const { latestPunchDeviceByEmp, mismatchCountByEmp } = useMemo(() => {
-    const devMap = new Map<string, { deviceId: string; deviceName: string; date: string }>();
-    const misMap = new Map<string, number>();
-
-    const sorted = [...records].sort((a, b) => b.date.localeCompare(a.date));
-    for (const r of sorted) {
-      if (r.deviceId && !devMap.has(r.employeeId)) {
-        devMap.set(r.employeeId, {
-          deviceId: r.deviceId,
-          deviceName: r.deviceName || 'Detected Device',
-          date: r.date,
-        });
-      }
-      if (r.isDeviceMismatch) {
-        misMap.set(r.employeeId, (misMap.get(r.employeeId) || 0) + 1);
-      }
-    }
-    return { latestPunchDeviceByEmp: devMap, mismatchCountByEmp: misMap };
-  }, [records]);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -131,9 +75,6 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
 
   const filteredEmployees = employees.filter((emp) => {
     if (selectedDept !== 'all' && emp.department !== selectedDept) return false;
-    if (deviceFilter === 'pending' && emp.pendingDeviceRequest?.status !== 'pending') return false;
-    if (deviceFilter === 'bound' && !emp.registeredDeviceId) return false;
-    if (deviceFilter === 'unbound' && !!emp.registeredDeviceId) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const matchName = emp.name.toLowerCase().includes(q);
@@ -144,27 +85,6 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     }
     return true;
   });
-
-  const handleResetDevice = (emp: Employee) => {
-    if (onResetDeviceBound) {
-      onResetDeviceBound(emp.id);
-      return;
-    }
-    if (
-      confirm(
-        `Reset device pairing for "${emp.name}"?\n\nTheir current personal device binding will be removed. The employee will need to submit a device binding request for Admin approval.`
-      )
-    ) {
-      onUpdateEmployee({
-        ...emp,
-        registeredDeviceId: undefined,
-        registeredDeviceName: undefined,
-        registeredAt: undefined,
-        deviceBoundApprovedBy: undefined,
-        deviceBoundApprovedAt: undefined,
-      });
-    }
-  };
 
   const handleOpenAddModal = () => {
     // Generate next employee code
@@ -257,178 +177,8 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
         </button>
       </div>
 
-      {/* Device Security & Policy Stats Cards for Admin */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Bound Devices */}
-        <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-500 text-xs">
-            <span className="font-semibold uppercase tracking-wider text-[10px]">
-              Devices Bound
-            </span>
-            <Smartphone className="w-4 h-4 text-blue-600" />
-          </div>
-          <div className="text-xl font-black font-mono text-slate-900 dark:text-slate-100 mt-1">
-            {deviceStats.boundCount}{' '}
-            <span className="text-xs font-normal text-slate-400">/ {employees.length}</span>
-          </div>
-          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-            Personal phones secured
-          </span>
-        </div>
-
-        {/* Pending Phone Approvals */}
-        <div
-          className={`p-3.5 rounded-xl border shadow-2xs ${
-            deviceStats.pendingCount > 0
-              ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700/80'
-              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <div className="flex items-center justify-between text-slate-500 text-xs">
-            <span className="font-semibold uppercase tracking-wider text-[10px] text-amber-800 dark:text-amber-300">
-              Pending Approvals
-            </span>
-            <Clock className={`w-4 h-4 ${deviceStats.pendingCount > 0 ? 'text-amber-600 animate-spin' : 'text-slate-400'}`} />
-          </div>
-          <div className="text-xl font-black font-mono text-amber-700 dark:text-amber-300 mt-1">
-            {deviceStats.pendingCount}
-          </div>
-          <span className="text-[10px] text-slate-500 dark:text-slate-400">
-            {deviceStats.pendingCount > 0 ? 'Action required by Admin' : 'All requests resolved'}
-          </span>
-        </div>
-
-        {/* Devices Changed / Reset */}
-        <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-500 text-xs">
-            <span className="font-semibold uppercase tracking-wider text-[10px]">
-              Devices Changed / Reset
-            </span>
-            <RotateCcw className="w-4 h-4 text-indigo-600" />
-          </div>
-          <div className="text-xl font-black font-mono text-slate-900 dark:text-slate-100 mt-1">
-            {deviceStats.totalChangesReset}
-          </div>
-          <span className="text-[10px] text-slate-500 dark:text-slate-400">
-            Total lifetime device resets
-          </span>
-        </div>
-
-        {/* Mismatched Punches Tagged */}
-        <div
-          className={`p-3.5 rounded-xl border shadow-2xs ${
-            deviceStats.mismatchedPunchesCount > 0
-              ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800'
-              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <div className="flex items-center justify-between text-slate-500 text-xs">
-            <span className="font-semibold uppercase tracking-wider text-[10px] text-rose-800 dark:text-rose-300">
-              Mismatched Punches Tagged
-            </span>
-            <AlertTriangle className="w-4 h-4 text-rose-600" />
-          </div>
-          <div className="text-xl font-black font-mono text-rose-700 dark:text-rose-300 mt-1">
-            {deviceStats.mismatchedPunchesCount}
-          </div>
-          <span className="text-[10px] text-slate-500 dark:text-slate-400">
-            Punched from unauthorized phone
-          </span>
-        </div>
-      </div>
-
-      {/* Dedicated Pending Device / Phone Binding Approval Queue (Always visible at top for Admin) */}
-      {(() => {
-        const pendingDeviceEmployees = employees.filter(
-          (e) => e.pendingDeviceRequest && e.pendingDeviceRequest.status === 'pending'
-        );
-        if (pendingDeviceEmployees.length === 0) return null;
-        return (
-          <div className="p-4 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border-2 border-amber-300 dark:border-amber-700 shadow-xs space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Smartphone className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-pulse" />
-                <h2 className="text-xs font-bold uppercase tracking-wider text-amber-900 dark:text-amber-200">
-                  Pending Device Binding Requests ({pendingDeviceEmployees.length})
-                </h2>
-              </div>
-              <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                Action Required: Approve or Decline employee device binding requests
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {pendingDeviceEmployees.map((emp) => (
-                <div
-                  key={`pending-req-${emp.id}`}
-                  className="p-3.5 rounded-lg bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 flex flex-col justify-between gap-3 shadow-2xs"
-                >
-                  <div className="space-y-1 text-xs">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-slate-900 dark:text-slate-100">
-                        {emp.name}{' '}
-                        <span className="font-mono text-[11px] text-slate-400">
-                          ({emp.employeeCode})
-                        </span>
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {new Date(emp.pendingDeviceRequest!.requestedAt).toLocaleString([], {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-700 dark:text-slate-300">
-                      <strong>Requested Device:</strong> {emp.pendingDeviceRequest!.requestedDeviceName}
-                    </p>
-                    <p className="text-[10px] font-mono text-slate-400 truncate">
-                      ID: {emp.pendingDeviceRequest!.requestedDeviceId}
-                    </p>
-                    {emp.registeredDeviceName && (
-                      <p className="text-[11px] text-slate-500">
-                        <strong>Previous Device:</strong> {emp.registeredDeviceName}
-                      </p>
-                    )}
-                    {emp.pendingDeviceRequest!.reason && (
-                      <p className="text-[11px] text-amber-800 dark:text-amber-200 bg-amber-50/70 dark:bg-amber-950/30 px-2 py-1 rounded border border-amber-200/70 dark:border-amber-900/50">
-                        <strong>Reason:</strong> &quot;{emp.pendingDeviceRequest!.reason}&quot;
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-1">
-                    {onApproveDeviceChange && (
-                      <button
-                        type="button"
-                        onClick={() => onApproveDeviceChange(emp.id)}
-                        className="flex-1 py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-                      >
-                        <CheckCircle className="w-3.5 h-3.5" />
-                        <span>Approve Phone</span>
-                      </button>
-                    )}
-                    {onRejectDeviceChange && (
-                      <button
-                        type="button"
-                        onClick={() => onRejectDeviceChange(emp.id)}
-                        className="flex-1 py-1.5 px-3 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                        <span>Decline</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
-
       {/* Filter and Search Bar */}
-      <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+      <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="relative min-w-[260px] flex-1 max-w-md">
             <input
@@ -457,68 +207,12 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
             </select>
           </div>
         </div>
-
-        {/* Device Status Filter Chips */}
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
-          <span className="text-xs font-semibold text-slate-500">Device Filter:</span>
-          <button
-            type="button"
-            onClick={() => setDeviceFilter('all')}
-            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-              deviceFilter === 'all'
-                ? 'bg-blue-600 text-white font-bold'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-            }`}
-          >
-            All Staff ({employees.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setDeviceFilter('pending')}
-            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-              deviceFilter === 'pending'
-                ? 'bg-amber-600 text-white font-bold'
-                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100'
-            }`}
-          >
-            <span>Pending Phone Approval</span>
-            {deviceStats.pendingCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-100">
-                {deviceStats.pendingCount}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setDeviceFilter('bound')}
-            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-              deviceFilter === 'bound'
-                ? 'bg-emerald-600 text-white font-bold'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-            }`}
-          >
-            Devices Bound ({deviceStats.boundCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setDeviceFilter('unbound')}
-            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-              deviceFilter === 'unbound'
-                ? 'bg-slate-700 text-white font-bold'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-            }`}
-          >
-            Unbound ({employees.length - deviceStats.boundCount})
-          </button>
-        </div>
       </div>
 
       {/* Employees Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filteredEmployees.map((emp) => {
           const shift = shiftMap.get(emp.shiftId) || shifts[0];
-          const detectedDevice = latestPunchDeviceByEmp.get(emp.id);
-          const empMismatchCount = mismatchCountByEmp.get(emp.id) || 0;
           return (
             <div
               key={emp.id}
@@ -556,51 +250,6 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   </span>
                 </div>
 
-                {/* Pending Phone Binding Request Box */}
-                {emp.pendingDeviceRequest && emp.pendingDeviceRequest.status === 'pending' && (
-                  <div className="mt-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/70 text-xs space-y-2">
-                    <div className="flex items-center gap-1.5 font-bold text-amber-900 dark:text-amber-200">
-                      <Smartphone className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
-                      <span>Pending Phone Approval Request</span>
-                    </div>
-                    <div className="text-[11px] text-slate-700 dark:text-slate-300 space-y-0.5">
-                      <p>
-                        <strong>Device:</strong> {emp.pendingDeviceRequest.requestedDeviceName}
-                      </p>
-                      {emp.pendingDeviceRequest.reason && (
-                        <p>
-                          <strong>Reason:</strong> "{emp.pendingDeviceRequest.reason}"
-                        </p>
-                      )}
-                      <p className="text-[10px] text-slate-500">
-                        Requested: {new Date(emp.pendingDeviceRequest.requestedAt).toLocaleDateString()} {new Date(emp.pendingDeviceRequest.requestedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 pt-1">
-                      {onApproveDeviceChange && (
-                        <button
-                          type="button"
-                          onClick={() => onApproveDeviceChange(emp.id)}
-                          className="flex-1 py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow-2xs transition-colors cursor-pointer"
-                        >
-                          <CheckCircle className="w-3 h-3" />
-                          <span>Approve Phone</span>
-                        </button>
-                      )}
-                      {onRejectDeviceChange && (
-                        <button
-                          type="button"
-                          onClick={() => onRejectDeviceChange(emp.id)}
-                          className="flex-1 py-1 px-2 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow-2xs transition-colors cursor-pointer"
-                        >
-                          <XCircle className="w-3 h-3" />
-                          <span>Decline</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
                 {/* Details */}
                 <div className="mt-4 space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
                   <div className="flex items-center gap-2">
@@ -633,72 +282,6 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                       {emp.pin}
                     </span>
                   </div>
-
-                  <div className="flex items-center justify-between text-[11px] pt-1">
-                    <span className="text-slate-500">Bound Device:</span>
-                    {emp.registeredDeviceId ? (
-                      <span
-                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-900/50 max-w-[155px] truncate"
-                        title={`${emp.registeredDeviceName || emp.registeredDeviceId} (Approved: ${emp.deviceBoundApprovedBy || 'Admin'})`}
-                      >
-                        <Smartphone className="w-3 h-3 shrink-0 text-blue-600 dark:text-blue-400" />
-                        <span className="truncate">{emp.registeredDeviceName?.split('·')[0] || 'Personal Device'}</span>
-                        <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 ml-0.5">✓</span>
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold italic">
-                        Unbound (Requires Approval)
-                      </span>
-                    )}
-                  </div>
-
-                  {!emp.registeredDeviceId &&
-                    detectedDevice &&
-                    !emp.pendingDeviceRequest &&
-                    onDirectBindDevice && (
-                      <div className="mt-1 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 text-[10px]">
-                        <span className="text-slate-600 dark:text-slate-300 truncate" title={`Detected on ${detectedDevice.date}: ${detectedDevice.deviceName}`}>
-                          Last punch: <strong>{detectedDevice.deviceName.split('·')[0]}</strong>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (
-                              confirm(
-                                `Bind "${detectedDevice.deviceName}" to ${emp.name}?\n\nDetected from their punch on ${detectedDevice.date}.`
-                              )
-                            ) {
-                              onDirectBindDevice(emp.id, detectedDevice.deviceId, detectedDevice.deviceName);
-                            }
-                          }}
-                          className="shrink-0 px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold cursor-pointer"
-                        >
-                          Bind Detected
-                        </button>
-                      </div>
-                    )}
-
-                  {empMismatchCount > 0 && (
-                    <div className="flex items-center justify-between text-[10px] text-rose-600 dark:text-rose-400 pt-0.5 font-semibold">
-                      <span className="flex items-center gap-1">
-                        <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
-                        <span>Mismatched Punches:</span>
-                      </span>
-                      <span className="font-mono font-bold">{empMismatchCount} tagged</span>
-                    </div>
-                  )}
-
-                  {emp.deviceChangeHistory && emp.deviceChangeHistory.length > 0 && (
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
-                      <span className="flex items-center gap-1">
-                        <History className="w-2.5 h-2.5 text-slate-400" />
-                        <span>Device Changes / Resets:</span>
-                      </span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                        {emp.deviceChangeHistory.length} recorded
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -738,20 +321,6 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                       downloadWindowsBatFile(filename, content);
                       return;
                     }
-                    if (!emp.registeredDeviceId && emp.role !== 'admin') {
-                      const fallbackConfirm = confirm(
-                        `${emp.name} does not have an approved Bound PC/Device yet.\n\nAutomated startup check-in (.bat) requires device binding (click "Bind Detected" above or approve their device request).\n\nWould you like to download the Auto-Start Portal Launcher (.bat) instead?`
-                      );
-                      if (!fallbackConfirm) return;
-                      const { filename, content } = generatePortalLauncherBat({
-                        appUrl,
-                        companyName,
-                        employeeCode: emp.employeeCode,
-                        employeeName: emp.name,
-                      });
-                      downloadWindowsBatFile(filename, content);
-                      return;
-                    }
                     const { filename, content } = await generateEmployeeAutoStartBat({
                       employee: emp,
                       appUrl,
@@ -769,17 +338,6 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   <Terminal className="w-3 h-3" />
                   <span>Auto-Start .bat</span>
                 </button>
-
-                {emp.registeredDeviceId && (
-                  <button
-                    onClick={() => handleResetDevice(emp)}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 dark:text-amber-300 dark:bg-amber-950/50 dark:hover:bg-amber-900/50 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer"
-                    title="Reset device pairing so employee can request or bind a new phone"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span>Reset Device Bound</span>
-                  </button>
-                )}
 
                 <button
                   onClick={() => handleOpenEditModal(emp)}

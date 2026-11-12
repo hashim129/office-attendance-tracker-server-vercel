@@ -4,8 +4,6 @@ import {
   AppMode,
   AttendanceRecord,
   CeoComment,
-  DeviceChangeRequest,
-  DeviceHistoryEntry,
   Employee,
   LeaveRequest,
   OfficeSettings,
@@ -41,7 +39,6 @@ import {
   updateAttendanceRecordsLocalCacheOnly,
 } from './lib/storage';
 import {
-  autoCloseForgottenPunches,
   calculateWorkedMinutes,
   getCurrentTimeString,
   getDayName,
@@ -65,7 +62,6 @@ import { SmartInsightsTab } from './components/desktop/SmartInsightsTab';
 import { OfficeSettingsTab } from './components/desktop/OfficeSettingsTab';
 import { PrintableTimesheetModal } from './components/desktop/PrintableTimesheetModal';
 import { ChangePasswordModal } from './components/common/ChangePasswordModal';
-import { RequestDeviceChangeModal } from './components/common/RequestDeviceChangeModal';
 import { KioskMode } from './components/kiosk/KioskMode';
 
 export default function App() {
@@ -94,9 +90,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveDesktopTab>('clock');
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
 
-  // Password & Device Modals
+  // Password Modal
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState<boolean>(false);
-  const [isRequestDeviceOpen, setIsRequestDeviceOpen] = useState<boolean>(false);
 
   // Live refs for background timers & heartbeats
   const lastInteractionRef = useRef<number>(Date.now());
@@ -189,26 +184,6 @@ export default function App() {
       .finally(() => {
         bootFinished = true;
         setIsInitialCloudSyncing(false);
-
-        // Now check if any past open punch missed 11:59 PM or >2h inactivity
-        const currentRecs = loadAttendanceRecords();
-        const currentShifts = loadShifts();
-        const { updatedRecords, hasChanges } = autoCloseForgottenPunches(
-          currentRecs,
-          currentShifts,
-          loadSettings(),
-          loadEmployees()
-        );
-        if (hasChanges) {
-          const changedBatch = updatedRecords.filter(
-            (u, idx) => currentRecs[idx] && u !== currentRecs[idx]
-          );
-          if (changedBatch.length > 0) {
-            recordsRef.current = updatedRecords;
-            setRecords(updatedRecords);
-            saveAttendanceRecords(updatedRecords, changedBatch);
-          }
-        }
       });
 
     let hiddenPollSkipCount = 0;
@@ -238,27 +213,6 @@ export default function App() {
         });
     }, 6000);
 
-    // Periodic check to auto punch out at 11:59 PM or >2h inactivity without requiring manual reload
-    const autoPunchInterval = setInterval(() => {
-      if (!bootFinished) return;
-      const prev = recordsRef.current;
-      const currentShifts = loadShifts();
-      const { updatedRecords, hasChanges } = autoCloseForgottenPunches(
-        prev,
-        currentShifts,
-        loadSettings(),
-        loadEmployees()
-      );
-      if (hasChanges) {
-        const changedBatch = updatedRecords.filter((u, idx) => prev[idx] && u !== prev[idx]);
-        if (changedBatch.length > 0) {
-          recordsRef.current = updatedRecords;
-          setRecords(updatedRecords);
-          saveAttendanceRecords(updatedRecords, changedBatch);
-        }
-      }
-    }, 15000);
-
     const ipInterval = setInterval(() => {
       void detectClientNetwork().then((net) => {
         setCurrentClientIp(net.ip);
@@ -277,7 +231,6 @@ export default function App() {
 
     return () => {
       clearInterval(syncInterval);
-      clearInterval(autoPunchInterval);
       clearInterval(ipInterval);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       registerCloudSyncListener(null);
@@ -550,9 +503,8 @@ export default function App() {
       return;
     }
 
-    // Capture device details & detect mismatch
+    // Capture informational device details & presence metadata
     const { deviceId, deviceLabel } = getDeviceDetails();
-    const isMismatch = !!(emp.registeredDeviceId && emp.registeredDeviceId !== deviceId);
     const nowIso = new Date().toISOString();
     const isOnlineNow = typeof navigator !== 'undefined' ? navigator.onLine : true;
     lastInteractionRef.current = Date.now();
@@ -583,10 +535,8 @@ export default function App() {
         clientIp: currentClientIp,
         deviceId,
         deviceName: deviceLabel,
-        isDeviceMismatch: isMismatch,
-        deviceMismatchReason: isMismatch
-          ? `Punched from device "${deviceLabel}" instead of approved phone "${emp.registeredDeviceName || 'Registered Phone'}"`
-          : undefined,
+        isDeviceMismatch: false,
+        deviceMismatchReason: undefined,
         recordUpdatedAt: nowIso,
         lastEditedByRole: actorRole,
         actorAction: 'time_in',
@@ -608,10 +558,7 @@ export default function App() {
         clientIp: currentClientIp,
         deviceId,
         deviceName: deviceLabel,
-        isDeviceMismatch: isMismatch,
-        deviceMismatchReason: isMismatch
-          ? `Punched from device "${deviceLabel}" instead of approved phone "${emp.registeredDeviceName || 'Registered Phone'}"`
-          : undefined,
+        isDeviceMismatch: false,
         ...presenceFields,
         recordUpdatedAt: nowIso,
         lastEditedByRole: actorRole,
@@ -862,194 +809,6 @@ export default function App() {
     }
   };
 
-  const handleRequestDeviceChange = (
-    employeeId: string,
-    requestedDeviceId: string,
-    requestedDeviceName: string,
-    reason?: string
-  ): Promise<boolean> => {
-    const empList = employeesRef.current.length > 0 ? employeesRef.current : employees;
-    const emp = empList.find((e) => e.id === employeeId);
-    if (!emp) return Promise.resolve(false);
-
-    const nowIso = new Date().toISOString();
-    const actorRole = currentUserRef.current?.role || emp.role;
-    const request: DeviceChangeRequest = {
-      id: `devreq-${Date.now()}`,
-      employeeId,
-      employeeName: emp.name,
-      requestedDeviceId,
-      requestedDeviceName,
-      previousDeviceId: emp.registeredDeviceId,
-      previousDeviceName: emp.registeredDeviceName,
-      requestedAt: nowIso,
-      reason,
-      status: 'pending',
-    };
-
-    const updatedEmp: Employee = {
-      ...emp,
-      pendingDeviceRequest: request,
-      recordUpdatedAt: nowIso,
-      lastEditedByRole: actorRole,
-    };
-
-    const nextEmps = empList.map((e) => (e.id === employeeId ? updatedEmp : e));
-    employeesRef.current = nextEmps;
-    setEmployees(nextEmps);
-    if (currentUser?.id === employeeId) {
-      setCurrentUser(updatedEmp);
-    }
-    return saveEmployeeUpsert(nextEmps, updatedEmp, { actorRole });
-  };
-
-  const handleApproveDeviceChange = (employeeId: string) => {
-    const emp = employees.find((e) => e.id === employeeId);
-    if (!emp || !emp.pendingDeviceRequest) return;
-
-    const nowIso = new Date().toISOString();
-    const actorRole = currentUserRef.current?.role || 'admin';
-    const req = emp.pendingDeviceRequest;
-    const historyEntry: DeviceHistoryEntry = {
-      id: `hist-${Date.now()}`,
-      action: emp.registeredDeviceId ? 'changed' : 'bound',
-      deviceId: req.requestedDeviceId,
-      deviceName: req.requestedDeviceName,
-      changedBy: currentUser?.name || 'Administrator',
-      changedAt: nowIso,
-      reason: req.reason || 'Admin approval',
-    };
-
-    const updatedEmp: Employee = {
-      ...emp,
-      registeredDeviceId: req.requestedDeviceId,
-      registeredDeviceName: req.requestedDeviceName,
-      registeredAt: nowIso,
-      deviceBoundApprovedBy: currentUser?.name || 'Administrator',
-      deviceBoundApprovedAt: nowIso,
-      pendingDeviceRequest: undefined,
-      deviceChangeHistory: [historyEntry, ...(emp.deviceChangeHistory || [])],
-      recordUpdatedAt: nowIso,
-      lastEditedByRole: actorRole,
-    };
-
-    const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
-    setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true, actorRole });
-    if (currentUser?.id === employeeId) {
-      setCurrentUser(updatedEmp);
-    }
-    alert(`Device binding approved for ${emp.name}! Their account is now permanently bound to "${req.requestedDeviceName}".`);
-  };
-
-  const handleDirectBindDevice = (employeeId: string, deviceId: string, deviceName: string) => {
-    const emp = employees.find((e) => e.id === employeeId);
-    if (!emp) return;
-
-    const nowIso = new Date().toISOString();
-    const actorRole = currentUserRef.current?.role || 'admin';
-    const historyEntry: DeviceHistoryEntry = {
-      id: `hist-${Date.now()}`,
-      action: emp.registeredDeviceId ? 'changed' : 'bound',
-      deviceId,
-      deviceName,
-      changedBy: currentUser?.name || 'Administrator',
-      changedAt: nowIso,
-      reason: 'Admin direct binding from detected punch device',
-    };
-
-    const updatedEmp: Employee = {
-      ...emp,
-      registeredDeviceId: deviceId,
-      registeredDeviceName: deviceName,
-      registeredAt: nowIso,
-      deviceBoundApprovedBy: currentUser?.name || 'Administrator',
-      deviceBoundApprovedAt: nowIso,
-      pendingDeviceRequest: undefined,
-      deviceChangeHistory: [historyEntry, ...(emp.deviceChangeHistory || [])],
-      recordUpdatedAt: nowIso,
-      lastEditedByRole: actorRole,
-    };
-
-    const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
-    setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true, actorRole });
-    if (currentUser?.id === employeeId) {
-      setCurrentUser(updatedEmp);
-    }
-  };
-
-  const handleRejectDeviceChange = (employeeId: string) => {
-    const emp = employees.find((e) => e.id === employeeId);
-    if (!emp || !emp.pendingDeviceRequest) return;
-
-    const nowIso = new Date().toISOString();
-    const actorRole = currentUserRef.current?.role || 'admin';
-    const updatedEmp: Employee = {
-      ...emp,
-      pendingDeviceRequest: undefined,
-      recordUpdatedAt: nowIso,
-      lastEditedByRole: actorRole,
-    };
-
-    const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
-    setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, updatedEmp, { clearPendingRequest: true, actorRole });
-    if (currentUser?.id === employeeId) {
-      setCurrentUser(updatedEmp);
-    }
-    alert(`Device binding request for ${emp.name} has been rejected.`);
-  };
-
-  const handleResetDeviceBound = (employeeId: string) => {
-    const emp = employees.find((e) => e.id === employeeId);
-    if (!emp) return;
-
-    if (
-      !confirm(
-        `Reset personal device bound for "${emp.name}"?\n\nTheir current phone pairing ("${emp.registeredDeviceName || 'Registered Device'}") will be unlinked. The employee will need to submit a new phone binding request for Administrator approval.`
-      )
-    ) {
-      return;
-    }
-
-    const nowIso = new Date().toISOString();
-    const actorRole = currentUserRef.current?.role || 'admin';
-    const historyEntry: DeviceHistoryEntry = {
-      id: `hist-${Date.now()}`,
-      action: 'reset',
-      deviceId: emp.registeredDeviceId,
-      deviceName: emp.registeredDeviceName,
-      changedBy: currentUser?.name || 'Administrator',
-      changedAt: nowIso,
-      reason: 'Admin reset device bound',
-    };
-
-    const updatedEmp: Employee = {
-      ...emp,
-      registeredDeviceId: undefined,
-      registeredDeviceName: undefined,
-      registeredAt: undefined,
-      deviceBoundApprovedBy: undefined,
-      deviceBoundApprovedAt: undefined,
-      pendingDeviceRequest: undefined,
-      deviceChangeHistory: [historyEntry, ...(emp.deviceChangeHistory || [])],
-      recordUpdatedAt: nowIso,
-      lastEditedByRole: actorRole,
-    };
-
-    const nextEmps = employees.map((e) => (e.id === employeeId ? updatedEmp : e));
-    setEmployees(nextEmps);
-    saveEmployeeUpsert(nextEmps, updatedEmp, {
-      allowClearDevice: true,
-      clearPendingRequest: true,
-      actorRole,
-    });
-    if (currentUser?.id === employeeId) {
-      setCurrentUser(updatedEmp);
-    }
-  };
-
   const handleAddShift = (shiftData: Omit<ShiftSchedule, 'id'>) => {
     const newShift: ShiftSchedule = {
       ...shiftData,
@@ -1237,9 +996,6 @@ export default function App() {
   };
 
   const pendingLeavesCount = leaves.filter((l) => l.status === 'pending').length;
-  const pendingDeviceRequestsCount = employees.filter(
-    (e) => e.pendingDeviceRequest && e.pendingDeviceRequest.status === 'pending'
-  ).length;
 
   return (
     <div
@@ -1291,8 +1047,6 @@ export default function App() {
             isNetworkOnline={isNetworkOnline}
             cloudSyncState={cloudSyncState}
             onRetrySync={() => void retryCloudOutboxNow()}
-            pendingDeviceRequestsCount={pendingDeviceRequestsCount}
-            onOpenEmployeesDirectory={() => setActiveTab('employees')}
             onOpenMobileNav={() => setIsMobileNavOpen(true)}
           />
 
@@ -1303,7 +1057,6 @@ export default function App() {
               activeTab={activeTab}
               onSelectTab={setActiveTab}
               pendingLeavesCount={pendingLeavesCount}
-              pendingDeviceRequestsCount={pendingDeviceRequestsCount}
               settings={settings}
               isMobileOpen={isMobileNavOpen}
               onCloseMobile={() => setIsMobileNavOpen(false)}
@@ -1326,7 +1079,6 @@ export default function App() {
                   isNetworkOnline={isNetworkOnline}
                   ceoComments={ceoComments}
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
-                  onOpenRequestDevice={() => setIsRequestDeviceOpen(true)}
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                 />
               )}
@@ -1340,7 +1092,6 @@ export default function App() {
                   onOpenPrintModal={handleOpenPrintModal}
                   ceoComments={ceoComments}
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
-                  onOpenRequestDevice={() => setIsRequestDeviceOpen(true)}
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                   isNetworkOnline={isNetworkOnline}
                 />
@@ -1383,10 +1134,6 @@ export default function App() {
                   onUpdateEmployee={handleUpdateEmployee}
                   onDeleteEmployee={handleDeleteEmployee}
                   currentUserId={currentUser.id}
-                  onApproveDeviceChange={handleApproveDeviceChange}
-                  onRejectDeviceChange={handleRejectDeviceChange}
-                  onResetDeviceBound={handleResetDeviceBound}
-                  onDirectBindDevice={handleDirectBindDevice}
                   companyName={settings.companyName}
                   allowAutoStartPunch={Boolean(settings.allowAutoStartPunch)}
                   onOpenPrintModal={handleOpenPrintModal}
@@ -1473,16 +1220,6 @@ export default function App() {
           onClose={() => setIsChangePasswordOpen(false)}
           currentUser={currentUser}
           onUpdatePin={handleUpdatePin}
-        />
-      )}
-
-      {/* Request Phone / Device Change Modal */}
-      {currentUser && (
-        <RequestDeviceChangeModal
-          isOpen={isRequestDeviceOpen}
-          onClose={() => setIsRequestDeviceOpen(false)}
-          currentUser={currentUser}
-          onRequestDeviceChange={handleRequestDeviceChange}
         />
       )}
     </div>

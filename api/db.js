@@ -141,10 +141,22 @@ function cleanRecordForSave(rec) {
 }
 
 export function mergeAttendanceRecord(existing, a, options = {}) {
-  const { isLegacyBulk = false, actorRoleFallback } = options;
+  const { isLegacyBulk = false, actorRoleFallback, authoritativeIso, authoritativeMs } = options;
+
+  const useAuthoritativeStamp =
+    !isLegacyBulk &&
+    typeof authoritativeMs === 'number' &&
+    Number.isFinite(authoritativeMs) &&
+    authoritativeMs > 0 &&
+    a?.actorAction !== 'auto_close';
+  const effectiveRecordIso = useAuthoritativeStamp
+    ? authoritativeIso
+    : a?.recordUpdatedAt || new Date().toISOString();
 
   if (!existing) {
-    return cleanRecordForSave(a);
+    return cleanRecordForSave(
+      useAuthoritativeStamp ? { ...a, recordUpdatedAt: effectiveRecordIso } : a
+    );
   }
 
   const incomingRole = a.lastEditedByRole || actorRoleFallback;
@@ -154,7 +166,7 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
   if (a.actorAction === 'verify') {
     const mergedVerify = {
       ...existing,
-      recordUpdatedAt: newerIso(existing.recordUpdatedAt, a.recordUpdatedAt || new Date().toISOString()),
+      recordUpdatedAt: newerIso(existing.recordUpdatedAt, effectiveRecordIso),
     };
     if (a.adminVerification !== undefined && (incomingIsAdmin || !existing.adminVerification?.verified)) {
       mergedVerify.adminVerification = a.adminVerification;
@@ -169,12 +181,15 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
   }
 
   const existingAdminMs = parseIsoMs(existing.adminOverrideAt);
+  const effectiveAdminIso = useAuthoritativeStamp
+    ? authoritativeIso
+    : a.adminOverrideAt || a.recordUpdatedAt || new Date().toISOString();
   const incomingAdminMs = incomingIsAdmin
-    ? parseIsoMs(a.adminOverrideAt) || parseIsoMs(a.recordUpdatedAt) || Date.now()
+    ? parseIsoMs(effectiveAdminIso) || Date.now()
     : parseIsoMs(a.adminOverrideAt);
 
   const existingUpdatedMs = Math.max(parseIsoMs(existing.recordUpdatedAt), existingAdminMs);
-  const incomingUpdatedMs = Math.max(parseIsoMs(a.recordUpdatedAt), incomingAdminMs);
+  const incomingUpdatedMs = Math.max(parseIsoMs(effectiveRecordIso), incomingAdminMs);
 
   // Protect against stale legacy bulk pushes from old open browser tabs
   if (isLegacyBulk) {
@@ -200,7 +215,7 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
       return existing;
     }
 
-    const adminStamp = a.adminOverrideAt || a.recordUpdatedAt || new Date().toISOString();
+    const adminStamp = effectiveAdminIso;
     const mergedAdmin = {
       ...existing,
       ...a,
@@ -208,9 +223,8 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
       notes: a.notes !== undefined ? a.notes : existing.notes,
       deviceId: a.deviceId || existing.deviceId,
       deviceName: a.deviceName || existing.deviceName,
-      isDeviceMismatch:
-        a.isDeviceMismatch !== undefined ? a.isDeviceMismatch : existing.isDeviceMismatch,
-      deviceMismatchReason: a.deviceMismatchReason ?? existing.deviceMismatchReason,
+      isDeviceMismatch: false,
+      deviceMismatchReason: undefined,
       isAutoPunchedOut: shouldClearTimeOut
         ? false
         : a.isAutoPunchedOut !== undefined
@@ -238,7 +252,7 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
           : a.monitoringPaused !== undefined
           ? a.monitoringPaused
           : existing.monitoringPaused,
-      recordUpdatedAt: newerIso(existing.recordUpdatedAt, a.recordUpdatedAt || adminStamp),
+      recordUpdatedAt: newerIso(existing.recordUpdatedAt, effectiveRecordIso || adminStamp),
       lastEditedByRole: 'admin',
       adminOverrideAt: adminStamp,
       adminKeepOpen: Boolean(shouldClearTimeOut && !shouldClearTimeIn && (a.timeIn || existing.timeIn)),
@@ -275,7 +289,7 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
       return {
         ...existing,
         accountsVerification: a.accountsVerification,
-        recordUpdatedAt: newerIso(existing.recordUpdatedAt, a.recordUpdatedAt),
+        recordUpdatedAt: newerIso(existing.recordUpdatedAt, effectiveRecordIso),
       };
     }
 
@@ -335,9 +349,8 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
     notes: a.notes !== undefined ? a.notes : existing.notes,
     deviceId: a.deviceId || existing.deviceId,
     deviceName: a.deviceName || existing.deviceName,
-    isDeviceMismatch:
-      a.isDeviceMismatch !== undefined ? a.isDeviceMismatch : existing.isDeviceMismatch,
-    deviceMismatchReason: a.deviceMismatchReason || existing.deviceMismatchReason,
+    isDeviceMismatch: false,
+    deviceMismatchReason: undefined,
     isAutoPunchedOut: effectiveClearTimeOut
       ? false
       : a.isAutoPunchedOut !== undefined
@@ -364,7 +377,7 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
     heartbeatDeviceId: a.heartbeatDeviceId || existing.heartbeatDeviceId,
     monitoringPaused:
       a.monitoringPaused !== undefined ? a.monitoringPaused : existing.monitoringPaused,
-    recordUpdatedAt: newerIso(existing.recordUpdatedAt, a.recordUpdatedAt),
+    recordUpdatedAt: newerIso(existing.recordUpdatedAt, effectiveRecordIso),
     lastEditedByRole: incomingRole || existing.lastEditedByRole,
     adminOverrideAt: existing.adminOverrideAt,
     adminKeepOpen:
@@ -518,7 +531,7 @@ export default async function handler(req, res) {
   try {
     if (req.method === 'GET') {
       const readRes = await readFromGist(token, 'Office-Attendance-Tracker-Server', {
-        useEtagCache: true,
+        useEtagCache: false,
       });
       if (readRes.status === 'error') {
         return res.status(503).json({
@@ -542,7 +555,14 @@ export default async function handler(req, res) {
         return res.status(200).json(initOutcome.db);
       }
 
-      const current = readRes.data;
+      const rawCurrent = readRes.data;
+      const current = {
+        ...rawCurrent,
+        settings: {
+          ...(rawCurrent.settings || DEFAULT_DB.settings),
+          enforceDeviceBinding: false,
+        },
+      };
 
       // Evaluate 11:59 PM / Shift-End+2h closes and transient disconnectivity/overtime state
       if (Array.isArray(current.attendance)) {
@@ -579,24 +599,56 @@ export default async function handler(req, res) {
             { priority: 'background', minReserve: 25 }
           );
           if (writeOutcome.ok && writeOutcome.db) {
-            return res.status(200).json(writeOutcome.db);
+            return res.status(200).json({
+              ...writeOutcome.db,
+              settings: {
+                ...(writeOutcome.db.settings || DEFAULT_DB.settings),
+                enforceDeviceBinding: false,
+              },
+            });
           }
         }
         if (changed) {
-          return res.status(200).json({ ...current, attendance: displayRecs });
+          return res.status(200).json({
+            ...current,
+            settings: {
+              ...(current.settings || DEFAULT_DB.settings),
+              enforceDeviceBinding: false,
+            },
+            attendance: displayRecs,
+          });
         }
       }
 
-      return res.status(200).json(current);
+      return res.status(200).json({
+        ...current,
+        settings: {
+          ...(current.settings || DEFAULT_DB.settings),
+          enforceDeviceBinding: false,
+        },
+      });
     }
 
     if (req.method === 'POST') {
-      const incoming = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
+      const incoming = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
       const scope = incoming.scope || 'legacy_bulk';
+      const hasQueuedAge =
+        incoming.queuedAgeMs !== undefined && Number.isFinite(Number(incoming.queuedAgeMs));
+      const clampedQueuedAgeMs = hasQueuedAge
+        ? Math.max(0, Math.min(24 * 60 * 60 * 1000, Number(incoming.queuedAgeMs)))
+        : 0;
 
       const mutationResult = await mutateCloudDb(
         token,
         (current) => {
+          const authoritativeMs = hasQueuedAge ? Date.now() - clampedQueuedAgeMs : undefined;
+          const authoritativeIso =
+            typeof authoritativeMs === 'number' ? new Date(authoritativeMs).toISOString() : undefined;
+          const mergeOpts = {
+            actorRoleFallback: incoming.actorRole,
+            ...(hasQueuedAge ? { authoritativeMs, authoritativeIso } : {}),
+          };
+
           let finalSettings = current.settings || DEFAULT_DB.settings;
           let finalShifts = Array.isArray(current.shifts) && current.shifts.length > 0 ? current.shifts : DEFAULT_DB.shifts;
           let finalEmployees = Array.isArray(current.employees) ? current.employees : [];
@@ -609,9 +661,7 @@ export default async function handler(req, res) {
             if (Array.isArray(incoming.changedRecords) && incoming.changedRecords.length > 0) {
               for (const rec of incoming.changedRecords) {
                 if (rec && rec.id) {
-                  const merged = mergeAttendanceRecord(attMap.get(rec.id), rec, {
-                    actorRoleFallback: incoming.actorRole,
-                  });
+                  const merged = mergeAttendanceRecord(attMap.get(rec.id), rec, mergeOpts);
                   attMap.set(merged.id, merged);
                 }
               }
@@ -619,15 +669,13 @@ export default async function handler(req, res) {
               const merged = mergeAttendanceRecord(
                 attMap.get(incoming.changedRecord.id),
                 incoming.changedRecord,
-                { actorRoleFallback: incoming.actorRole }
+                mergeOpts
               );
               attMap.set(merged.id, merged);
             } else if (Array.isArray(incoming.attendance)) {
               for (const a of incoming.attendance) {
                 if (a && a.id) {
-                  const merged = mergeAttendanceRecord(attMap.get(a.id), a, {
-                    actorRoleFallback: incoming.actorRole,
-                  });
+                  const merged = mergeAttendanceRecord(attMap.get(a.id), a, mergeOpts);
                   attMap.set(merged.id, merged);
                 }
               }
@@ -655,12 +703,16 @@ export default async function handler(req, res) {
           } else if (scope === 'settings') {
             if (incoming.settings) {
               const curSetMs = parseIsoMs(finalSettings?.settingsUpdatedAt);
-              const incSetMs = parseIsoMs(incoming.settings?.settingsUpdatedAt);
+              const incSetMs = hasQueuedAge
+                ? authoritativeMs
+                : parseIsoMs(incoming.settings?.settingsUpdatedAt);
               if (curSetMs === 0 || incSetMs === 0 || incSetMs >= curSetMs) {
                 finalSettings = {
                   ...finalSettings,
                   ...incoming.settings,
-                  settingsUpdatedAt: incoming.settings.settingsUpdatedAt || new Date().toISOString(),
+                  enforceDeviceBinding: false,
+                  settingsUpdatedAt:
+                    authoritativeIso || incoming.settings.settingsUpdatedAt || new Date().toISOString(),
                 };
               }
             }
@@ -668,12 +720,19 @@ export default async function handler(req, res) {
             const leaveMap = new Map(finalLeaves.map((l) => [l.id, l]));
             if (incoming.changedLeave && incoming.changedLeave.id) {
               const existingLeave = leaveMap.get(incoming.changedLeave.id);
+              const incLeaveMs = hasQueuedAge
+                ? authoritativeMs
+                : parseIsoMs(incoming.changedLeave.recordUpdatedAt);
               if (
                 !existingLeave ||
                 incoming.actorRole === 'admin' ||
-                parseIsoMs(incoming.changedLeave.recordUpdatedAt) >= parseIsoMs(existingLeave.recordUpdatedAt)
+                incLeaveMs >= parseIsoMs(existingLeave.recordUpdatedAt)
               ) {
-                leaveMap.set(incoming.changedLeave.id, incoming.changedLeave);
+                leaveMap.set(incoming.changedLeave.id, {
+                  ...incoming.changedLeave,
+                  recordUpdatedAt:
+                    authoritativeIso || incoming.changedLeave.recordUpdatedAt || new Date().toISOString(),
+                });
               }
             } else if (Array.isArray(incoming.leaves)) {
               for (const l of incoming.leaves) {
@@ -708,7 +767,9 @@ export default async function handler(req, res) {
               incoming.employees[0].id === 'emp-101' &&
               finalEmployees.length > 1;
             if (!hasDummyNames && !isDefaultFallback) {
-              if (incoming.settings) finalSettings = incoming.settings;
+              if (incoming.settings) {
+                finalSettings = { ...incoming.settings, enforceDeviceBinding: false };
+              }
               if (Array.isArray(incoming.shifts) && incoming.shifts.length > 0) finalShifts = incoming.shifts;
               if (Array.isArray(incoming.employees) && incoming.employees.length > 0) {
                 finalEmployees = incoming.employees;
@@ -801,7 +862,13 @@ export default async function handler(req, res) {
       return res.status(200).json({
         ok: true,
         updatedAt: mutationResult.db.updatedAt,
-        db: mutationResult.db,
+        db: {
+          ...mutationResult.db,
+          settings: {
+            ...(mutationResult.db.settings || DEFAULT_DB.settings),
+            enforceDeviceBinding: false,
+          },
+        },
       });
     }
 

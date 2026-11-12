@@ -6,7 +6,7 @@ import { Employee, OfficeSettings } from '../types';
  * automatically invalidates if PIN or approved device binding changes.
  */
 export async function computeAutoStartToken(employee: Employee): Promise<string> {
-  const raw = `${employee.id}|${employee.pin}|${employee.registeredDeviceId || 'UNBOUND'}|OFFICE_AUTO_V1`;
+  const raw = `${employee.id}|${employee.pin}|OFFICE_AUTO_V1`;
   const encoder = new TextEncoder();
   const data = encoder.encode(raw);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
@@ -50,7 +50,7 @@ export function downloadWindowsBatFile(filename: string, rawContent: string): vo
 
 /**
  * Generates a personalized Windows .bat installer & background auto-check-in launcher
- * for an individual employee's bound Windows PC.
+ * for an employee's office Windows PC.
  */
 export async function generateEmployeeAutoStartBat(params: {
   employee: Employee;
@@ -64,7 +64,6 @@ export async function generateEmployeeAutoStartBat(params: {
   const shortcutName = getShortcutFilename(safeCompany);
   const safeName = sanitizeSafeAscii(employee.name);
   const safeCode = sanitizeSafeAscii(employee.employeeCode);
-  const safeDeviceId = sanitizeSafeAscii(employee.registeredDeviceId || '');
 
   const batContent = `@echo off
 setlocal EnableExtensions DisableDelayedExpansion
@@ -83,7 +82,7 @@ echo   ${safeCompany} - Automated Startup Attendance Setup
 echo ============================================================================
 echo   Employee : ${safeName} - ${safeCode}
 echo   Server   : ${cleanUrl}
-echo   Bound ID : ${safeDeviceId || 'Admin Bypass / Unbound'}
+echo   Security : Office Wi-Fi / IP Verification Enabled
 echo ============================================================================
 echo.
 echo   Select an installation option:
@@ -131,7 +130,7 @@ echo [2/4] Writing configuration and automation engine...
   echo   "employeeId": "${sanitizeSafeAscii(employee.id)}",
   echo   "employeeCode": "${safeCode}",
   echo   "employeeName": "${safeName}",
-  echo   "deviceId": "${safeDeviceId}",
+  echo   "deviceId": "WIN-AUTO-START",
   echo   "authToken": "${authToken}",
   echo   "openPortal": %OPEN_PORTAL%
   echo }
@@ -166,7 +165,7 @@ echo ===========================================================================
 echo   SUCCESS! Automated Startup Attendance is now ACTIVE on this PC.
 echo ============================================================================
 echo   - Runs automatically every time you turn on Windows or sign in.
-echo   - Enforces Office Wi-Fi & Device Security (will not punch from home).
+echo   - Enforces Office Wi-Fi / IP Security (will not punch from outside office).
 echo   - Log file saved to: "%APP_DIR%\\startup.log"
 echo.
 echo Running initial verification check now...
@@ -630,13 +629,8 @@ if ($browserExe) {
  * instead of the standard manual-ID portal auto-start launcher.
  * Requires explicit Administrator opt-in (`settings.allowAutoStartPunch === true`).
  */
-export function canEmployeeAutoPunch(employee: Employee, settings: OfficeSettings): boolean {
-  if (settings.allowAutoStartPunch !== true) return false;
-  return (
-    !!employee.registeredDeviceId ||
-    employee.role === 'admin' ||
-    settings.enforceDeviceBinding === false
-  );
+export function canEmployeeAutoPunch(_employee: Employee, settings: OfficeSettings): boolean {
+  return settings.allowAutoStartPunch === true;
 }
 
 /**

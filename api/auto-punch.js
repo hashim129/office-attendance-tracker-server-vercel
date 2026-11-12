@@ -67,7 +67,7 @@ export default async function handler(req, res) {
           };
         }
 
-        // 3. Verify cryptographic token (automatically invalidates if PIN or device bound changes)
+        // 3. Verify cryptographic token (automatically invalidates if PIN changes)
         if (!verifyAutoStartToken(emp, authToken)) {
           return {
             abort: true,
@@ -76,40 +76,12 @@ export default async function handler(req, res) {
               ok: false,
               code: 'TOKEN_INVALID',
               message:
-                'Auto-start credentials have expired (PIN or device binding changed). Please re-download your .bat file from the portal.',
+                'Auto-start credentials have expired (PIN changed). Please re-download your .bat file from the portal.',
             },
           };
         }
 
-        // 4. Verify Personal Device Binding
-        const isAdminBypassDevice =
-          emp.role === 'admin' && (settings.allowAdminBypassDeviceBinding ?? true);
-        if (settings.enforceDeviceBinding !== false && !isAdminBypassDevice) {
-          if (!emp.registeredDeviceId) {
-            return {
-              abort: true,
-              status: 403,
-              result: {
-                ok: false,
-                code: 'DEVICE_NOT_BOUND',
-                message: 'No approved device is bound to this account. Submit device approval first.',
-              },
-            };
-          }
-          if (!deviceId || emp.registeredDeviceId !== deviceId) {
-            return {
-              abort: true,
-              status: 403,
-              result: {
-                ok: false,
-                code: 'DEVICE_MISMATCH',
-                message: 'Device mismatch: Auto-start script does not match your approved PC binding.',
-              },
-            };
-          }
-        }
-
-        // 5. Verify Office Wi-Fi / ISP Public IP on server
+        // 4. Verify Office Wi-Fi / ISP Public IP on server
         const isAdminBypassIp = emp.role === 'admin' && (settings.allowAdminBypassIpLock ?? true);
         if (settings.enforceOfficeIpLock && !isAdminBypassIp) {
           const allowedList = Array.isArray(settings.allowedOfficeIps) ? settings.allowedOfficeIps : [];

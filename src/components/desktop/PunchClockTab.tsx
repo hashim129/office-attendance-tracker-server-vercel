@@ -12,7 +12,6 @@ import {
   WifiOff,
   ShieldAlert,
   ShieldCheck,
-  Smartphone,
   Save,
   Check,
   MessageSquare,
@@ -39,7 +38,6 @@ import {
   playPunchSound,
 } from '../../lib/attendanceCalculations';
 import { verifyOfficeIpAccess } from '../../lib/ipSecurity';
-import { verifyDeviceAccess, getDeviceDetails } from '../../lib/deviceSecurity';
 import {
   canEmployeeAutoPunch,
   downloadAutoStartScriptForUser,
@@ -60,7 +58,6 @@ interface PunchClockTabProps {
   isNetworkOnline?: boolean;
   ceoComments?: CeoComment[];
   onMarkCeoCommentRead?: (commentId: string) => void;
-  onOpenRequestDevice?: () => void;
   onOpenChangePassword?: () => void;
 }
 
@@ -79,7 +76,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   isNetworkOnline = true,
   ceoComments = [],
   onMarkCeoCommentRead,
-  onOpenRequestDevice,
   onOpenChangePassword,
 }) => {
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
@@ -131,20 +127,10 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   const isOnBreak = liveState === 'break';
   const isNoInternet = liveState === 'no_internet';
 
-  // 1. Office Wi-Fi IP Security Check
+  // Office Wi-Fi IP Security Check
   const ipCheck = verifyOfficeIpAccess(currentClientIp, settings, currentUser);
   const isPunchBlockedByIp = !ipCheck.allowed;
-
-  // 2. Anti-Proxy Single-Device Security Check
-  const deviceCheck = verifyDeviceAccess(
-    currentUser,
-    allEmployees.length > 0 ? allEmployees : [currentUser],
-    settings,
-    false
-  );
-  const isPunchBlockedByDevice = !deviceCheck.allowed;
-
-  const isPunchBlocked = isPunchBlockedByIp || isPunchBlockedByDevice;
+  const isPunchBlocked = isPunchBlockedByIp;
 
   // Calculate live elapsed seconds for work and break
   const getElapsedTimeString = (startTimeStr: string): string => {
@@ -162,10 +148,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
       alert(ipCheck.reason || 'Access Denied: Connect to Authorized Office Wi-Fi to mark attendance.');
       return;
     }
-    if (isPunchBlockedByDevice) {
-      alert(deviceCheck.reason || 'Proxy Punching Denied: You must punch from your registered personal device.');
-      return;
-    }
     if (todayRecord?.timeIn) {
       alert(`Daily Limit: You have already punched Time In for today at ${formatTime12h(todayRecord.timeIn)}. Employees are permitted only ONE clock-in per day.`);
       return;
@@ -181,10 +163,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
       alert(ipCheck.reason || 'Access Denied: Connect to Authorized Office Wi-Fi to mark attendance.');
       return;
     }
-    if (isPunchBlockedByDevice) {
-      alert(deviceCheck.reason || 'Proxy Punching Denied: You must punch from your registered personal device.');
-      return;
-    }
     if (confirm('Confirm Clock Out for today? Once clocked out, your shift for today will be complete.')) {
       playPunchSound('out');
       onTimeOut(currentUser.id, actionNotes.trim() || undefined);
@@ -195,10 +173,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   const handleBreakToggle = () => {
     if (isPunchBlockedByIp) {
       alert(ipCheck.reason || 'Access Denied: Connect to Authorized Office Wi-Fi to mark attendance.');
-      return;
-    }
-    if (isPunchBlockedByDevice) {
-      alert(deviceCheck.reason || 'Proxy Punching Denied: You must punch from your registered personal device.');
       return;
     }
     if (isOnBreak) {
@@ -485,70 +459,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                 </span>
               </div>
             )}
-
-            {/* 2. Anti-Proxy Single-Device Verification Banner */}
-            {settings.enforceDeviceBinding && (
-              <div
-                className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-start justify-between gap-3 ${
-                  isPunchBlockedByDevice
-                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200'
-                    : currentUser.pendingDeviceRequest?.status === 'pending'
-                    ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700/80 text-amber-900 dark:text-amber-200'
-                    : deviceCheck.shouldRegister
-                    ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-900/50 text-indigo-900 dark:text-indigo-200'
-                    : 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900/50 text-blue-900 dark:text-blue-200'
-                }`}
-              >
-                <div className="flex items-start gap-2.5">
-                  <Smartphone className="w-4 h-4 shrink-0 mt-0.5" />
-                  <div className="text-xs">
-                    <div className="font-bold flex items-center gap-1.5">
-                      <span>
-                        {isPunchBlockedByDevice
-                          ? 'Anti-Proxy Security: Device Unapproved'
-                          : currentUser.pendingDeviceRequest?.status === 'pending'
-                          ? 'Phone Approval Request Pending Admin Review'
-                          : deviceCheck.shouldRegister
-                          ? 'Personal Phone Binding Required'
-                          : 'Authorized Personal Device Bound'}
-                      </span>
-                    </div>
-                    <p className="text-[11px] opacity-90 mt-0.5">
-                      {isPunchBlockedByDevice
-                        ? deviceCheck.reason
-                        : currentUser.pendingDeviceRequest?.status === 'pending'
-                        ? `Awaiting Admin approval for: "${currentUser.pendingDeviceRequest.requestedDeviceName}". You will be able to punch once approved.`
-                        : deviceCheck.shouldRegister
-                        ? 'Your device requires Admin approval before attendance can be marked. Request binding below.'
-                        : `Device Verified & Approved: ${currentUser.registeredDeviceName || deviceCheck.currentDeviceName}`}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                  <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 border border-current/20 max-w-[120px] truncate">
-                    {deviceCheck.currentDeviceName.split('·')[0]}
-                  </span>
-                  {onOpenRequestDevice && (
-                    <button
-                      type="button"
-                      onClick={onOpenRequestDevice}
-                      className={`text-[11px] font-bold px-3 py-1.5 rounded-md shadow-2xs transition-colors cursor-pointer ${
-                        isPunchBlockedByDevice || !currentUser.registeredDeviceId
-                          ? 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-700'
-                          : 'bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700'
-                      }`}
-                    >
-                      {currentUser.pendingDeviceRequest?.status === 'pending'
-                        ? 'Update Request'
-                        : currentUser.registeredDeviceId
-                        ? 'Request Change'
-                        : 'Request Approval'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Action Buttons */}
@@ -567,8 +477,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                 <span>
                   {isPunchBlockedByIp
                     ? 'Connect to Office Wi-Fi to Punch In'
-                    : isPunchBlockedByDevice
-                    ? 'Unauthorized Device (Proxy Punch Blocked)'
                     : 'Punch Time In (Once Daily)'}
                 </span>
               </button>
@@ -600,8 +508,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                   title={
                     isPunchBlockedByIp
                       ? 'Connect to Office Wi-Fi to clock out'
-                      : isPunchBlockedByDevice
-                      ? 'Unauthorized device'
                       : isOnBreak
                       ? 'Please end break before clocking out'
                       : 'Record Time Out for today'

@@ -19,7 +19,6 @@ import {
   Crown,
   MessageSquare,
   Check,
-  Smartphone,
   KeyRound,
   ShieldCheck,
   Terminal,
@@ -58,7 +57,6 @@ interface MyAttendanceTabProps {
   onOpenPrintModal: (employee: Employee, filteredRecords: AttendanceRecord[]) => void;
   ceoComments?: CeoComment[];
   onMarkCeoCommentRead?: (commentId: string) => void;
-  onOpenRequestDevice?: () => void;
   onOpenChangePassword?: () => void;
   isNetworkOnline?: boolean;
 }
@@ -71,7 +69,6 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
   onOpenPrintModal,
   ceoComments = [],
   onMarkCeoCommentRead,
-  onOpenRequestDevice,
   onOpenChangePassword,
   isNetworkOnline = true,
 }) => {
@@ -347,50 +344,19 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
         </div>
       </div>
 
-      {/* Device Binding & Account Security Card */}
+      {/* Account Credentials & Windows Auto-Start Card */}
       <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900/50 flex items-center justify-center shrink-0">
-            <Smartphone className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-400" />
           </div>
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                Device Security & Portal Credentials
-              </h3>
-              {currentUser.registeredDeviceId ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                  <span>Bound & Approved</span>
-                </span>
-              ) : currentUser.pendingDeviceRequest?.status === 'pending' ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded border border-amber-300 dark:border-amber-700 animate-pulse">
-                  <span>⏳ Approval Pending</span>
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
-                  <span>Unbound</span>
-                </span>
-              )}
-            </div>
-
-            <div className="text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
-              {currentUser.registeredDeviceId ? (
-                <p>
-                  Bound Device: <strong className="text-slate-700 dark:text-slate-200">{currentUser.registeredDeviceName || currentUser.registeredDeviceId}</strong> · Approved by {currentUser.deviceBoundApprovedBy || 'Administrator'}
-                </p>
-              ) : currentUser.pendingDeviceRequest?.status !== 'pending' ? (
-                <p>
-                  No personal phone bound. Please submit a device binding request for Admin approval to punch attendance.
-                </p>
-              ) : null}
-              {currentUser.pendingDeviceRequest?.status === 'pending' && (
-                <p className="text-amber-700 dark:text-amber-300 font-medium">
-                  ⏳ Pending Admin Approval: <strong>{currentUser.pendingDeviceRequest.requestedDeviceName}</strong>
-                  {currentUser.pendingDeviceRequest.reason ? ` (Reason: "${currentUser.pendingDeviceRequest.reason}")` : ''}
-                </p>
-              )}
-            </div>
+            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+              Portal Credentials &amp; Windows Auto-Start
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Download the Windows Startup (.bat) app or update your portal login PIN. Attendance is secured by Office Wi-Fi / IP Restriction.
+            </p>
           </div>
         </div>
 
@@ -414,17 +380,6 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
               {batDownloaded ? 'Downloaded .bat!' : 'Download Auto-Start (.bat)'}
             </span>
           </button>
-
-          {onOpenRequestDevice && (
-            <button
-              type="button"
-              onClick={onOpenRequestDevice}
-              className="flex-1 md:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition-colors cursor-pointer"
-            >
-              <Smartphone className="w-3.5 h-3.5 text-blue-600" />
-              <span>{currentUser.registeredDeviceId ? 'Request Phone Change' : 'Request Phone Approval'}</span>
-            </button>
-          )}
 
           {onOpenChangePassword && (
             <button
