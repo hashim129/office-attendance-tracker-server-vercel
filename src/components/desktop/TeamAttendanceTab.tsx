@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
+  ArrowLeft,
   Calendar,
   Clock,
   Edit3,
@@ -34,9 +35,11 @@ import {
 } from '../../types';
 import {
   calculateWorkedMinutes,
+  computeLiveElapsedWorkedSeconds,
   deriveLiveAttendanceState,
   DerivedWorkingState,
   formatMinutesToHoursMinutes,
+  formatSecondsToClock,
   formatTime12h,
   getDayName,
   getLiveWorkedStats,
@@ -120,12 +123,25 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
   const isCeo = effectiveUser.role === 'ceo';
   const canManage = isAdmin || isAccountsOfficer || isCeo;
 
-  const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString());
+  const todayStr = getTodayDateString();
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+  // Employees without management roles only see Today's live attendance view (no previous days)
+  const effectiveDate = canManage ? selectedDate : todayStr;
+  const [liveNowMs, setLiveNowMs] = useState<number>(() => Date.now());
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [categoryModalKey, setCategoryModalKey] = useState<RosterCategoryKey | null>(null);
   const [categorySearch, setCategorySearch] = useState<string>('');
+
+  useEffect(() => {
+    if (effectiveDate !== todayStr) return;
+    setLiveNowMs(Date.now());
+    const id = window.setInterval(() => {
+      setLiveNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [effectiveDate, todayStr]);
 
   // Comprehensive Adjustment Modal State
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
@@ -150,10 +166,10 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
   const empMap = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
   const shiftMap = useMemo(() => new Map(shifts.map((s) => [s.id, s])), [shifts]);
 
-  // Records for the selected date
+  // Records for the active effective date
   const dateRecords = useMemo(() => {
-    return records.filter((r) => r.date === selectedDate);
-  }, [records, selectedDate]);
+    return records.filter((r) => r.date === effectiveDate);
+  }, [records, effectiveDate]);
 
   const dateRecordMap = useMemo(() => {
     return new Map(dateRecords.map((r) => [r.employeeId, r]));
@@ -220,7 +236,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
     });
 
     if (updates.length === 0) {
-      alert(`All attendance records for ${selectedDate} are already verified by ${roleLabel}.`);
+      alert(`All attendance records for ${effectiveDate} are already verified by ${roleLabel}.`);
       return;
     }
 
@@ -231,9 +247,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
     }
   };
 
-  const todayStr = getTodayDateString();
-
-  // Combine active employees with their record on selectedDate
+  // Combine active employees with their record on effectiveDate
   const teamRoster = useMemo(() => {
     return employees
       .filter((emp) => emp.isActive)
@@ -569,10 +583,10 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
 
       const updated: AttendanceRecord = {
         ...(existing || {
-          id: `att-${selectedDate}-${emp.id}`,
+          id: `att-${effectiveDate}-${emp.id}`,
           employeeId: emp.id,
-          date: selectedDate,
-          day: getDayName(selectedDate),
+          date: effectiveDate,
+          day: getDayName(effectiveDate),
           breaks: [],
         }),
         timeIn: nowTime,
@@ -720,10 +734,10 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
 
     const updated: AttendanceRecord = {
       ...(editingRecord || {
-        id: `att-${selectedDate}-${editingEmployee.id}`,
+        id: `att-${effectiveDate}-${editingEmployee.id}`,
         employeeId: editingEmployee.id,
-        date: selectedDate,
-        day: getDayName(selectedDate),
+        date: effectiveDate,
+        day: getDayName(effectiveDate),
         breaks: [],
       }),
       timeIn: finalTimeIn,
@@ -786,7 +800,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       fromName: effectiveUser.name,
       fromRole: effectiveUser.role,
       message: mentionMessage.trim(),
-      date: selectedDate,
+      date: effectiveDate,
     });
 
     alert(`Directive/Mention successfully sent to ${mentioningEmployee.name}! It will appear in their notifications and dashboard.`);
@@ -800,8 +814,8 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       employees,
       shifts,
       settings,
-      startDate: selectedDate,
-      endDate: selectedDate,
+      startDate: effectiveDate,
+      endDate: effectiveDate,
     });
   };
 
@@ -821,83 +835,90 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-100/90 dark:bg-emerald-950/80 border-2 border-emerald-400 dark:border-emerald-600 shadow-xs">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <span className="text-sm font-black text-emerald-900 dark:text-emerald-200">
-                {selectedDate}
+                {effectiveDate}
               </span>
               <span className="text-emerald-500 font-bold">•</span>
               <span className="text-sm font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">
-                {getDayName(selectedDate)}
+                {getDayName(effectiveDate)}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Date Selector & Export Button */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs">
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent text-slate-900 dark:text-slate-100 focus:outline-none font-medium cursor-pointer"
-            />
-          </div>
+        {/* Date Selector & Export Button (Management & Executives only; staff see Today Live Board) */}
+        <div className="flex flex-wrap items-center gap-3">
+          {canManage ? (
+            <>
+              <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs">
+                <Calendar className="w-4 h-4 text-slate-400" />
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="bg-transparent text-slate-900 dark:text-slate-100 focus:outline-none font-medium cursor-pointer"
+                />
+              </div>
 
-          <button
-            onClick={() => setSelectedDate(getTodayDateString())}
-            className="px-3 py-1.5 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 transition-colors font-medium cursor-pointer"
-          >
-            Today
-          </button>
+              <button
+                onClick={() => setSelectedDate(getTodayDateString())}
+                className="px-3 py-1.5 text-xs rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 transition-colors font-medium cursor-pointer"
+              >
+                Today
+              </button>
 
-          {(isAdmin || isAccountsOfficer) && (
-            <button
-              onClick={() => handleBatchVerifyToday(isAdmin ? 'admin' : 'accounts')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer text-white ${
-                isAdmin
-                  ? 'bg-purple-600 hover:bg-purple-700'
-                  : 'bg-emerald-600 hover:bg-emerald-700'
-              }`}
-              title={`Batch verify all active attendance records for ${selectedDate}`}
-            >
-              <CheckCheck className="w-3.5 h-3.5" />
-              <span>Verify All ({isAdmin ? 'Admin' : 'Accounts'})</span>
-            </button>
+              {(isAdmin || isAccountsOfficer) && (
+                <button
+                  onClick={() => handleBatchVerifyToday(isAdmin ? 'admin' : 'accounts')}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer text-white ${
+                    isAdmin
+                      ? 'bg-purple-600 hover:bg-purple-700'
+                      : 'bg-emerald-600 hover:bg-emerald-700'
+                  }`}
+                  title={`Batch verify all active attendance records for ${effectiveDate}`}
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  <span>Verify All ({isAdmin ? 'Admin' : 'Accounts'})</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenPrintModal) {
+                    onOpenPrintModal(null, dateRecords);
+                  } else {
+                    downloadOfficialTimesheetPdf({
+                      employee: null,
+                      allEmployees: employees,
+                      records: dateRecords,
+                      shifts,
+                      settings,
+                      periodLabel: `Roster Date: ${effectiveDate}`,
+                      generatedBy: effectiveUser,
+                    });
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors cursor-pointer"
+                title="Download or preview official A4 PDF timesheet"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Official PDF</span>
+              </button>
+
+              <button
+                onClick={handleExportToday}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Export Roster CSV</span>
+              </button>
+            </>
+          ) : (
+            <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 text-xs font-semibold text-sky-900 dark:text-sky-200">
+              <Clock className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 animate-pulse" />
+              <span>Today Only · Live Team Working Board</span>
+            </div>
           )}
-
-          {canManage && (
-            <button
-              type="button"
-              onClick={() => {
-                if (onOpenPrintModal) {
-                  onOpenPrintModal(null, dateRecords);
-                } else {
-                  downloadOfficialTimesheetPdf({
-                    employee: null,
-                    allEmployees: employees,
-                    records: dateRecords,
-                    shifts,
-                    settings,
-                    periodLabel: `Roster Date: ${selectedDate}`,
-                    generatedBy: effectiveUser,
-                  });
-                }
-              }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors cursor-pointer"
-              title="Download or preview official A4 PDF timesheet"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Official PDF</span>
-            </button>
-          )}
-
-          <button
-            onClick={handleExportToday}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>Export Roster CSV</span>
-          </button>
         </div>
       </div>
 
@@ -1034,45 +1055,49 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           <span className="text-[10px] text-slate-400">Punched out · View list</span>
         </button>
 
-        {/* Admin Verified */}
-        <button
-          type="button"
-          onClick={() => handleClickCategoryCard('admin_verified')}
-          title="Click to view list of Admin Verified employees"
-          className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-purple-400 hover:shadow-sm cursor-pointer ${
-            statusFilter === 'admin_verified'
-              ? 'border-purple-500 ring-2 ring-purple-400/40'
-              : 'border-purple-200/60 dark:border-purple-900/40'
-          }`}
-        >
-          <span className="text-[10px] font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
-            Admin Verified
-          </span>
-          <div className="text-xl font-bold font-mono text-purple-700 dark:text-purple-300 mt-1">
-            {liveCounts.adminVerifiedCount}
-          </div>
-          <span className="text-[10px] text-slate-400">Validated · View list</span>
-        </button>
+        {/* Admin Verified (Management & Executives only) */}
+        {canManage && (
+          <button
+            type="button"
+            onClick={() => handleClickCategoryCard('admin_verified')}
+            title="Click to view list of Admin Verified employees"
+            className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-purple-400 hover:shadow-sm cursor-pointer ${
+              statusFilter === 'admin_verified'
+                ? 'border-purple-500 ring-2 ring-purple-400/40'
+                : 'border-purple-200/60 dark:border-purple-900/40'
+            }`}
+          >
+            <span className="text-[10px] font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+              Admin Verified
+            </span>
+            <div className="text-xl font-bold font-mono text-purple-700 dark:text-purple-300 mt-1">
+              {liveCounts.adminVerifiedCount}
+            </div>
+            <span className="text-[10px] text-slate-400">Validated · View list</span>
+          </button>
+        )}
 
-        {/* Accounts Verified */}
-        <button
-          type="button"
-          onClick={() => handleClickCategoryCard('accounts_verified')}
-          title="Click to view list of Accounts Verified employees"
-          className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-emerald-400 hover:shadow-sm cursor-pointer ${
-            statusFilter === 'accounts_verified'
-              ? 'border-emerald-500 ring-2 ring-emerald-400/40'
-              : 'border-emerald-200/60 dark:border-emerald-900/40'
-          }`}
-        >
-          <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-            Accounts Verified
-          </span>
-          <div className="text-xl font-bold font-mono text-emerald-700 dark:text-emerald-300 mt-1">
-            {liveCounts.accountsVerifiedCount}
-          </div>
-          <span className="text-[10px] text-slate-400">Validated · View list</span>
-        </button>
+        {/* Accounts Verified (Management & Executives only) */}
+        {canManage && (
+          <button
+            type="button"
+            onClick={() => handleClickCategoryCard('accounts_verified')}
+            title="Click to view list of Accounts Verified employees"
+            className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-emerald-400 hover:shadow-sm cursor-pointer ${
+              statusFilter === 'accounts_verified'
+                ? 'border-emerald-500 ring-2 ring-emerald-400/40'
+                : 'border-emerald-200/60 dark:border-emerald-900/40'
+            }`}
+          >
+            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+              Accounts Verified
+            </span>
+            <div className="text-xl font-bold font-mono text-emerald-700 dark:text-emerald-300 mt-1">
+              {liveCounts.accountsVerifiedCount}
+            </div>
+            <span className="text-[10px] text-slate-400">Validated · View list</span>
+          </button>
+        )}
       </div>
 
       {/* Filter and Search Bar */}
@@ -1132,12 +1157,16 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
               <option value="out">Shift Finished</option>
               <option value="late">Late Arrival</option>
               <option value="absent">Absent / Not In</option>
-              <option value="admin_verified">Admin Verified</option>
-              <option value="accounts_verified">Accounts Verified</option>
-              <option value="admin_unverified">Pending Admin Verification</option>
-              <option value="accounts_unverified">Pending Accounts Verification</option>
-              <option value="auto_punched">All Auto Punched Out</option>
-              <option value="auto_inactivity">Auto Punched (Shift End + 2h)</option>
+              {canManage && (
+                <>
+                  <option value="admin_verified">Admin Verified</option>
+                  <option value="accounts_verified">Accounts Verified</option>
+                  <option value="admin_unverified">Pending Admin Verification</option>
+                  <option value="accounts_unverified">Pending Accounts Verification</option>
+                  <option value="auto_punched">All Auto Punched Out</option>
+                  <option value="auto_inactivity">Auto Punched (Shift End + 2h)</option>
+                </>
+              )}
             </select>
           </div>
         </div>
@@ -1145,8 +1174,8 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
 
       {/* Roster Table */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
+        <div className="overflow-x-auto pb-1">
+          <table className={`w-full ${canManage ? 'min-w-[1060px]' : 'min-w-[780px]'} text-left text-xs border-collapse`}>
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 <th className="py-3 px-3">Employee</th>
@@ -1154,24 +1183,31 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                 <th className="py-3 px-3 text-center">P / A Status</th>
                 <th className="py-3 px-3">Time In</th>
                 <th className="py-3 px-3">Time Out</th>
-                <th className="py-3 px-3 text-right">Hours</th>
+                <th className="py-3 px-3 text-right">Live Working Time</th>
                 <th className="py-3 px-3 text-center">Working Status</th>
-                <th className="py-3 px-3 text-center">Admin Verify</th>
-                <th className="py-3 px-3 text-center">Accounts Verify</th>
-                {(isAdmin || isAccountsOfficer || isCeo) && (
-                  <th className="py-3 px-3 text-right">Actions</th>
-                )}
+                {canManage && <th className="py-3 px-3 text-center">Admin Verify</th>}
+                {canManage && <th className="py-3 px-3 text-center">Accounts Verify</th>}
+                {canManage && <th className="py-3 px-3 text-right">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {teamRoster.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin || isAccountsOfficer || isCeo ? 10 : 9} className="py-12 text-center text-slate-400">
+                  <td colSpan={canManage ? 10 : 7} className="py-12 text-center text-slate-400">
                     No employees matched the selected filters.
                   </td>
                 </tr>
               ) : (
                 teamRoster.map(({ employee, record, shift, derivedStatus }) => {
+                  const isLiveWorking =
+                    effectiveDate === todayStr &&
+                    !!record?.timeIn &&
+                    !record?.timeOut &&
+                    (derivedStatus === 'in' || derivedStatus === 'no_internet');
+                  const liveSecs = isLiveWorking
+                    ? computeLiveElapsedWorkedSeconds(record, liveNowMs)
+                    : 0;
+
                   return (
                     <tr
                       key={employee.id}
@@ -1255,12 +1291,19 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                       </td>
 
                       <td className="py-3 px-3 text-right font-mono font-bold tabular-nums">
-                        {record
-                          ? formatMinutesToHoursMinutes(
-                              getLiveWorkedStats({ record, shift, settings, liveState: derivedStatus })
-                                .totalWorkedMinutes
-                            )
-                          : '0h 00m'}
+                        {isLiveWorking ? (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            <span>{formatSecondsToClock(liveSecs)}</span>
+                          </span>
+                        ) : record ? (
+                          formatMinutesToHoursMinutes(
+                            getLiveWorkedStats({ record, shift, settings, liveState: derivedStatus, nowMs: liveNowMs })
+                              .totalWorkedMinutes
+                          )
+                        ) : (
+                          '0h 00m'
+                        )}
                       </td>
 
                       <td className="py-3 px-3 text-center">
@@ -1280,7 +1323,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                         ) : derivedStatus === 'in' ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
                             <CheckCircle2 className="w-3 h-3" />
-                            <span>Clocked In</span>
+                            <span>On Working</span>
                           </span>
                         ) : derivedStatus === 'out' ? (
                           <span className="inline-block px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
@@ -1311,67 +1354,71 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                       </td>
 
                       {/* Admin Verification Column */}
-                      <td className="py-3 px-3 text-center">
-                        {record?.timeIn ? (
-                          record.adminVerification?.verified ? (
-                            <div className="inline-flex flex-col items-center">
-                              <span
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300"
-                                title={`Verified by ${record.adminVerification.verifiedByName || 'Admin'} on ${
-                                  record.adminVerification.verifiedAt
-                                    ? new Date(record.adminVerification.verifiedAt).toLocaleTimeString()
-                                    : ''
-                                }`}
-                              >
-                                <ShieldCheck className="w-3 h-3 text-purple-600 dark:text-purple-400" />
-                                <span>Verified</span>
+                      {canManage && (
+                        <td className="py-3 px-3 text-center">
+                          {record?.timeIn ? (
+                            record.adminVerification?.verified ? (
+                              <div className="inline-flex flex-col items-center">
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300"
+                                  title={`Verified by ${record.adminVerification.verifiedByName || 'Admin'} on ${
+                                    record.adminVerification.verifiedAt
+                                      ? new Date(record.adminVerification.verifiedAt).toLocaleTimeString()
+                                      : ''
+                                  }`}
+                                >
+                                  <ShieldCheck className="w-3 h-3 text-purple-600 dark:text-purple-400" />
+                                  <span>Verified</span>
+                                </span>
+                                <span className="text-[9px] text-slate-400 truncate max-w-[85px] mt-0.5">
+                                  {record.adminVerification.verifiedByName || 'Admin'}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                Pending
                               </span>
-                              <span className="text-[9px] text-slate-400 truncate max-w-[85px] mt-0.5">
-                                {record.adminVerification.verifiedByName || 'Admin'}
-                              </span>
-                            </div>
+                            )
                           ) : (
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                              Pending
-                            </span>
-                          )
-                        ) : (
-                          <span className="text-slate-400 font-sans">—</span>
-                        )}
-                      </td>
+                            <span className="text-slate-400 font-sans">—</span>
+                          )}
+                        </td>
+                      )}
 
                       {/* Accounts Verification Column */}
-                      <td className="py-3 px-3 text-center">
-                        {record?.timeIn ? (
-                          record.accountsVerification?.verified ? (
-                            <div className="inline-flex flex-col items-center">
-                              <span
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
-                                title={`Verified by ${record.accountsVerification.verifiedByName || 'Accounts'} on ${
-                                  record.accountsVerification.verifiedAt
-                                    ? new Date(record.accountsVerification.verifiedAt).toLocaleTimeString()
-                                    : ''
-                                }`}
-                              >
-                                <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                                <span>Verified</span>
+                      {canManage && (
+                        <td className="py-3 px-3 text-center">
+                          {record?.timeIn ? (
+                            record.accountsVerification?.verified ? (
+                              <div className="inline-flex flex-col items-center">
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                  title={`Verified by ${record.accountsVerification.verifiedByName || 'Accounts'} on ${
+                                    record.accountsVerification.verifiedAt
+                                      ? new Date(record.accountsVerification.verifiedAt).toLocaleTimeString()
+                                      : ''
+                                  }`}
+                                >
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                  <span>Verified</span>
+                                </span>
+                                <span className="text-[9px] text-slate-400 truncate max-w-[85px] mt-0.5">
+                                  {record.accountsVerification.verifiedByName || 'Accounts'}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                Pending
                               </span>
-                              <span className="text-[9px] text-slate-400 truncate max-w-[85px] mt-0.5">
-                                {record.accountsVerification.verifiedByName || 'Accounts'}
-                              </span>
-                            </div>
+                            )
                           ) : (
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                              Pending
-                            </span>
-                          )
-                        ) : (
-                          <span className="text-slate-400 font-sans">—</span>
-                        )}
-                      </td>
+                            <span className="text-slate-400 font-sans">—</span>
+                          )}
+                        </td>
+                      )}
 
                       {/* Actions Column (Admin, Accounts Officer & CEO) */}
-                      {(isAdmin || isAccountsOfficer || isCeo) && (
+                      {canManage && (
                         <td className="py-3 px-3 text-right">
                           <div className="flex items-center justify-end gap-1.5 flex-wrap">
                             <button
@@ -1483,7 +1530,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
             setEditingRecord(null);
           }}
           title={`Edit Attendance & Punch Log: ${editingEmployee.name}`}
-          subtitle={`Employee Code: ${editingEmployee.employeeCode} · Shift: ${(shiftMap.get(editingEmployee.shiftId) || shifts[0]).name} · Date: ${selectedDate} (${getDayName(selectedDate)})`}
+          subtitle={`Employee Code: ${editingEmployee.employeeCode} · Shift: ${(shiftMap.get(editingEmployee.shiftId) || shifts[0]).name} · Date: ${effectiveDate} (${getDayName(effectiveDate)})`}
         >
           <form onSubmit={handleSaveAdjustment} className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
             {/* 1. Working Status Selector (4 Distinct Options) */}
@@ -1906,8 +1953,8 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           isOpen={!!categoryModalKey}
           onClose={() => setCategoryModalKey(null)}
           title={`${ROSTER_CATEGORY_META[categoryModalKey].title} (${categoryListItems.length})`}
-          subtitle={`${ROSTER_CATEGORY_META[categoryModalKey].subtitle} · Date: ${selectedDate}`}
-          maxWidth="xl"
+          subtitle={`${ROSTER_CATEGORY_META[categoryModalKey].subtitle} · Date: ${effectiveDate}`}
+          maxWidth="5xl"
         >
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1927,13 +1974,13 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
               </span>
             </div>
 
-            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-[55vh] overflow-y-auto">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-auto max-h-[60vh]">
               {categoryListItems.length === 0 ? (
                 <div className="py-10 text-center text-xs text-slate-400">
-                  No employees currently fall under this category for {selectedDate}.
+                  No employees currently fall under this category for {effectiveDate}.
                 </div>
               ) : (
-                <table className="w-full text-left text-xs border-collapse">
+                <table className="w-full min-w-[780px] text-left text-xs border-collapse">
                   <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
                     <tr>
                       <th className="py-2 px-3">#</th>
@@ -1941,19 +1988,27 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                       <th className="py-2 px-3">Department & Shift</th>
                       <th className="py-2 px-3">Time In</th>
                       <th className="py-2 px-3">Time Out</th>
-                      <th className="py-2 px-3 text-right">Worked</th>
+                      <th className="py-2 px-3 text-right">Live Working Time</th>
                       <th className="py-2 px-3">Status Detail</th>
                       {canManage && <th className="py-2 px-3 text-right">Timesheet</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {categoryListItems.map(({ employee, record, shift, derivedStatus }, idx) => {
+                      const isLiveWorking =
+                        effectiveDate === todayStr &&
+                        !!record?.timeIn &&
+                        !record?.timeOut &&
+                        (derivedStatus === 'in' || derivedStatus === 'no_internet');
+                      const liveSecs = isLiveWorking
+                        ? computeLiveElapsedWorkedSeconds(record, liveNowMs)
+                        : 0;
                       const workedMins = record
-                        ? getLiveWorkedStats({ record, shift, settings, liveState: derivedStatus }).totalWorkedMinutes
+                        ? getLiveWorkedStats({ record, shift, settings, liveState: derivedStatus, nowMs: liveNowMs }).totalWorkedMinutes
                         : 0;
                       const detailLabel =
                         derivedStatus === 'in'
-                          ? 'Clocked In (Online)'
+                          ? 'On Working (Online)'
                           : derivedStatus === 'no_internet'
                           ? getOfflineBadgeMeta(record).statusLabel
                           : derivedStatus === 'break'
@@ -1981,8 +2036,17 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                           <td className="py-2.5 px-3 font-mono text-slate-700 dark:text-slate-300">
                             {record?.timeOut ? formatTime12h(record.timeOut) : '—'}
                           </td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold">
-                            {record?.timeIn ? formatMinutesToHoursMinutes(workedMins) : '0h 00m'}
+                          <td className="py-2.5 px-3 text-right font-mono font-bold tabular-nums">
+                            {isLiveWorking ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                <span>{formatSecondsToClock(liveSecs)}</span>
+                              </span>
+                            ) : record?.timeIn ? (
+                              formatMinutesToHoursMinutes(workedMins)
+                            ) : (
+                              '0h 00m'
+                            )}
                           </td>
                           <td className="py-2.5 px-3">
                             <span
@@ -2023,16 +2087,26 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setStatusFilter('all');
-                  setCategoryModalKey(null);
-                }}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-              >
-                Reset Table Filter (Show All)
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCategoryModalKey(null)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Back to Roster</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter('all');
+                    setCategoryModalKey(null);
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Reset Table Filter (Show All)
+                </button>
+              </div>
 
               <button
                 type="button"

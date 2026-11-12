@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   Calendar,
@@ -18,6 +18,7 @@ import {
   WifiOff,
   CheckCircle2,
   AlertTriangle,
+  X,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -35,6 +36,7 @@ import {
   getTodayDateString,
 } from '../../lib/attendanceCalculations';
 import { downloadOfficialTimesheetPdf } from '../../lib/pdfTimesheet';
+import { parseSmartAttendanceQuery } from '../../lib/smartSearchParser';
 
 interface SmartInsightsTabProps {
   currentUser: Employee;
@@ -119,6 +121,8 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
     () => activeEmployees[0]?.id || ''
   );
   const [empSearch, setEmpSearch] = useState<string>('');
+  const [smartQuery, setSmartQuery] = useState<string>('');
+  const [smartDateOverride, setSmartDateOverride] = useState<string | null>(null);
   const [rangeKey, setRangeKey] = useState<InsightsRangeKey>('14d');
   const [customStart, setCustomStart] = useState<string>(() => addDaysUtc(getTodayDateString(), -13));
   const [customEnd, setCustomEnd] = useState<string>(() => getTodayDateString());
@@ -128,6 +132,50 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
 
   const todayStr = getTodayDateString();
   const shiftMap = useMemo(() => new Map(shifts.map((s) => [s.id, s])), [shifts]);
+
+  const parsedSmartQuery = useMemo(() => {
+    if (!smartQuery.trim()) return null;
+    return parseSmartAttendanceQuery(smartQuery, activeEmployees, todayStr);
+  }, [smartQuery, activeEmployees, todayStr]);
+
+  useEffect(() => {
+    setSmartDateOverride(null);
+  }, [smartQuery]);
+
+  useEffect(() => {
+    if (!parsedSmartQuery) return;
+    if (parsedSmartQuery.matchedEmployee) {
+      setSelectedEmpId(parsedSmartQuery.matchedEmployee.id);
+      setViewMode('individual');
+    }
+    const resolvedDate = smartDateOverride || parsedSmartQuery.targetDate;
+    if (resolvedDate) {
+      setPinnedDate(resolvedDate);
+      setHoveredDate(null);
+      if (parsedSmartQuery.suggestedRangeKey === 'custom' && parsedSmartQuery.rangeStart && parsedSmartQuery.rangeEnd && !smartDateOverride) {
+        setRangeKey('custom');
+        setCustomStart(parsedSmartQuery.rangeStart);
+        setCustomEnd(parsedSmartQuery.rangeEnd);
+      } else if (resolvedDate >= addDaysUtc(todayStr, -13) && resolvedDate <= todayStr) {
+        setRangeKey('14d');
+      } else {
+        const winStart = addDaysUtc(resolvedDate, -6);
+        const candidateEnd = addDaysUtc(resolvedDate, 6);
+        const winEnd = candidateEnd > todayStr ? (resolvedDate > todayStr ? resolvedDate : todayStr) : candidateEnd;
+        setRangeKey('custom');
+        setCustomStart(winStart);
+        setCustomEnd(winEnd);
+      }
+    } else if (parsedSmartQuery.suggestedRangeKey) {
+      if (parsedSmartQuery.suggestedRangeKey === 'custom' && parsedSmartQuery.rangeStart && parsedSmartQuery.rangeEnd) {
+        setRangeKey('custom');
+        setCustomStart(parsedSmartQuery.rangeStart);
+        setCustomEnd(parsedSmartQuery.rangeEnd);
+      } else {
+        setRangeKey(parsedSmartQuery.suggestedRangeKey);
+      }
+    }
+  }, [parsedSmartQuery, smartDateOverride, todayStr]);
 
   const effectiveEmp = useMemo(() => {
     return (
@@ -570,59 +618,59 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
   }, [selectedAnalytics, effectiveEmp, rangeLabel]);
 
   return (
-    <div className="space-y-6">
-      {/* SMART Executive Command Hero Header */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-5 sm:p-6 border border-indigo-500/30 shadow-xl">
-        <div className="absolute -right-12 -top-12 w-56 h-56 rounded-full bg-blue-500/15 blur-3xl pointer-events-none" />
-        <div className="absolute -left-12 -bottom-12 w-48 h-48 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+    <div className="space-y-6 bg-sky-50/85 dark:bg-slate-950/60 p-3 sm:p-5 rounded-2xl border border-sky-200/80 dark:border-slate-800">
+      {/* SMART Executive Command Hero Header (Light Blue Surface) */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-sky-100 via-blue-50 to-white dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 text-slate-900 dark:text-slate-100 p-5 sm:p-6 border border-sky-200 dark:border-slate-700 shadow-sm">
+        <div className="absolute -right-12 -top-12 w-56 h-56 rounded-full bg-sky-300/25 blur-3xl pointer-events-none" />
+        <div className="absolute -left-12 -bottom-12 w-48 h-48 rounded-full bg-blue-300/20 blur-3xl pointer-events-none" />
 
         <div className="relative flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-500/30 text-indigo-200 border border-indigo-400/40">
-                <Sparkles className="w-3 h-3 text-amber-300" />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-600 text-white shadow-2xs">
+                <Sparkles className="w-3 h-3 text-amber-200" />
                 <span>Smart Attendance Insights</span>
               </span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/10 text-slate-200 border border-white/15">
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/90 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-sky-200 dark:border-slate-700">
                 {currentUser.role === 'ceo' ? (
                   <>
-                    <Crown className="w-3 h-3 text-amber-300" />
+                    <Crown className="w-3 h-3 text-amber-500" />
                     <span>CEO Executive View</span>
                   </>
                 ) : currentUser.role === 'accounts' ? (
                   <>
-                    <ShieldCheck className="w-3 h-3 text-emerald-300" />
+                    <ShieldCheck className="w-3 h-3 text-emerald-600" />
                     <span>Accounts Audit View</span>
                   </>
                 ) : (
                   <>
-                    <BarChart3 className="w-3 h-3 text-blue-300" />
+                    <BarChart3 className="w-3 h-3 text-blue-600" />
                     <span>Admin Control View</span>
                   </>
                 )}
               </span>
             </div>
 
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
               {viewMode === 'individual' && effectiveEmp
                 ? `${effectiveEmp.name} — Performance & Bar Analytics`
                 : 'Company-Wide Attendance Graphical Insights'}
             </h1>
-            <p className="text-xs text-slate-300 max-w-2xl">
-              Interactive daily bar graphs, punctuality intelligence, overtime tracking, and 1-click official A4 PDF timesheets per employee.
+            <p className="text-xs text-slate-600 dark:text-slate-300 max-w-2xl">
+              Ask in natural language (e.g. "Search Attendance of Kashif for last wednesday") or browse interactive daily bar graphs, punctuality intelligence, overtime, and official A4 PDF timesheets.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Mode Toggle */}
-            <div className="inline-flex p-1 rounded-xl bg-white/10 border border-white/15 backdrop-blur-xs">
+            <div className="inline-flex p-1 rounded-xl bg-white/90 dark:bg-slate-800 border border-sky-200 dark:border-slate-700 shadow-2xs">
               <button
                 type="button"
                 onClick={() => setViewMode('individual')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   viewMode === 'individual'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-200 hover:text-white'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-slate-700'
                 }`}
               >
                 <User className="w-3.5 h-3.5" />
@@ -633,8 +681,8 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
                 onClick={() => setViewMode('team')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                   viewMode === 'team'
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-200 hover:text-white'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-slate-700'
                 }`}
               >
                 <Users className="w-3.5 h-3.5" />
@@ -645,7 +693,7 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
             <button
               type="button"
               onClick={handleDownloadCurrentPdf}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-all cursor-pointer"
               title="Download official A4 PDF timesheet right now"
             >
               <Download className="w-3.5 h-3.5" />
@@ -655,7 +703,7 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
             <button
               type="button"
               onClick={handlePreviewCurrentPdf}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-sky-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-100 border border-sky-200 dark:border-slate-700 transition-all cursor-pointer"
               title="Open print preview modal"
             >
               <FileText className="w-3.5 h-3.5" />
@@ -664,11 +712,99 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
           </div>
         </div>
 
+        {/* Smart Natural-Language Search Bar */}
+        <div className="relative mt-4 p-3 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-sky-200 dark:border-slate-700 shadow-2xs space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="relative flex-1">
+              <Sparkles className="w-4 h-4 text-blue-600 dark:text-sky-400 absolute left-3 top-2.5 pointer-events-none" />
+              <input
+                type="text"
+                value={smartQuery}
+                onChange={(e) => setSmartQuery(e.target.value)}
+                placeholder='Smart Search: e.g. "Search Attendance of Kashif for last wednesday", "Zonehra yesterday", "Hashim last 7 days"...'
+                className="w-full pl-9 pr-9 py-2 rounded-lg bg-sky-50/70 dark:bg-slate-800 border border-sky-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500"
+              />
+              {smartQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSmartQuery('');
+                    setSmartDateOverride(null);
+                  }}
+                  title="Clear Smart Search"
+                  className="absolute right-2.5 top-2 p-0.5 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/70 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+              <span className="font-semibold text-slate-500 dark:text-slate-400">Try:</span>
+              {[
+                activeEmployees[0] ? `Attendance of ${activeEmployees[0].name.split(' ')[0]} last wednesday` : 'Last wednesday',
+                activeEmployees[1] ? `${activeEmployees[1].name.split(' ')[0]} yesterday` : 'Yesterday',
+                'Last 7 days',
+              ].map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  onClick={() => setSmartQuery(example)}
+                  className="px-2 py-1 rounded-md bg-sky-100/80 dark:bg-slate-800 hover:bg-sky-200/80 text-sky-900 dark:text-sky-300 border border-sky-200 dark:border-slate-700 font-semibold transition-colors cursor-pointer"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {parsedSmartQuery && (
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-sky-100 dark:border-slate-800 text-[11px]">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-blue-700 dark:text-sky-300">
+                  Interpreted:
+                </span>
+                <span className="px-2 py-0.5 rounded bg-sky-100 dark:bg-sky-950/60 text-sky-900 dark:text-sky-200 font-semibold">
+                  Employee:{' '}
+                  {parsedSmartQuery.matchedEmployee
+                    ? `${parsedSmartQuery.matchedEmployee.name} (${parsedSmartQuery.matchedEmployee.employeeCode})`
+                    : effectiveEmp?.name || 'All'}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-900 dark:text-blue-200 font-semibold">
+                  Period: {parsedSmartQuery.dateLabel || rangeLabel}
+                  {(smartDateOverride || parsedSmartQuery.targetDate)
+                    ? ` (${smartDateOverride || parsedSmartQuery.targetDate})`
+                    : ''}
+                </span>
+                {parsedSmartQuery.alternativeDate && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSmartDateOverride((prev) =>
+                        prev === parsedSmartQuery.alternativeDate ? null : parsedSmartQuery.alternativeDate
+                      )
+                    }
+                    className="px-2 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold border border-amber-300 cursor-pointer"
+                  >
+                    {smartDateOverride === parsedSmartQuery.alternativeDate
+                      ? `Back to ${parsedSmartQuery.targetDate}`
+                      : `Did you mean ${parsedSmartQuery.alternativeDate} (week earlier)?`}
+                  </button>
+                )}
+              </div>
+              {parsedSmartQuery.confidence === 'none' && (
+                <span className="text-amber-700 dark:text-amber-300 font-medium">
+                  No exact staff name detected — showing {effectiveEmp?.name || 'team'} for the resolved date.
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Period & Employee Selector Strip inside Hero */}
-        <div className="relative mt-5 pt-4 border-t border-white/15 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="relative mt-4 pt-4 border-t border-sky-200/80 dark:border-slate-700 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           {/* Date Range Pills */}
           <div className="flex flex-wrap items-center gap-1.5">
-            <Calendar className="w-3.5 h-3.5 text-indigo-300 mr-1" />
+            <Calendar className="w-3.5 h-3.5 text-blue-600 dark:text-sky-400 mr-1" />
             {(
               [
                 { id: '7d', label: '7 Days' },
@@ -685,8 +821,8 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
                 onClick={() => setRangeKey(opt.id)}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
                   rangeKey === opt.id
-                    ? 'bg-indigo-500 text-white shadow-xs'
-                    : 'bg-white/10 text-slate-300 hover:bg-white/20'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-white/90 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-sky-200 dark:border-slate-700 hover:bg-sky-100 dark:hover:bg-slate-700'
                 }`}
               >
                 {opt.label}
@@ -699,14 +835,14 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
                   type="date"
                   value={customStart}
                   onChange={(e) => setCustomStart(e.target.value)}
-                  className="px-2 py-1 rounded-lg bg-slate-900/90 border border-white/20 text-[11px] text-white"
+                  className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-sky-200 dark:border-slate-700 text-[11px] text-slate-900 dark:text-slate-100"
                 />
-                <span className="text-slate-400 text-xs">→</span>
+                <span className="text-slate-500 text-xs">→</span>
                 <input
                   type="date"
                   value={customEnd}
                   onChange={(e) => setCustomEnd(e.target.value)}
-                  className="px-2 py-1 rounded-lg bg-slate-900/90 border border-white/20 text-[11px] text-white"
+                  className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 border border-sky-200 dark:border-slate-700 text-[11px] text-slate-900 dark:text-slate-100"
                 />
               </div>
             )}
@@ -722,7 +858,7 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
                   value={empSearch}
                   onChange={(e) => setEmpSearch(e.target.value)}
                   placeholder="Quick find staff..."
-                  className="w-36 sm:w-44 pl-8 pr-2.5 py-1.5 rounded-lg bg-slate-900/80 border border-white/20 text-xs text-white placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                  className="w-36 sm:w-44 pl-8 pr-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-sky-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
                 />
               </div>
 
@@ -730,7 +866,7 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
                 <button
                   type="button"
                   onClick={() => stepEmployee(-1)}
-                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+                  className="p-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-sky-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-sky-200 dark:border-slate-700 cursor-pointer"
                   title="Previous Employee"
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -742,7 +878,7 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
                     setHoveredDate(null);
                     setPinnedDate(null);
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-slate-900/90 border border-indigo-400/50 text-xs font-semibold text-white max-w-[220px]"
+                  className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-sky-300 dark:border-slate-600 text-xs font-semibold text-slate-900 dark:text-slate-100 max-w-[220px]"
                 >
                   {(filteredEmployeeOptions.length > 0 ? filteredEmployeeOptions : activeEmployees).map((e) => (
                     <option key={e.id} value={e.id}>
@@ -753,7 +889,7 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
                 <button
                   type="button"
                   onClick={() => stepEmployee(1)}
-                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+                  className="p-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-sky-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-sky-200 dark:border-slate-700 cursor-pointer"
                   title="Next Employee"
                 >
                   <ChevronRight className="w-4 h-4" />
@@ -771,12 +907,12 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
               const isSelected = emp.id === effectiveEmp?.id;
               const statusDot =
                 empStats?.todayState === 'in'
-                  ? 'bg-emerald-400'
+                  ? 'bg-emerald-500'
                   : empStats?.todayState === 'no_internet' || empStats?.todayState === 'break'
-                  ? 'bg-amber-400'
+                  ? 'bg-amber-500'
                   : empStats?.todayState === 'out'
                   ? 'bg-slate-400'
-                  : 'bg-rose-400';
+                  : 'bg-rose-500';
 
               return (
                 <button
@@ -789,13 +925,13 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
                   }}
                   className={`shrink-0 inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer ${
                     isSelected
-                      ? 'bg-white text-slate-900 border-white shadow-md'
-                      : 'bg-white/10 text-slate-200 border-white/15 hover:bg-white/20'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                      : 'bg-white/90 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-sky-200 dark:border-slate-700 hover:bg-sky-100 dark:hover:bg-slate-700'
                   }`}
                 >
                   <span className={`w-2 h-2 rounded-full ${statusDot}`} />
                   <span>{emp.name}</span>
-                  <span className={`text-[10px] font-mono ${isSelected ? 'text-indigo-600' : 'text-slate-400'}`}>
+                  <span className={`text-[10px] font-mono ${isSelected ? 'text-sky-100' : 'text-slate-400'}`}>
                     {emp.employeeCode}
                   </span>
                 </button>
@@ -804,6 +940,87 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* Smart Query Instant Answer Card (when natural-language query pins a day) */}
+      {parsedSmartQuery && viewMode === 'individual' && effectiveEmp && selectedAnalytics && (smartDateOverride || parsedSmartQuery.targetDate) && (() => {
+        const queryDate = smartDateOverride || parsedSmartQuery.targetDate!;
+        const matchedDay = selectedAnalytics.dailySeries.find((d) => d.date === queryDate);
+        const rec = matchedDay?.record || records.find((r) => r.employeeId === effectiveEmp.id && r.date === queryDate);
+        const shift = selectedAnalytics.shift;
+        const shiftStartMins = parseTimeToMinutesOfDay(shift?.startTime || '09:00') ?? 540;
+        const inMins = parseTimeToMinutesOfDay(rec?.timeIn);
+        const deltaMins = inMins !== null ? Math.round(inMins - shiftStartMins) : null;
+        const workedMins = matchedDay?.totalWorkedMinutes ?? (rec?.totalWorkedMinutes || 0);
+        const breakMins = rec ? calculateBreaksDuration(rec.breaks) : 0;
+        const overtimeMins = matchedDay?.overtimeMinutes ?? (rec?.overtimeMinutes || 0);
+
+        return (
+          <div className="p-4 sm:p-5 rounded-2xl bg-white dark:bg-slate-900 border-2 border-sky-300 dark:border-sky-700 shadow-sm space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-1 rounded-lg bg-sky-100 dark:bg-sky-900/50 text-sky-900 dark:text-sky-200 text-xs font-bold">
+                  Smart Query Result
+                </span>
+                <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
+                  {effectiveEmp.name} · {queryDate} ({parsedSmartQuery.dateLabel})
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={handleDownloadCurrentPdf}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download PDF</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+              <div className="p-2.5 rounded-xl bg-sky-50/80 dark:bg-slate-800 border border-sky-200/70 dark:border-slate-700">
+                <p className="text-[10px] font-bold uppercase text-slate-500">Status</p>
+                <p className="font-bold mt-0.5 text-slate-900 dark:text-slate-100 uppercase">
+                  {rec?.timeIn ? (rec.status === 'late' ? 'Present (Late)' : 'Present (On Time)') : matchedDay?.dayStatus || 'Absent'}
+                </p>
+              </div>
+              <div className="p-2.5 rounded-xl bg-sky-50/80 dark:bg-slate-800 border border-sky-200/70 dark:border-slate-700">
+                <p className="text-[10px] font-bold uppercase text-slate-500">Time In</p>
+                <p className="font-mono font-bold mt-0.5 text-emerald-700 dark:text-emerald-300">
+                  {rec?.timeIn ? formatTime12h(rec.timeIn) : '—'}
+                </p>
+              </div>
+              <div className="p-2.5 rounded-xl bg-sky-50/80 dark:bg-slate-800 border border-sky-200/70 dark:border-slate-700">
+                <p className="text-[10px] font-bold uppercase text-slate-500">Time Out</p>
+                <p className="font-mono font-bold mt-0.5 text-slate-800 dark:text-slate-200">
+                  {rec?.timeOut ? formatTime12h(rec.timeOut) : rec?.timeIn ? 'Active / Open' : '—'}
+                </p>
+              </div>
+              <div className="p-2.5 rounded-xl bg-sky-50/80 dark:bg-slate-800 border border-sky-200/70 dark:border-slate-700">
+                <p className="text-[10px] font-bold uppercase text-slate-500">Net Worked / OT</p>
+                <p className="font-mono font-bold mt-0.5 text-blue-700 dark:text-sky-300">
+                  {formatMinutesToHoursMinutes(workedMins)}
+                  {overtimeMins > 0 ? ` (+${formatMinutesToHoursMinutes(overtimeMins)} OT)` : ''}
+                </p>
+              </div>
+              <div className="p-2.5 rounded-xl bg-sky-50/80 dark:bg-slate-800 border border-sky-200/70 dark:border-slate-700">
+                <p className="text-[10px] font-bold uppercase text-slate-500">Break</p>
+                <p className="font-mono font-bold mt-0.5 text-amber-700 dark:text-amber-300">
+                  {breakMins}m
+                </p>
+              </div>
+              <div className="p-2.5 rounded-xl bg-sky-50/80 dark:bg-slate-800 border border-sky-200/70 dark:border-slate-700">
+                <p className="text-[10px] font-bold uppercase text-slate-500">Punctuality vs Shift</p>
+                <p className="font-bold mt-0.5 text-slate-800 dark:text-slate-200">
+                  {deltaMins === null
+                    ? '—'
+                    : deltaMins <= 0
+                    ? `${Math.abs(deltaMins)}m early`
+                    : `${deltaMins}m after shift start`}
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* INDIVIDUAL EMPLOYEE SMART ANALYTICS VIEW */}
       {viewMode === 'individual' && selectedAnalytics && effectiveEmp && (

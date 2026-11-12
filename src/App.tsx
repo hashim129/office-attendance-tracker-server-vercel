@@ -1034,7 +1034,7 @@ export default function App() {
           isSyncing={isInitialCloudSyncing}
         />
       ) : (
-        <div className="flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] min-w-0 w-full">
           {/* Header */}
           <DesktopHeader
             currentUser={currentUser}
@@ -1051,7 +1051,7 @@ export default function App() {
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
-          <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 flex min-w-0 w-full">
             <DesktopSidebar
               currentUser={currentUser}
               activeTab={activeTab}
@@ -1062,7 +1062,7 @@ export default function App() {
               onCloseMobile={() => setIsMobileNavOpen(false)}
             />
 
-            <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto overflow-x-hidden bg-slate-50/50 dark:bg-slate-950/40">
+            <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-auto bg-slate-50/50 dark:bg-slate-950/40">
               {activeTab === 'clock' && (
                 <PunchClockTab
                   currentUser={currentUser}

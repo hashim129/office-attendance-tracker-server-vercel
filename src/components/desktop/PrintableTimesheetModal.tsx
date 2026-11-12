@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Printer, Download, X, Calendar } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Printer, Download, X, Calendar } from 'lucide-react';
 import { AttendanceRecord, Employee, OfficeSettings, ShiftSchedule } from '../../types';
 import {
   calculateBreaksDuration,
@@ -36,6 +36,16 @@ export const PrintableTimesheetModal: React.FC<PrintableTimesheetModalProps> = (
   const [periodMode, setPeriodMode] = useState<'all' | 'this_month' | 'last_month' | 'custom'>('all');
   const [customStart, setCustomStart] = useState<string>('');
   const [customEnd, setCustomEnd] = useState<string>('');
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
 
   const empMap = useMemo(() => new Map(allEmployees.map((e) => [e.id, e])), [allEmployees]);
   const shiftMap = useMemo(() => new Map(shifts.map((s) => [s.id, s])), [shifts]);
@@ -112,14 +122,31 @@ export const PrintableTimesheetModal: React.FC<PrintableTimesheetModalProps> = (
   const endDate = sortedRecords[sortedRecords.length - 1]?.date || 'N/A';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/80 backdrop-blur-xs overflow-y-auto">
-      <div className="w-full max-w-4xl bg-white text-slate-900 rounded-xl shadow-2xl overflow-hidden my-6 border border-slate-200">
-        {/* Top Control Bar (Hidden during print) */}
-        <div className="no-print bg-slate-100 px-4 sm:px-6 py-3 border-b border-slate-200 flex flex-col gap-2.5">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center p-2 sm:p-4 bg-slate-900/80 backdrop-blur-xs overflow-auto"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-6xl bg-white text-slate-900 rounded-xl shadow-2xl overflow-hidden my-2 sm:my-4 border border-slate-200 flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Top Control Bar (Sticky & Hidden during print) */}
+        <div className="no-print sticky top-0 z-20 bg-slate-100/95 backdrop-blur-xs px-4 sm:px-6 py-3 border-b border-slate-200 flex flex-col gap-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-semibold text-slate-700">
-              Official Timesheet Preview & PDF Export (A4 Format)
-            </span>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white hover:bg-slate-200 text-slate-800 border border-slate-300 shadow-2xs cursor-pointer transition-colors"
+                title="Go back to Attendance / Main Panel"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back to Panel</span>
+              </button>
+              <span className="text-xs font-semibold text-slate-700 hidden sm:inline">
+                Official Timesheet Preview &amp; PDF Export (A4 Format)
+              </span>
+            </div>
 
             <div className="flex items-center gap-2">
               <button
@@ -143,9 +170,12 @@ export const PrintableTimesheetModal: React.FC<PrintableTimesheetModalProps> = (
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                aria-label="Close Preview"
+                title="Close and go back (Esc)"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
+                <span>Close</span>
               </button>
             </div>
           </div>
@@ -296,59 +326,61 @@ export const PrintableTimesheetModal: React.FC<PrintableTimesheetModalProps> = (
           </div>
 
           {/* Records Table */}
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b-2 border-slate-900 bg-slate-100 text-[11px] font-bold text-slate-800">
-                <th className="py-2 px-2">Date</th>
-                <th className="py-2 px-2">Day</th>
-                {!employee && <th className="py-2 px-2">Staff Name</th>}
-                <th className="py-2 px-2">Time In</th>
-                <th className="py-2 px-2">Time Out</th>
-                <th className="py-2 px-2 text-right">Break</th>
-                <th className="py-2 px-2 text-right">Regular</th>
-                <th className="py-2 px-2 text-right">Overtime</th>
-                <th className="py-2 px-2 text-right">Total</th>
-                <th className="py-2 px-2 text-center">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {rowStats.length === 0 ? (
-                <tr>
-                  <td colSpan={employee ? 9 : 10} className="py-6 text-center text-slate-400">
-                    No attendance records found for this date range.
-                  </td>
+          <div className="overflow-x-auto border border-slate-200 rounded-lg">
+            <table className="w-full min-w-[740px] text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b-2 border-slate-900 bg-slate-100 text-[11px] font-bold text-slate-800">
+                  <th className="py-2 px-2">Date</th>
+                  <th className="py-2 px-2">Day</th>
+                  {!employee && <th className="py-2 px-2">Staff Name</th>}
+                  <th className="py-2 px-2">Time In</th>
+                  <th className="py-2 px-2">Time Out</th>
+                  <th className="py-2 px-2 text-right">Break</th>
+                  <th className="py-2 px-2 text-right">Regular</th>
+                  <th className="py-2 px-2 text-right">Overtime</th>
+                  <th className="py-2 px-2 text-right">Total</th>
+                  <th className="py-2 px-2 text-center">Status</th>
                 </tr>
-              ) : (
-                rowStats.map(({ record: r, emp, breakMins, stats }) => (
-                  <tr key={r.id}>
-                    <td className="py-1.5 px-2 font-mono">{r.date}</td>
-                    <td className="py-1.5 px-2">{r.day.slice(0, 3)}</td>
-                    {!employee && <td className="py-1.5 px-2 font-medium">{emp?.name}</td>}
-                    <td className="py-1.5 px-2 font-mono">{r.timeIn ? formatTime12h(r.timeIn) : '—'}</td>
-                    <td className="py-1.5 px-2 font-mono">{r.timeOut ? formatTime12h(r.timeOut) : '—'}</td>
-                    <td className="py-1.5 px-2 font-mono text-right">{breakMins > 0 ? `${breakMins}m` : '0m'}</td>
-                    <td className="py-1.5 px-2 font-mono text-right">{formatMinutesToDecimal(stats.regularMinutes)}</td>
-                    <td className="py-1.5 px-2 font-mono text-right">{formatMinutesToDecimal(stats.overtimeMinutes)}</td>
-                    <td className="py-1.5 px-2 font-mono text-right font-bold">{formatMinutesToHoursMinutes(stats.totalWorkedMinutes)}</td>
-                    <td className="py-1.5 px-2 text-center text-[10px] font-semibold uppercase">{r.status}</td>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {rowStats.length === 0 ? (
+                  <tr>
+                    <td colSpan={employee ? 9 : 10} className="py-6 text-center text-slate-400">
+                      No attendance records found for this date range.
+                    </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-slate-900 font-bold bg-slate-50">
-                <td colSpan={employee ? 5 : 6} className="py-2 px-2 text-right uppercase text-[11px]">
-                  Totals:
-                </td>
-                <td className="py-2 px-2 font-mono text-right">{formatMinutesToDecimal(totalRegularMins)}h</td>
-                <td className="py-2 px-2 font-mono text-right">{formatMinutesToDecimal(totalOvertimeMins)}h</td>
-                <td className="py-2 px-2 font-mono text-right font-bold text-slate-950">
-                  {formatMinutesToHoursMinutes(totalWorkedMins)}
-                </td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
+                ) : (
+                  rowStats.map(({ record: r, emp, breakMins, stats }) => (
+                    <tr key={r.id}>
+                      <td className="py-1.5 px-2 font-mono whitespace-nowrap">{r.date}</td>
+                      <td className="py-1.5 px-2 whitespace-nowrap">{r.day.slice(0, 3)}</td>
+                      {!employee && <td className="py-1.5 px-2 font-medium whitespace-nowrap">{emp?.name}</td>}
+                      <td className="py-1.5 px-2 font-mono whitespace-nowrap">{r.timeIn ? formatTime12h(r.timeIn) : '—'}</td>
+                      <td className="py-1.5 px-2 font-mono whitespace-nowrap">{r.timeOut ? formatTime12h(r.timeOut) : '—'}</td>
+                      <td className="py-1.5 px-2 font-mono text-right">{breakMins > 0 ? `${breakMins}m` : '0m'}</td>
+                      <td className="py-1.5 px-2 font-mono text-right">{formatMinutesToDecimal(stats.regularMinutes)}</td>
+                      <td className="py-1.5 px-2 font-mono text-right">{formatMinutesToDecimal(stats.overtimeMinutes)}</td>
+                      <td className="py-1.5 px-2 font-mono text-right font-bold whitespace-nowrap">{formatMinutesToHoursMinutes(stats.totalWorkedMinutes)}</td>
+                      <td className="py-1.5 px-2 text-center text-[10px] font-semibold uppercase">{r.status}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-slate-900 font-bold bg-slate-50">
+                  <td colSpan={employee ? 5 : 6} className="py-2 px-2 text-right uppercase text-[11px]">
+                    Totals:
+                  </td>
+                  <td className="py-2 px-2 font-mono text-right">{formatMinutesToDecimal(totalRegularMins)}h</td>
+                  <td className="py-2 px-2 font-mono text-right">{formatMinutesToDecimal(totalOvertimeMins)}h</td>
+                  <td className="py-2 px-2 font-mono text-right font-bold text-slate-950 whitespace-nowrap">
+                    {formatMinutesToHoursMinutes(totalWorkedMins)}
+                  </td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
 
           {/* Signatures Section for Official Payroll Timesheets */}
           <div className="pt-12 grid grid-cols-2 gap-12 text-slate-700">
@@ -364,6 +396,19 @@ export const PrintableTimesheetModal: React.FC<PrintableTimesheetModalProps> = (
               <p className="text-[11px] text-slate-500">Authorized Signature & Date</p>
             </div>
           </div>
+        </div>
+
+        {/* Bottom Close / Return Bar (Hidden during print) */}
+        <div className="no-print px-4 sm:px-6 py-3 bg-slate-100 border-t border-slate-200 flex items-center justify-between gap-2">
+          <span className="text-[11px] text-slate-500">Tip: Press Esc or click Back to return to attendance.</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white cursor-pointer transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back to Main Panel</span>
+          </button>
         </div>
       </div>
     </div>

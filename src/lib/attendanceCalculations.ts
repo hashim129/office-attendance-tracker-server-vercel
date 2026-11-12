@@ -524,3 +524,51 @@ export function autoCloseForgottenPunches(
   return { updatedRecords, hasChanges };
 }
 
+/**
+ * Computes net worked seconds in real-time up to `nowMs` for an active employee
+ * (subtracting both completed breaks and any currently running break).
+ */
+export function computeLiveElapsedWorkedSeconds(
+  record?: AttendanceRecord | null,
+  nowMs: number = Date.now()
+): number {
+  if (!record || !record.timeIn) return 0;
+
+  if (record.timeOut) {
+    return Math.max(0, Math.round((record.totalWorkedMinutes || 0) * 60));
+  }
+
+  const inMs = buildLocalMs(record.date, record.timeIn);
+  if (Number.isNaN(inMs)) {
+    return Math.max(0, Math.round((record.totalWorkedMinutes || 0) * 60));
+  }
+
+  const totalElapsedSec = Math.max(0, Math.floor((nowMs - inMs) / 1000));
+  const breaks = Array.isArray(record.breaks) ? record.breaks : [];
+  let breakSec = 0;
+
+  for (const b of breaks) {
+    const startMs = Date.parse(b.start);
+    if (Number.isNaN(startMs)) continue;
+    const endMs = b.end ? Date.parse(b.end) : nowMs;
+    if (!Number.isNaN(endMs) && endMs > startMs) {
+      breakSec += Math.floor((endMs - startMs) / 1000);
+    }
+  }
+
+  const fallbackBreakSec =
+    breakSec === 0 && breaks.length > 0 ? calculateBreaksDuration(breaks) * 60 : breakSec;
+
+  return Math.max(0, totalElapsedSec - fallbackBreakSec);
+}
+
+/** Formats non-negative seconds as HH:MM:SS for live working counters. */
+export function formatSecondsToClock(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds || 0));
+  const hrs = Math.floor(safe / 3600);
+  const mins = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+
