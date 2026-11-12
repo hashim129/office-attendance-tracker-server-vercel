@@ -238,118 +238,10 @@ export default function App() {
     };
   }, []);
 
-  const lastHeartbeatSentAtRef = useRef<number>(0);
 
-  const sendWebHeartbeatNow = async (forceActive = false) => {
-    const user = currentUserRef.current;
-    if (!user || appModeRef.current !== 'desktop') return;
-    const todayStr = getTodayDateString();
-    const todayRec = recordsRef.current.find(
-      (r) => r.employeeId === user.id && r.date === todayStr
-    );
-    if (!todayRec || !todayRec.timeIn || todayRec.timeOut) return;
 
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      setIsNetworkOnline(false);
-      return;
-    }
-
-    const nowMs = Date.now();
-    // Deduplicate reload/focus bursts faster than 10s (3s even on forced recovery)
-    if (nowMs - lastHeartbeatSentAtRef.current < (forceActive ? 3000 : 10000)) return;
-    lastHeartbeatSentAtRef.current = nowMs;
-
-    const idleSeconds = forceActive
-      ? 0
-      : Math.max(0, Math.floor((nowMs - lastInteractionRef.current) / 1000));
-
-    try {
-      const { deviceId } = getDeviceDetails();
-      const res = await fetch(`/api/heartbeat?t=${Date.now()}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({
-          employeeId: user.id,
-          deviceId,
-          source: 'web-client',
-          isUserActive: idleSeconds < 90,
-          idleSeconds,
-        }),
-      });
-      if (res.ok) {
-        setIsNetworkOnline(true);
-        const data = await res.json().catch(() => null);
-        if (data?.ok && data.state !== 'punched_out' && data.state !== 'not_punched_in') {
-          const hbIso = data.lastHeartbeatAt || new Date().toISOString();
-          const actIso = data.lastActivityAt || hbIso;
-          const patched = recordsRef.current.map((r) => {
-            if (r.employeeId !== user.id || r.date !== todayStr || r.timeOut) return r;
-            const nextRec: AttendanceRecord = {
-              ...r,
-              connectionStatus: 'online',
-              monitoringPaused: false,
-              heartbeatSource: data.heartbeatSource || r.heartbeatSource || 'web-client',
-              lastHeartbeatAt: hbIso,
-              lastActivityAt: actIso,
-              disconnectedAt: undefined,
-              ...(typeof data.totalWorkedMinutes === 'number'
-                ? { totalWorkedMinutes: data.totalWorkedMinutes }
-                : {}),
-              ...(typeof data.regularMinutes === 'number'
-                ? { regularMinutes: data.regularMinutes }
-                : {}),
-              ...(typeof data.overtimeMinutes === 'number'
-                ? { overtimeMinutes: data.overtimeMinutes }
-                : {}),
-            };
-            return nextRec;
-          });
-          recordsRef.current = patched;
-          setRecords(patched);
-          updateAttendanceRecordsLocalCacheOnly(patched);
-        }
-        if (data?.state === 'punched_out' || data?.persisted) {
-          void syncDatabaseFromServer(true).then((updated) => {
-            if (updated) {
-              refreshFromLocalRef.current?.(true);
-            }
-          });
-        }
-      } else if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        setIsNetworkOnline(false);
-      }
-    } catch {
-      setIsNetworkOnline(false);
-    }
-  };
-
-  // Send immediate heartbeat on login, app open, or initial cloud sync completion
-  const hasTodayOpenShift = Boolean(
-    currentUser &&
-      appMode === 'desktop' &&
-      records.some(
-        (r) => r.employeeId === currentUser.id && r.date === getTodayDateString() && r.timeIn && !r.timeOut
-      )
-  );
-
+  // Sync on tab visibility, focus, and network reconnect without spamming heartbeats
   useEffect(() => {
-    if (!hasTodayOpenShift) return;
-    lastInteractionRef.current = Date.now();
-    void sendWebHeartbeatNow(true);
-  }, [hasTodayOpenShift, currentUser?.id, appMode]);
-
-  // Network disconnectivity, user activity tracking, & 45s web-client heartbeat
-  useEffect(() => {
-    let lastRecordedActivity = 0;
-    const markActivity = () => {
-      const now = Date.now();
-      if (now - lastRecordedActivity >= 5000) {
-        lastRecordedActivity = now;
-        lastInteractionRef.current = now;
-      }
-    };
-
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         lastInteractionRef.current = Date.now();
@@ -358,7 +250,6 @@ export default function App() {
           .then((updated) => {
             if (updated && refreshFromLocalRef.current) refreshFromLocalRef.current(true);
           });
-        void sendWebHeartbeatNow(true);
       }
     };
 
@@ -369,7 +260,6 @@ export default function App() {
         .then((updated) => {
           if (updated && refreshFromLocalRef.current) refreshFromLocalRef.current(true);
         });
-      void sendWebHeartbeatNow(true);
     };
 
     const handleOnline = () => {
@@ -379,69 +269,22 @@ export default function App() {
         .then((updated) => {
           if (updated && refreshFromLocalRef.current) refreshFromLocalRef.current(true);
         });
-      void sendWebHeartbeatNow(true);
     };
 
     const handleOffline = () => {
       setIsNetworkOnline(false);
     };
 
-    const handlePageHide = () => {
-      const user = currentUserRef.current;
-      if (!user || appModeRef.current !== 'desktop') return;
-      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-      const todayStr = getTodayDateString();
-      const todayRec = recordsRef.current.find(
-        (r) => r.employeeId === user.id && r.date === todayStr
-      );
-      if (!todayRec || !todayRec.timeIn || todayRec.timeOut) return;
-
-      try {
-        const { deviceId } = getDeviceDetails();
-        const blob = new Blob(
-          [
-            JSON.stringify({
-              employeeId: user.id,
-              deviceId,
-              source: 'web-client',
-              event: 'tab_closed',
-            }),
-          ],
-          { type: 'application/json' }
-        );
-        navigator.sendBeacon('/api/heartbeat', blob);
-      } catch {
-        // Ignore beacon restrictions
-      }
-    };
-
-    const activityEvents: (keyof WindowEventMap)[] = [
-      'mousemove',
-      'mousedown',
-      'keydown',
-      'touchstart',
-      'click',
-      'scroll',
-    ];
-    activityEvents.forEach((evt) => window.addEventListener(evt, markActivity, { passive: true }));
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('focus', handleFocus);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    window.addEventListener('pagehide', handlePageHide);
-
-    const hbInterval = setInterval(() => {
-      void sendWebHeartbeatNow(false);
-    }, 45000);
 
     return () => {
-      clearInterval(hbInterval);
-      activityEvents.forEach((evt) => window.removeEventListener(evt, markActivity));
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('pagehide', handlePageHide);
     };
   }, []);
 

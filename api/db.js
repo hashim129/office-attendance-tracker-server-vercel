@@ -6,10 +6,17 @@ import {
   setNoCacheHeaders,
   writeToGist,
 } from './_cloud.js';
+import {
+  isSupabaseConfigured,
+  readSupabaseDb,
+  mutateSupabaseDb,
+} from './_supabase.js';
 
-const DEFAULT_DB = {
+export const DEFAULT_DB = {
   version: '1.0',
   updatedAt: new Date().toISOString(),
+  deletedEmployeeIds: [],
+  deletedLeaveIds: [],
   settings: {
     companyName: 'Office Attendance Tracker',
     companyAddress: 'Headquarters',
@@ -104,7 +111,7 @@ const DEFAULT_DB = {
   leaves: [],
 };
 
-function parseIsoMs(iso) {
+export function parseIsoMs(iso) {
   if (!iso) return 0;
   const ms = Date.parse(iso);
   return Number.isNaN(ms) ? 0 : ms;
@@ -141,17 +148,25 @@ function cleanRecordForSave(rec) {
 }
 
 export function mergeAttendanceRecord(existing, a, options = {}) {
-  const { isLegacyBulk = false, actorRoleFallback, authoritativeIso, authoritativeMs } = options;
+  const {
+    isLegacyBulk = false,
+    actorRoleFallback,
+    authoritativeIso,
+    authoritativeMs,
+    onReject,
+  } = options;
 
-  const useAuthoritativeStamp =
-    !isLegacyBulk &&
-    typeof authoritativeMs === 'number' &&
-    Number.isFinite(authoritativeMs) &&
-    authoritativeMs > 0 &&
-    a?.actorAction !== 'auto_close';
+  const nowMs = Date.now();
+  const serverAuthoritativeMs =
+    typeof authoritativeMs === 'number' && Number.isFinite(authoritativeMs) && authoritativeMs > 0
+      ? authoritativeMs
+      : nowMs;
+  const serverAuthoritativeIso = authoritativeIso || new Date(serverAuthoritativeMs).toISOString();
+
+  const useAuthoritativeStamp = !isLegacyBulk && a?.actorAction !== 'auto_close';
   const effectiveRecordIso = useAuthoritativeStamp
-    ? authoritativeIso
-    : a?.recordUpdatedAt || new Date().toISOString();
+    ? serverAuthoritativeIso
+    : a?.recordUpdatedAt || serverAuthoritativeIso;
 
   if (!existing) {
     return cleanRecordForSave(
@@ -307,6 +322,9 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
         ['time_out', 'start_break', 'end_break', 'update_note'].includes(a.actorAction || ''));
 
     if (!validPostAdminEmployeeAction) {
+      if (typeof onReject === 'function') {
+        onReject('Attendance record has been locked/modified by Administrator and cannot be overwritten.');
+      }
       // Do NOT let older/un-timestamped non-admin tabs overwrite Admin edits!
       // Only fold in fresher heartbeats if any.
       const fresherHb = newerIso(existing.lastHeartbeatAt, a.lastHeartbeatAt);
@@ -322,19 +340,24 @@ export function mergeAttendanceRecord(existing, a, options = {}) {
     }
   }
 
-  // Case C: Non-admin write vs prior non-admin record -> reject strictly older client writes
-  // unless it is a genuine new state transition (punch-in or punch-out) within a 10-minute clock-skew window
+  // Case C: Non-admin write vs prior non-admin record
+  // Genuine new state transitions (punch-in, punch-out, breaks, notes) are always permitted
   const isNewPunchTransition =
     (a.actorAction === 'time_in' && !existing.timeIn && Boolean(a.timeIn)) ||
-    (a.actorAction === 'time_out' && !existing.timeOut && Boolean(a.timeOut));
-  const withinClockSkewWindow =
-    isNewPunchTransition && existingUpdatedMs - incomingUpdatedMs < 10 * 60 * 1000;
+    (a.actorAction === 'time_out' && !existing.timeOut && Boolean(a.timeOut)) ||
+    a.actorAction === 'start_break' ||
+    a.actorAction === 'end_break' ||
+    a.actorAction === 'update_note';
+
   if (
     existingUpdatedMs > 0 &&
     incomingUpdatedMs > 0 &&
     incomingUpdatedMs < existingUpdatedMs &&
-    !withinClockSkewWindow
+    !isNewPunchTransition
   ) {
+    if (typeof onReject === 'function') {
+      onReject('Attendance update rejected: Newer revision already exists on server.');
+    }
     return existing;
   }
 
@@ -496,19 +519,21 @@ export function mergeSingleEmployee(
 }
 
 // Additive safe merge for any legacy un-scoped browser tab
-function mergeEmployeesAdditiveSafe(currentList, incomingList) {
+export function mergeEmployeesAdditiveSafe(currentList, incomingList, deletedEmployeeIds = []) {
   if (!Array.isArray(incomingList) || incomingList.length === 0) return currentList;
   const hasDummyNames = incomingList.some((e) => DUMMY_NAMES.includes(e.name));
   const isDefaultFallback =
     incomingList.length === 1 && incomingList[0].id === 'emp-101' && currentList.length > 1;
   if (hasDummyNames || isDefaultFallback) return currentList;
 
+  const deletedSet = new Set(Array.isArray(deletedEmployeeIds) ? deletedEmployeeIds : []);
   const empMap = new Map();
   for (const e of currentList) {
     empMap.set(e.id, e);
   }
   for (const inc of incomingList) {
     if (!inc || !inc.id || DUMMY_NAMES.includes(inc.name)) continue;
+    if (deletedSet.has(inc.id)) continue;
     const existing = empMap.get(inc.id);
     if (!existing) {
       empMap.set(inc.id, inc);
@@ -536,6 +561,44 @@ function mergeEmployeesAdditiveSafe(currentList, incomingList) {
 export default async function handler(req, res) {
   setNoCacheHeaders(res);
 
+  // 1. If Supabase PostgreSQL is configured, route all operations to Supabase directly
+  if (isSupabaseConfigured()) {
+    try {
+      if (req.method === 'GET') {
+        const supabaseDb = await readSupabaseDb(DEFAULT_DB);
+        if (Array.isArray(supabaseDb.attendance)) {
+          const { records: displayRecs } = evaluateAttendancePresenceAndAutoClose(
+            supabaseDb.attendance,
+            supabaseDb.settings,
+            supabaseDb.employees,
+            supabaseDb.shifts
+          );
+          return res.status(200).json({
+            ...supabaseDb,
+            attendance: displayRecs,
+          });
+        }
+        return res.status(200).json(supabaseDb);
+      }
+
+      if (req.method === 'POST') {
+        const incoming = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        const result = await mutateSupabaseDb(incoming, DEFAULT_DB);
+        return res.status(200).json({
+          ok: true,
+          updatedAt: result.db.updatedAt,
+          db: result.db,
+        });
+      }
+
+      return res.status(405).json({ error: 'Method not allowed' });
+    } catch (err) {
+      console.error('Supabase operation error:', err);
+      return res.status(err.status || 500).json({ error: err.message || 'Supabase operation failed.' });
+    }
+  }
+
+  // 2. Fallback to hardened GitHub Gist storage
   const token = getCloudToken();
 
   try {
@@ -574,60 +637,22 @@ export default async function handler(req, res) {
         },
       };
 
-      // Evaluate 11:59 PM / Shift-End+2h closes and transient disconnectivity/overtime state
+      // Evaluate 11:59 PM rollover and worked minutes for display (pure read-only without burning write quota)
       if (Array.isArray(current.attendance)) {
-        const { records: displayRecs, changed, closedChanged } = evaluateAttendancePresenceAndAutoClose(
+        const { records: displayRecs } = evaluateAttendancePresenceAndAutoClose(
           current.attendance,
           current.settings,
           current.employees,
           current.shifts
         );
-        if (closedChanged) {
-          // Only burn a Gist write on GET when an actual auto punch-out (timeOut) needs permanent saving
-          const writeOutcome = await mutateCloudDb(
-            token,
-            (freshDb) => {
-              const { records: evalRecs, closedChanged: freshClosed } =
-                evaluateAttendancePresenceAndAutoClose(
-                  freshDb.attendance || [],
-                  freshDb.settings,
-                  freshDb.employees,
-                  freshDb.shifts
-                );
-              if (!freshClosed) {
-                return { skipWrite: true };
-              }
-              return {
-                nextDb: {
-                  ...freshDb,
-                  updatedAt: new Date().toISOString(),
-                  attendance: evalRecs,
-                },
-              };
-            },
-            'Office-Attendance-Tracker-Server',
-            { priority: 'background', minReserve: 25 }
-          );
-          if (writeOutcome.ok && writeOutcome.db) {
-            return res.status(200).json({
-              ...writeOutcome.db,
-              settings: {
-                ...(writeOutcome.db.settings || DEFAULT_DB.settings),
-                enforceDeviceBinding: false,
-              },
-            });
-          }
-        }
-        if (changed) {
-          return res.status(200).json({
-            ...current,
-            settings: {
-              ...(current.settings || DEFAULT_DB.settings),
-              enforceDeviceBinding: false,
-            },
-            attendance: displayRecs,
-          });
-        }
+        return res.status(200).json({
+          ...current,
+          settings: {
+            ...(current.settings || DEFAULT_DB.settings),
+            enforceDeviceBinding: false,
+          },
+          attendance: displayRecs,
+        });
       }
 
       return res.status(200).json({
@@ -651,12 +676,18 @@ export default async function handler(req, res) {
       const mutationResult = await mutateCloudDb(
         token,
         (current) => {
-          const authoritativeMs = hasQueuedAge ? Date.now() - clampedQueuedAgeMs : undefined;
-          const authoritativeIso =
-            typeof authoritativeMs === 'number' ? new Date(authoritativeMs).toISOString() : undefined;
+          let rejectionReason = null;
+          const onReject = (reason) => {
+            if (!rejectionReason) rejectionReason = reason;
+          };
+
+          const authoritativeMs = hasQueuedAge ? Date.now() - clampedQueuedAgeMs : Date.now();
+          const authoritativeIso = new Date(authoritativeMs).toISOString();
           const mergeOpts = {
             actorRoleFallback: incoming.actorRole,
-            ...(hasQueuedAge ? { authoritativeMs, authoritativeIso } : {}),
+            authoritativeMs,
+            authoritativeIso,
+            onReject,
           };
 
           let finalSettings = current.settings || DEFAULT_DB.settings;
@@ -665,6 +696,8 @@ export default async function handler(req, res) {
           let rawAttendance = Array.isArray(current.attendance) ? current.attendance : [];
           let finalLeaves = Array.isArray(current.leaves) ? current.leaves : [];
           let finalCeoComments = Array.isArray(current.ceoComments) ? current.ceoComments : [];
+          let finalDeletedEmployeeIds = Array.isArray(current.deletedEmployeeIds) ? current.deletedEmployeeIds : [];
+          let finalDeletedLeaveIds = Array.isArray(current.deletedLeaveIds) ? current.deletedLeaveIds : [];
 
           if (scope === 'attendance') {
             const attMap = new Map(rawAttendance.map((a) => [a.id, a]));
@@ -693,6 +726,9 @@ export default async function handler(req, res) {
             rawAttendance = Array.from(attMap.values());
           } else if (scope === 'employee_upsert') {
             if (incoming.employee) {
+              if (incoming.actorRole === 'admin') {
+                finalDeletedEmployeeIds = finalDeletedEmployeeIds.filter((id) => id !== incoming.employee.id);
+              }
               finalEmployees = mergeSingleEmployee(
                 finalEmployees,
                 incoming.employee,
@@ -705,6 +741,9 @@ export default async function handler(req, res) {
             const targetId = incoming.deletedEmployeeId || incoming.employeeId;
             if (targetId && targetId !== 'emp-101') {
               finalEmployees = finalEmployees.filter((e) => e.id !== targetId);
+              finalDeletedEmployeeIds = Array.from(new Set([...finalDeletedEmployeeIds, targetId]));
+            } else if (targetId === 'emp-101') {
+              rejectionReason = 'Primary Administrator account (emp-101) cannot be deleted.';
             }
           } else if (scope === 'shifts') {
             if (Array.isArray(incoming.shifts) && incoming.shifts.length > 0) {
@@ -754,6 +793,10 @@ export default async function handler(req, res) {
                   recordUpdatedAt:
                     authoritativeIso || incoming.changedLeave.recordUpdatedAt || new Date().toISOString(),
                 });
+              } else {
+                rejectionReason = existingHasAdminDecision
+                  ? 'Leave request has already been reviewed by Administrator and cannot be modified.'
+                  : 'Leave update rejected: Newer revision already exists on server.';
               }
             } else if (Array.isArray(incoming.leaves)) {
               for (const l of incoming.leaves) {
@@ -820,7 +863,11 @@ export default async function handler(req, res) {
             }
           } else {
             // legacy_bulk safety fallback (prevents stale open tabs from erasing or reverting newer data)
-            finalEmployees = mergeEmployeesAdditiveSafe(finalEmployees, incoming.employees);
+            finalEmployees = mergeEmployeesAdditiveSafe(
+              finalEmployees,
+              incoming.employees,
+              finalDeletedEmployeeIds
+            );
 
             const attMap = new Map(rawAttendance.map((a) => [a.id, a]));
             if (Array.isArray(incoming.attendance)) {
@@ -835,7 +882,9 @@ export default async function handler(req, res) {
             const leaveMap = new Map(finalLeaves.map((l) => [l.id, l]));
             if (Array.isArray(incoming.leaves)) {
               for (const l of incoming.leaves) {
-                if (l && l.id && !leaveMap.has(l.id)) leaveMap.set(l.id, l);
+                if (l && l.id && !leaveMap.has(l.id) && !finalDeletedLeaveIds.includes(l.id)) {
+                  leaveMap.set(l.id, l);
+                }
               }
             }
             finalLeaves = Array.from(leaveMap.values());
@@ -862,6 +911,14 @@ export default async function handler(req, res) {
             return ev && ev.timeOut && !orig?.timeOut ? ev : orig;
           });
 
+          if (rejectionReason) {
+            return {
+              abort: true,
+              status: 409,
+              error: rejectionReason,
+            };
+          }
+
           const unchanged =
             JSON.stringify(current.settings || null) === JSON.stringify(finalSettings || null) &&
             JSON.stringify(current.shifts || []) === JSON.stringify(finalShifts || []) &&
@@ -877,6 +934,8 @@ export default async function handler(req, res) {
           const mergedDb = {
             version: '1.0',
             updatedAt: new Date().toISOString(),
+            deletedEmployeeIds: finalDeletedEmployeeIds,
+            deletedLeaveIds: finalDeletedLeaveIds,
             settings: finalSettings,
             shifts: finalShifts,
             employees: finalEmployees,

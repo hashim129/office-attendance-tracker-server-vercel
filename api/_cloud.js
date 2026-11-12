@@ -4,10 +4,7 @@ export const GIST_ID = '41c1cfdb09cf0292c729cb01eb3eccfa';
 export const DB_FILENAME = 'office_attendance_db.json';
 
 export function getCloudToken() {
-  if (process.env.GITHUB_DB_TOKEN) return process.env.GITHUB_DB_TOKEN;
-  const p1 = 'Z2hvX0dEV1l2';
-  const p2 = 'NFl3ZnRoaUlweEo5WENhbkR2amozRmNXYjFiNnhtdg==';
-  return Buffer.from(p1 + p2, 'base64').toString('utf-8');
+  return process.env.GITHUB_DB_TOKEN || process.env.GITHUB_TOKEN || '';
 }
 
 export function setNoCacheHeaders(res) {
@@ -719,81 +716,15 @@ export function evaluateAttendancePresenceAndAutoClose(
       adminOverrideMs >= checkAtMs &&
       (rec.adminKeepOpen === true || nowMs - adminOverrideMs < Math.max(overtimeGraceMs, effectiveDisconnectMs));
 
-    if (
-      overtimeGraceMs > 0 &&
-      !Number.isNaN(inMs) &&
-      !Number.isNaN(checkAtMs) &&
-      inMs < checkAtMs &&
-      nowMs >= checkAtMs &&
-      !adminReopenedAfterCheck
-    ) {
-      if (!onBreak && isLiveConnected) {
-        // User IS live through internet and working past Shift End + 2h -> keep open & calculate overtime
-        const breakMins = computeBreakMins(rec.breaks || []);
-        const elapsedMins = Math.max(0, Math.floor((nowMs - inMs) / 60000));
-        const netWorked = Math.max(0, elapsedMins - breakMins);
-        const threshold = Math.max(1, Number(expectedHours)) * 60;
-        const regular = Math.min(netWorked, threshold);
-        const overtime = Math.max(0, netWorked - threshold);
+    // Calculate worked minutes and overtime for open shifts without closing them for device inactivity
+    const breakMins = computeBreakMins(rec.breaks || []);
+    const elapsedMins = Math.max(0, Math.floor((nowMs - inMs) / 60000));
+    const netWorked = Math.max(0, elapsedMins - breakMins);
+    const threshold = Math.max(1, Number(expectedHours)) * 60;
+    const regular = Math.min(netWorked, threshold);
+    const overtime = Math.max(0, netWorked - threshold);
 
-        const prevWorked = Number(rec.totalWorkedMinutes || 0);
-        const prevOvertime = Number(rec.overtimeMinutes || 0);
-        if (
-          rec.connectionStatus !== 'online' ||
-          Math.abs(netWorked - prevWorked) >= 1 ||
-          Math.abs(overtime - prevOvertime) >= 1
-        ) {
-          changed = true;
-          const next = {
-            ...rec,
-            connectionStatus: 'online',
-            totalWorkedMinutes: netWorked,
-            regularMinutes: regular,
-            overtimeMinutes: overtime,
-          };
-          delete next.disconnectedAt;
-          return next;
-        }
-        return rec;
-      }
-
-      // User is NOT live (offline / disconnected / tab closed / kiosk forgot to punch out) -> Auto Logout
-      let candidateOutMs =
-        !Number.isNaN(lastHbMs) && lastHbMs > checkAtMs && lastHbMs <= nowMs
-          ? lastHbMs
-          : checkAtMs;
-      if (candidateOutMs > nowMs) candidateOutMs = nowMs;
-
-      if (!isOvernightShift && !Number.isNaN(midnightCutoffMs) && candidateOutMs > midnightCutoffMs) {
-        candidateOutMs = midnightCutoffMs;
-      }
-      if (candidateOutMs >= inMs) {
-        changed = true;
-        closedChanged = true;
-        const autoOutTime = formatOfficeTimeFromMs(candidateOutMs);
-        const autoOutDate = formatOfficeDateFromMs(candidateOutMs);
-        const effectiveOutTime =
-          !isOvernightShift && autoOutDate > rec.date ? '23:59:00' : autoOutTime;
-
-        const closed = finalizeClosedRecord(
-          rec,
-          effectiveOutTime,
-          `Auto Punched Out (Shift Ended + ${overtimeWindowHoursRaw}h)`,
-          'shift_end_2h',
-          expectedHours
-        );
-        if (!isKioskSession && !Number.isNaN(lastHbMs)) {
-          return {
-            ...closed,
-            connectionStatus: 'no_internet',
-            disconnectedAt: rec.disconnectedAt || new Date(lastHbMs).toISOString(),
-          };
-        }
-        return closed;
-      }
-    }
-
-    // Step B: Midnight / Past-Day fallback safety net (skip mid-overnight active shifts until shiftEndMs passes)
+    // Midnight / Past-Day fallback safety net (skip mid-overnight active shifts until shiftEndMs passes)
     const isPastDay = rec.date < todayStr;
     const isPastMidnightToday = rec.date === todayStr && nowTime >= '23:59:00';
     const isActiveOvernightShiftStillRunning =
@@ -809,31 +740,17 @@ export function evaluateAttendancePresenceAndAutoClose(
       return finalizeClosedRecord(rec, '23:59:00', 'Auto system Punched out', 'midnight', expectedHours);
     }
 
-    // Step C: Active Break protection (during shift / pre-overtime check)
-    if (onBreak) {
-      return rec;
-    }
-
-    // Step D: Connectivity tracking for active/paused non-kiosk desktop sessions
-    if (!isKioskSession && rec.date === todayStr && !Number.isNaN(lastHbMs)) {
-      const isDisconnected = nowMs - lastHbMs > effectiveDisconnectMs || isPausedOffline;
-      if (settings?.enableDisconnectStatusTracking !== false) {
-        const desiredConn = isDisconnected ? 'no_internet' : 'online';
-        if (rec.connectionStatus !== desiredConn) {
-          changed = true;
-          const next = {
-            ...rec,
-            connectionStatus: desiredConn,
-          };
-          if (desiredConn === 'no_internet') {
-            next.disconnectedAt =
-              rec.disconnectedAt || new Date(lastHbMs + (isPausedOffline ? 15000 : effectiveDisconnectMs)).toISOString();
-          } else {
-            delete next.disconnectedAt;
-          }
-          return next;
-        }
-      }
+    // Update in-flight worked and overtime minutes for active shifts
+    const prevWorked = Number(rec.totalWorkedMinutes || 0);
+    const prevOvertime = Number(rec.overtimeMinutes || 0);
+    if (Math.abs(netWorked - prevWorked) >= 5 || Math.abs(overtime - prevOvertime) >= 5) {
+      changed = true;
+      return {
+        ...rec,
+        totalWorkedMinutes: netWorked,
+        regularMinutes: regular,
+        overtimeMinutes: overtime,
+      };
     }
 
     return rec;

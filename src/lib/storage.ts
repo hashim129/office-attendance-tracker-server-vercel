@@ -568,6 +568,20 @@ export function flushPendingCloudWrites(options?: { respectCooldown?: boolean })
           } catch {
             // ignore non-json error
           }
+
+          // If the server explicitly rejected the write due to a conflict or validation (400 or 409),
+          // do NOT retry forever. Pop the rejected item from the outbox so the queue isn't permanently blocked,
+          // notify listeners, and pull the authoritative server state to reconcile local storage.
+          if (res.status === 400 || res.status === 409) {
+            const consumedSet = new Set(consumedIds);
+            const latestQueue = readOutbox();
+            const remaining = latestQueue.filter((q) => !consumedSet.has(q.id));
+            writeOutbox(remaining);
+            emitSyncState({ status: 'error', lastError: errMsg });
+            void syncDatabaseFromServer(true);
+            return false;
+          }
+
           emitSyncState({ status: 'retrying', lastError: errMsg });
           scheduleOutboxRetry(explicitWaitMs);
           return false;
@@ -717,8 +731,20 @@ export async function syncDatabaseFromServer(forceAccept = false): Promise<boole
     const data = await res.json();
     if (data && Array.isArray(data.employees) && Array.isArray(data.attendance)) {
       const localUpdatedAt = localStorage.getItem(STORAGE_KEY_UPDATED_AT);
-      if (!forceAccept && localUpdatedAt && data.updatedAt && data.updatedAt === localUpdatedAt) {
-        return false;
+      const localMs = localUpdatedAt ? Date.parse(localUpdatedAt) : 0;
+      const serverMs = data.updatedAt ? Date.parse(data.updatedAt) : 0;
+
+      // Fix: Apply snapshot ONLY if strictly newer than local database.
+      // If serverMs <= localMs (server snapshot is older or equal, e.g. stale read or cached response),
+      // do not apply it because doing so would revert fresher local actions!
+      if (!forceAccept && localUpdatedAt && data.updatedAt) {
+        if (localMs > 0 && serverMs > 0) {
+          if (serverMs <= localMs) {
+            return false;
+          }
+        } else if (data.updatedAt === localUpdatedAt) {
+          return false;
+        }
       }
 
       if (hasPendingCloudWrites()) {
