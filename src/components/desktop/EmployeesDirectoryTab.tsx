@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Terminal,
   FileText,
+  Home,
 } from 'lucide-react';
 import { Employee, Role, ShiftSchedule, AttendanceRecord } from '../../types';
 import { Modal } from '../common/Modal';
@@ -68,6 +69,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     phone: '',
     hourlyRate: 35,
     isActive: true,
+    allowWorkFromHome: false,
   });
 
   const departments = Array.from(new Set(employees.map((e) => e.department))).sort();
@@ -101,6 +103,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       phone: '+1 (555) 000-0000',
       hourlyRate: 38,
       isActive: true,
+      allowWorkFromHome: false,
     });
     setIsAddModalOpen(true);
   };
@@ -119,6 +122,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       phone: emp.phone,
       hourlyRate: emp.hourlyRate,
       isActive: emp.isActive,
+      allowWorkFromHome: Boolean(emp.allowWorkFromHome),
     });
   };
 
@@ -235,19 +239,27 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                     </div>
                   </div>
 
-                  <span
-                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                      emp.role === 'admin'
-                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300'
-                        : emp.role === 'ceo'
-                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 border border-amber-300 dark:border-amber-700 font-black'
-                        : emp.role === 'accounts'
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
-                        : 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                    }`}
-                  >
-                    {emp.role === 'ceo' ? 'CEO' : emp.role === 'accounts' ? 'Accounts' : emp.role}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                    {emp.allowWorkFromHome && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 inline-flex items-center gap-1">
+                        <Home className="w-2.5 h-2.5" />
+                        <span>WFH Allowed</span>
+                      </span>
+                    )}
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                        emp.role === 'admin'
+                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300'
+                          : emp.role === 'ceo'
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 border border-amber-300 dark:border-amber-700 font-black'
+                          : emp.role === 'accounts'
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
+                          : 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
+                      }`}
+                    >
+                      {emp.role === 'ceo' ? 'CEO' : emp.role === 'accounts' ? 'Accounts' : emp.role}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Details */}
@@ -271,8 +283,13 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
 
                   <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px]">
                     <span className="text-slate-500">Shift:</span>
-                    <span className="font-medium text-slate-700 dark:text-slate-300">
-                      {shift?.name || 'Standard'}
+                    <span className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <span>{shift?.name || 'Standard'}</span>
+                      {shift?.isNoRestriction && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                          24/7 No Restriction
+                        </span>
+                      )}
                     </span>
                   </div>
 
@@ -540,6 +557,32 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   className="w-full text-xs font-mono px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                 />
               </div>
+            </div>
+
+            {/* Work From Home (WFH - Bypass IP Lock) */}
+            <div className="p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 transition-colors">
+              <label className="flex items-start justify-between gap-3 cursor-pointer select-none">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <Home className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                      Allow Work From Home (WFH)
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300">
+                      IP Lock Bypass
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    When enabled, this employee can punch attendance remotely from home or any network without Office IP restrictions.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={Boolean(formData.allowWorkFromHome)}
+                  onChange={(e) => setFormData({ ...formData, allowWorkFromHome: e.target.checked })}
+                  className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+              </label>
             </div>
 
             <div className="flex justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">

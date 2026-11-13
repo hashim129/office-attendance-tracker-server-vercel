@@ -18,6 +18,7 @@ import {
   Crown,
   Terminal,
   Download,
+  Home,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -275,8 +276,21 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
             Welcome back, {currentUser.name}
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Assigned Shift: <strong className="text-slate-700 dark:text-slate-300">{userShift.name}</strong> ({formatTime12h(userShift.startTime)} – {formatTime12h(userShift.endTime)}) · {userShift.graceMinutes}m grace period
+            Assigned Shift: <strong className="text-slate-700 dark:text-slate-300">{userShift.name}</strong>
+            {userShift.isNoRestriction ? (
+              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                24/7 Flexible · No Shift Restriction
+              </span>
+            ) : (
+              <span> ({formatTime12h(userShift.startTime)} – {formatTime12h(userShift.endTime)}) · {userShift.graceMinutes}m grace period</span>
+            )}
           </p>
+          {currentUser.allowWorkFromHome && (
+            <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700/70 text-emerald-800 dark:text-emerald-200 text-xs font-semibold shadow-2xs">
+              <Home className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>Work From Home Active · Remote Punch Enabled (IP Lock Bypassed)</span>
+            </div>
+          )}
         </div>
 
         {/* Big Live Digital Clock Display */}

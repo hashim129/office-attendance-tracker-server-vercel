@@ -82,8 +82,9 @@ export default async function handler(req, res) {
         }
 
         // 4. Verify Office Wi-Fi / ISP Public IP on server
+        const isWfhBypassIp = Boolean(emp.allowWorkFromHome);
         const isAdminBypassIp = emp.role === 'admin' && (settings.allowAdminBypassIpLock ?? true);
-        if (settings.enforceOfficeIpLock && !isAdminBypassIp) {
+        if (settings.enforceOfficeIpLock && !isAdminBypassIp && !isWfhBypassIp) {
           const allowedList = Array.isArray(settings.allowedOfficeIps) ? settings.allowedOfficeIps : [];
           const ipAllowed = allowedList.some((rule) => doesIpMatchRule(clientIp, rule.ip));
           if (!ipAllowed) {

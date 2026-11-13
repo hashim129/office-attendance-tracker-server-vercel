@@ -151,12 +151,16 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
+-- Optional schema extensions
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS allow_work_from_home BOOLEAN DEFAULT FALSE;
+
 -- Initial default shifts seed
 INSERT INTO shifts (id, name, start_time, end_time, work_days, grace_minutes, expected_hours, color)
 VALUES
   ('shift-std', 'General Day Shift (09:00 - 17:00)', '09:00', '17:00', '[1,2,3,4,5]'::jsonb, 15, 8.0, 'blue'),
   ('shift-early', 'Early Bird Shift (08:00 - 16:00)', '08:00', '16:00', '[1,2,3,4,5]'::jsonb, 10, 8.0, 'amber'),
-  ('shift-flex', 'Flexible Shift (10:00 - 18:00)', '10:00', '18:00', '[1,2,3,4,5]'::jsonb, 20, 8.0, 'emerald')
+  ('shift-flex', 'Flexible Shift (10:00 - 18:00)', '10:00', '18:00', '[1,2,3,4,5]'::jsonb, 20, 8.0, 'emerald'),
+  ('shift-freelance', 'I.T & Freelance Shift (No Restriction / 24/7)', '00:00', '23:59', '[0,1,2,3,4,5,6]'::jsonb, 1440, 8.0, 'purple')
 ON CONFLICT (id) DO NOTHING;
 
 -- Initial default administrator seed

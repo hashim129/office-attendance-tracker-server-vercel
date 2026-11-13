@@ -89,11 +89,34 @@ async function supabaseFetch(endpoint, options = {}) {
   }
 }
 
+function getDayNameFromDate(dateStr) {
+  if (!dateStr) return 'Monday';
+  const d = new Date(dateStr + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return 'Monday';
+  return d.toLocaleDateString('en-US', { weekday: 'long' });
+}
+
 /**
  * Maps PostgreSQL snake_case columns back to application camelCase objects
  */
 function mapDbEmployee(r) {
   if (!r) return null;
+  let pendingObj = null;
+  if (r.pending_device_request) {
+    try {
+      pendingObj =
+        typeof r.pending_device_request === 'string'
+          ? JSON.parse(r.pending_device_request)
+          : r.pending_device_request;
+    } catch {
+      pendingObj = null;
+    }
+  }
+
+  const allowWorkFromHome = Boolean(
+    r.allow_work_from_home ?? pendingObj?.allowWorkFromHome ?? false
+  );
+
   return {
     id: r.id,
     employeeCode: r.employee_code,
@@ -109,19 +132,29 @@ function mapDbEmployee(r) {
     isActive: Boolean(r.is_active),
     joinedDate: r.joined_date || '',
     avatarSeed: r.avatar_seed || '',
+    allowWorkFromHome,
     registeredDeviceId: r.registered_device_id || undefined,
     registeredDeviceName: r.registered_device_name || undefined,
     registeredAt: r.registered_at || undefined,
     deviceBoundApprovedBy: r.device_bound_approved_by || undefined,
     deviceBoundApprovedAt: r.device_bound_approved_at || undefined,
     deviceChangeHistory: Array.isArray(r.device_change_history) ? r.device_change_history : [],
-    pendingDeviceRequest: r.pending_device_request || undefined,
+    pendingDeviceRequest: pendingObj || undefined,
     recordUpdatedAt: r.record_updated_at || undefined,
     lastEditedByRole: r.last_edited_by_role || undefined,
   };
 }
 
 function mapAppEmployeeToDb(e) {
+  const existingPending =
+    e.pendingDeviceRequest && typeof e.pendingDeviceRequest === 'object'
+      ? e.pendingDeviceRequest
+      : {};
+  const pendingWithWfh = {
+    ...existingPending,
+    allowWorkFromHome: Boolean(e.allowWorkFromHome),
+  };
+
   return {
     id: e.id,
     employee_code: e.employeeCode || e.id,
@@ -143,7 +176,7 @@ function mapAppEmployeeToDb(e) {
     device_bound_approved_by: e.deviceBoundApprovedBy || null,
     device_bound_approved_at: e.deviceBoundApprovedAt || null,
     device_change_history: JSON.stringify(e.deviceChangeHistory || []),
-    pending_device_request: e.pendingDeviceRequest ? JSON.stringify(e.pendingDeviceRequest) : null,
+    pending_device_request: JSON.stringify(pendingWithWfh),
     record_updated_at: e.recordUpdatedAt || new Date().toISOString(),
     last_edited_by_role: e.lastEditedByRole || 'admin',
     deleted_at: null,
@@ -156,10 +189,14 @@ function mapDbAttendance(r) {
     id: r.id,
     employeeId: r.employee_id,
     date: r.date,
+    day: getDayNameFromDate(r.date),
     timeIn: r.time_in || '',
     status: r.status || 'absent',
     notes: r.notes || '',
-    breaks: Array.isArray(r.breaks) ? r.breaks : [],
+    breaks: Array.isArray(r.breaks) ? r.breaks : (typeof r.breaks === 'string' ? JSON.parse(r.breaks || '[]') : []),
+    totalWorkedMinutes: Number(r.total_worked_minutes) || 0,
+    regularMinutes: Number(r.regular_minutes) || 0,
+    overtimeMinutes: Number(r.overtime_minutes) || 0,
     deviceId: r.device_id || '',
     deviceName: r.device_name || '',
     isDeviceMismatch: Boolean(r.is_device_mismatch),
@@ -250,15 +287,20 @@ function mapAppLeaveToDb(l) {
 
 function mapDbShift(r) {
   if (!r) return null;
+  const isNoRestriction =
+    r.id === 'shift-freelance' ||
+    (r.start_time === '00:00' && r.end_time === '23:59');
   return {
     id: r.id,
     name: r.name,
     startTime: r.start_time,
     endTime: r.end_time,
-    workDays: Array.isArray(r.work_days) ? r.work_days : [1, 2, 3, 4, 5],
+    workDays: Array.isArray(r.work_days) ? r.work_days : [0, 1, 2, 3, 4, 5, 6],
     graceMinutes: Number(r.grace_minutes) || 15,
     expectedHours: Number(r.expected_hours) || 8,
     color: r.color || 'blue',
+    isActive: true,
+    isNoRestriction,
   };
 }
 
@@ -318,7 +360,21 @@ export async function readSupabaseDb(defaultDb) {
     ]);
 
     const settingsData = settingsRows?.[0]?.data || defaultDb.settings;
-    const shifts = Array.isArray(shiftsRows) && shiftsRows.length > 0 ? shiftsRows.map(mapDbShift) : defaultDb.shifts;
+    let shifts = Array.isArray(shiftsRows) && shiftsRows.length > 0 ? shiftsRows.map(mapDbShift) : defaultDb.shifts;
+    if (!shifts.some((s) => s.id === 'shift-freelance')) {
+      shifts.push({
+        id: 'shift-freelance',
+        name: 'I.T & Freelance Shift (No Restriction / 24/7)',
+        startTime: '00:00',
+        endTime: '23:59',
+        workDays: [0, 1, 2, 3, 4, 5, 6],
+        graceMinutes: 1440,
+        expectedHours: 8,
+        color: 'purple',
+        isActive: true,
+        isNoRestriction: true,
+      });
+    }
     const employees = Array.isArray(empRows) ? empRows.map(mapDbEmployee) : defaultDb.employees;
     const attendance = Array.isArray(attRows) ? attRows.map(mapDbAttendance) : [];
     const leaves = Array.isArray(leavesRows) ? leavesRows.map(mapDbLeave) : [];

@@ -89,6 +89,18 @@ export const DEFAULT_DB = {
       expectedHours: 8,
       color: 'emerald',
     },
+    {
+      id: 'shift-freelance',
+      name: 'I.T & Freelance Shift (No Restriction / 24/7)',
+      startTime: '00:00',
+      endTime: '23:59',
+      workDays: [0, 1, 2, 3, 4, 5, 6],
+      graceMinutes: 1440,
+      expectedHours: 8,
+      color: 'purple',
+      isActive: true,
+      isNoRestriction: true,
+    },
   ],
   employees: [
     {

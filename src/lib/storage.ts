@@ -57,6 +57,18 @@ export const INITIAL_SHIFTS: ShiftSchedule[] = [
     color: 'emerald',
     isActive: true,
   },
+  {
+    id: 'shift-freelance',
+    name: 'I.T & Freelance Shift (No Restriction / 24/7)',
+    startTime: '00:00',
+    endTime: '23:59',
+    workDays: [0, 1, 2, 3, 4, 5, 6],
+    graceMinutes: 1440,
+    expectedHours: 8,
+    color: 'purple',
+    isActive: true,
+    isNoRestriction: true,
+  },
 ];
 
 export const INITIAL_SETTINGS: OfficeSettings = {
@@ -266,7 +278,13 @@ function applyServerDbToLocal(data: {
     if (data.settings) localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(data.settings));
     if (data.shifts) localStorage.setItem(STORAGE_KEY_SHIFTS, JSON.stringify(data.shifts));
     if (data.employees) localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(data.employees));
-    if (data.attendance) localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(data.attendance));
+    if (data.attendance) {
+      const sanitized = data.attendance.map((r) => ({
+        ...r,
+        day: r.day || (r.date ? getDayName(r.date) : 'Monday'),
+      }));
+      localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(sanitized));
+    }
     if (data.leaves) localStorage.setItem(STORAGE_KEY_LEAVES, JSON.stringify(data.leaves));
     if (data.ceoComments) localStorage.setItem(STORAGE_KEY_CEO_COMMENTS, JSON.stringify(data.ceoComments));
   } finally {
@@ -828,7 +846,11 @@ export function loadAttendanceRecords(): AttendanceRecord[] {
     if (!raw) {
       return generateInitialAttendanceRecords();
     }
-    return JSON.parse(raw);
+    const parsed: AttendanceRecord[] = JSON.parse(raw);
+    return parsed.map((r) => ({
+      ...r,
+      day: r.day || (r.date ? getDayName(r.date) : 'Monday'),
+    }));
   } catch {
     return generateInitialAttendanceRecords();
   }
@@ -875,7 +897,23 @@ export function loadShifts(): ShiftSchedule[] {
     if (!raw) {
       return INITIAL_SHIFTS;
     }
-    return JSON.parse(raw);
+    const parsed: ShiftSchedule[] = JSON.parse(raw);
+    if (!parsed.some((s) => s.id === 'shift-freelance')) {
+      parsed.push({
+        id: 'shift-freelance',
+        name: 'I.T & Freelance Shift (No Restriction / 24/7)',
+        startTime: '00:00',
+        endTime: '23:59',
+        workDays: [0, 1, 2, 3, 4, 5, 6],
+        graceMinutes: 1440,
+        expectedHours: 8,
+        color: 'purple',
+        isActive: true,
+        isNoRestriction: true,
+      });
+      localStorage.setItem(STORAGE_KEY_SHIFTS, JSON.stringify(parsed));
+    }
+    return parsed;
   } catch {
     return INITIAL_SHIFTS;
   }

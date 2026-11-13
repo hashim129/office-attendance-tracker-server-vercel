@@ -180,7 +180,15 @@ export function verifyOfficeIpAccess(
     }
   }
 
-  // 3. Check if Admin bypass is enabled for Admin role
+  // 3. Check if Work From Home (WFH) is enabled for this specific employee
+  if (user?.allowWorkFromHome) {
+    return {
+      allowed: true,
+      matchedLabel: 'Work From Home (WFH Remote Allowed)',
+    };
+  }
+
+  // 4. Check if Admin bypass is enabled for Admin role
   if (user?.role === 'admin' && settings.allowAdminBypassIpLock) {
     return {
       allowed: true,

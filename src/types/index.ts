@@ -83,6 +83,7 @@ export interface ShiftSchedule {
   expectedHours: number; // e.g. 8
   color: string;
   isActive?: boolean; // When false, shift cannot be assigned or selected
+  isNoRestriction?: boolean; // When true, no shift timing or late arrival restrictions apply
 }
 
 export interface DeviceChangeRequest {
@@ -125,6 +126,7 @@ export interface Employee {
   isActive: boolean;
   joinedDate: string;
   avatarSeed?: string;
+  allowWorkFromHome?: boolean; // When true, attendance punch in/out has NO IP restriction
   registeredDeviceId?: string; // Persistent device UUID bound to this employee
   registeredDeviceName?: string; // e.g. "Ahmed's Samsung Galaxy A54 (Android)"
   registeredAt?: string;

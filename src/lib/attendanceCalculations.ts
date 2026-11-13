@@ -162,6 +162,10 @@ export function calculateWorkedMinutes(
  */
 export function isLateArrival(timeIn: string, shift: ShiftSchedule): boolean {
   if (!timeIn || !shift) return false;
+  // Shifts with no restriction (e.g. I.T / Freelance Shift) are never marked late
+  if (shift.isNoRestriction || shift.id === 'shift-freelance' || (shift.startTime === '00:00' && shift.endTime === '23:59')) {
+    return false;
+  }
   const punchMins = parseTimeToMinutes(timeIn);
   const shiftStartMins = parseTimeToMinutes(shift.startTime);
   const graceLimit = shiftStartMins + (shift.graceMinutes || 0);

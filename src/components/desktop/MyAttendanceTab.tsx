@@ -111,7 +111,8 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
         if (searchTerm) {
           const term = searchTerm.toLowerCase();
           const matchNote = r.notes?.toLowerCase().includes(term);
-          const matchDay = r.day.toLowerCase().includes(term);
+          const dayName = r.day || (r.date ? getDayName(r.date) : '');
+          const matchDay = dayName.toLowerCase().includes(term);
           const matchDate = r.date.includes(term);
           if (!matchNote && !matchDay && !matchDate) return false;
         }
@@ -213,12 +214,13 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
       const workedHours = (r.totalWorkedMinutes || 0) / 60;
       const regularHours = (r.regularMinutes || 0) / 60;
       const overtimeHours = (r.overtimeMinutes || 0) / 60;
+      const dayStr = r.day || (r.date ? getDayName(r.date) : 'Day');
       return {
         id: r.id,
         date: r.date,
         shortDate: r.date.slice(5),
-        day: r.day.slice(0, 3),
-        fullDay: r.day,
+        day: dayStr.slice(0, 3),
+        fullDay: dayStr,
         timeIn: r.timeIn,
         timeOut: r.timeOut,
         workedHours,
@@ -918,7 +920,7 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                           </span>
                           <span className="text-emerald-500 font-bold">•</span>
                           <strong className="font-black text-xs text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">
-                            {r.day}
+                            {r.day || (r.date ? getDayName(r.date) : '')}
                           </strong>
                         </div>
                       </td>
