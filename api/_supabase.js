@@ -352,16 +352,85 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
   if (scope === 'attendance') {
     const records = incoming.changedRecords || (incoming.changedRecord ? [incoming.changedRecord] : incoming.attendance || []);
     if (records.length > 0) {
-      const rows = records.map(mapAppAttendanceToDb);
-      await supabaseFetch('/attendance', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify(rows),
+      const rowsToUpsert = [];
+      for (const rec of records) {
+        if (!rec || !rec.id) continue;
+        const existingRows = await supabaseFetch(`/attendance?id=eq.${encodeURIComponent(rec.id)}&select=*`);
+        const existing = existingRows?.[0] ? mapDbAttendance(existingRows[0]) : null;
+
+        let mergedRec = { ...rec };
+        if (existing) {
+          const existingIsAdmin = existing.lastEditedByRole === 'admin' || Boolean(existing.adminOverrideAt);
+          if (existingIsAdmin && incoming.actorRole !== 'admin') {
+            mergedRec = {
+              ...existing,
+              ...rec,
+              timeIn: existing.timeIn || rec.timeIn,
+              timeOut: existing.timeOut !== undefined ? existing.timeOut : rec.timeOut,
+              adminOverrideAt: existing.adminOverrideAt,
+              lastEditedByRole: 'admin',
+            };
+          } else {
+            mergedRec = {
+              ...existing,
+              ...rec,
+              timeIn: rec.timeIn || existing.timeIn,
+              timeOut: rec.clearTimeOut ? undefined : (rec.timeOut !== undefined && rec.timeOut !== null && rec.timeOut !== '' ? rec.timeOut : existing.timeOut),
+              notes: rec.notes || existing.notes,
+              breaks: (Array.isArray(rec.breaks) && rec.breaks.length > 0) ? rec.breaks : existing.breaks,
+            };
+          }
+        }
+        mergedRec.recordUpdatedAt = new Date().toISOString();
+        if (incoming.actorRole) {
+          mergedRec.lastEditedByRole = incoming.actorRole;
+        }
+        rowsToUpsert.push(mapAppAttendanceToDb(mergedRec));
+      }
+
+      if (rowsToUpsert.length > 0) {
+        await supabaseFetch('/attendance', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: JSON.stringify(rowsToUpsert),
+        });
+      }
+    }
+  } else if (scope === 'attendance_delete') {
+    const targetId = incoming.attendanceId || incoming.id;
+    if (targetId) {
+      await supabaseFetch(`/attendance?id=eq.${encodeURIComponent(targetId)}`, {
+        method: 'DELETE',
       });
     }
   } else if (scope === 'employee_upsert') {
     if (incoming.employee) {
-      const row = mapAppEmployeeToDb(incoming.employee);
+      const targetId = incoming.employee.id;
+      const existingRows = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(targetId)}&select=*`);
+      const existing = existingRows?.[0] ? mapDbEmployee(existingRows[0]) : null;
+
+      let mergedEmp = incoming.employee;
+      if (existing) {
+        mergedEmp = {
+          ...existing,
+          ...incoming.employee,
+        };
+        if (incoming.allowClearDevice) {
+          mergedEmp.registeredDeviceId = undefined;
+          mergedEmp.registeredDeviceName = undefined;
+          mergedEmp.registeredAt = undefined;
+          mergedEmp.deviceBoundApprovedBy = undefined;
+          mergedEmp.deviceBoundApprovedAt = undefined;
+        }
+        if (incoming.clearPendingRequest) {
+          mergedEmp.pendingDeviceRequest = undefined;
+        }
+      }
+      mergedEmp.recordUpdatedAt = new Date().toISOString();
+      if (incoming.actorRole) {
+        mergedEmp.lastEditedByRole = incoming.actorRole;
+      }
+      const row = mapAppEmployeeToDb(mergedEmp);
       await supabaseFetch('/employees', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },
@@ -378,12 +447,56 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
     }
   } else if (scope === 'leaves') {
     const leavesList = incoming.changedLeave ? [incoming.changedLeave] : incoming.leaves || [];
-    if (leavesList.length > 0) {
-      const rows = leavesList.map(mapAppLeaveToDb);
+    const rowsToUpsert = [];
+    for (const l of leavesList) {
+      if (!l || !l.id) continue;
+      const existingRows = await supabaseFetch(`/leaves?id=eq.${encodeURIComponent(l.id)}&select=*`);
+      const existing = existingRows?.[0] ? mapDbLeave(existingRows[0]) : null;
+
+      if (existing) {
+        const existingHasAdminDecision =
+          existing.lastEditedByRole === 'admin' ||
+          Boolean(existing.reviewedBy) ||
+          existing.status === 'approved' ||
+          existing.status === 'rejected';
+
+        // An employee device CAN NEVER revert or overwrite an admin's decision!
+        if (existingHasAdminDecision && incoming.actorRole !== 'admin') {
+          console.warn(`[Supabase Leaves] Protected leave ${l.id} against employee overwrite.`);
+          continue;
+        }
+
+        const incMs = Date.parse(l.recordUpdatedAt || '') || Date.now();
+        const existingMs = Date.parse(existing.recordUpdatedAt || '') || 0;
+        if (incoming.actorRole !== 'admin' && existingMs > 0 && incMs < existingMs) {
+          console.warn(`[Supabase Leaves] Ignored older revision for leave ${l.id}.`);
+          continue;
+        }
+      }
+
+      const mergedLeave = {
+        ...(existing || {}),
+        ...l,
+        recordUpdatedAt: new Date().toISOString(),
+      };
+      if (incoming.actorRole) {
+        mergedLeave.lastEditedByRole = incoming.actorRole;
+      }
+      rowsToUpsert.push(mapAppLeaveToDb(mergedLeave));
+    }
+
+    if (rowsToUpsert.length > 0) {
       await supabaseFetch('/leaves', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify(rows),
+        body: JSON.stringify(rowsToUpsert),
+      });
+    }
+  } else if (scope === 'leave_delete') {
+    const targetId = incoming.leaveId || incoming.id;
+    if (targetId) {
+      await supabaseFetch(`/leaves?id=eq.${encodeURIComponent(targetId)}`, {
+        method: 'DELETE',
       });
     }
   } else if (scope === 'shifts') {
