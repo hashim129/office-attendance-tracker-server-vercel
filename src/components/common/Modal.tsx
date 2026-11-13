@@ -67,11 +67,11 @@ export const Modal: React.FC<ModalProps> = ({
             type="button"
             onClick={onClose}
             title="Close and return to panel (Esc)"
-            className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-200/80 hover:bg-rose-100 text-slate-700 hover:text-rose-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-rose-950/60 dark:hover:text-rose-300 text-xs font-semibold transition-colors cursor-pointer"
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-bold transition-colors cursor-pointer"
           >
-            <ArrowLeft className="w-3.5 h-3.5 sm:hidden" />
-            <span className="hidden sm:inline">Back</span>
-            <X className="w-4 h-4" />
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Close / Back</span>
+            <X className="w-4 h-4 ml-0.5" />
           </button>
         </div>
 
