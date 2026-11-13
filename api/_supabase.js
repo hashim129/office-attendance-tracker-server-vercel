@@ -459,17 +459,18 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
         method: 'DELETE',
       });
     }
-  } else if (scope === 'employee_upsert') {
-    if (incoming.employee) {
-      const targetId = incoming.employee.id;
+  } else if (scope === 'employee_upsert' || scope === 'employees') {
+    const emp = incoming.employee || incoming.changedEmployee;
+    if (emp) {
+      const targetId = emp.id;
       const existingRows = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(targetId)}&select=*`);
       const existing = existingRows?.[0] ? mapDbEmployee(existingRows[0]) : null;
 
-      let mergedEmp = incoming.employee;
+      let mergedEmp = emp;
       if (existing) {
         mergedEmp = {
           ...existing,
-          ...incoming.employee,
+          ...emp,
         };
         if (incoming.allowClearDevice) {
           mergedEmp.registeredDeviceId = undefined;
@@ -491,6 +492,13 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },
         body: JSON.stringify([row]),
+      });
+    } else if (Array.isArray(incoming.employees) && incoming.employees.length > 0) {
+      const rows = incoming.employees.map(mapAppEmployeeToDb);
+      await supabaseFetch('/employees', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify(rows),
       });
     }
   } else if (scope === 'employee_delete') {
