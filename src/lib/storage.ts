@@ -87,6 +87,11 @@ export const INITIAL_SETTINGS: OfficeSettings = {
   enforceOfficeIpLock: true,
   allowedOfficeIps: [
     {
+      ip: '2400:adc5:1b5:9f00:*',
+      label: 'Office Primary ISP IPv6 Subnet (Cybernet /64) — All Mobile & Desktop Wi-Fi',
+      addedAt: '2026-11-13',
+    },
+    {
       ip: '175.107.239.140',
       label: 'Office ISP Provider 1 (Cyber Internet Services) — All Extenders & LAN',
       addedAt: '2026-11-05',
@@ -101,12 +106,32 @@ export const INITIAL_SETTINGS: OfficeSettings = {
       label: 'Local Server Host PC',
       addedAt: '2026-11-05',
     },
+    {
+      ip: '::1',
+      label: 'Localhost IPv6',
+      addedAt: '2026-11-13',
+    },
   ],
   allowedOfficeIsps: [
     {
       ispName: 'Cyber Internet Services',
       label: 'Office Primary ISP',
       addedAt: '2026-11-05',
+    },
+    {
+      ispName: 'Cybernet',
+      label: 'Cybernet Broadband',
+      addedAt: '2026-11-13',
+    },
+    {
+      ispName: 'Pakistan Telecommunication Company Limited',
+      label: 'PTCL Broadband / Fiber',
+      addedAt: '2026-11-13',
+    },
+    {
+      ispName: 'PTCL',
+      label: 'PTCL Short Name',
+      addedAt: '2026-11-13',
     },
   ],
   allowAdminBypassIpLock: true,
@@ -279,10 +304,24 @@ function applyServerDbToLocal(data: {
     if (data.shifts) localStorage.setItem(STORAGE_KEY_SHIFTS, JSON.stringify(data.shifts));
     if (data.employees) localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(data.employees));
     if (data.attendance) {
-      const sanitized = data.attendance.map((r) => ({
-        ...r,
-        day: r.day || (r.date ? getDayName(r.date) : 'Monday'),
-      }));
+      const sanitized = data.attendance.map((r) => {
+        let totalWorkedMinutes = r.totalWorkedMinutes || 0;
+        let regularMinutes = r.regularMinutes || 0;
+        let overtimeMinutes = r.overtimeMinutes || 0;
+        if (r.timeIn && r.timeOut && (!totalWorkedMinutes || totalWorkedMinutes === 0)) {
+          const calc = calculateWorkedMinutes(r.timeIn, r.timeOut, r.breaks);
+          totalWorkedMinutes = calc.totalWorkedMinutes;
+          regularMinutes = calc.regularMinutes;
+          overtimeMinutes = calc.overtimeMinutes;
+        }
+        return {
+          ...r,
+          day: r.day || (r.date ? getDayName(r.date) : 'Monday'),
+          totalWorkedMinutes,
+          regularMinutes,
+          overtimeMinutes,
+        };
+      });
       localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(sanitized));
     }
     if (data.leaves) localStorage.setItem(STORAGE_KEY_LEAVES, JSON.stringify(data.leaves));
@@ -569,7 +608,6 @@ export function flushPendingCloudWrites(options?: { respectCooldown?: boolean })
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           cache: 'no-store',
-          keepalive: bodyStr.length < 60000,
           body: bodyStr,
         });
 
@@ -847,10 +885,24 @@ export function loadAttendanceRecords(): AttendanceRecord[] {
       return generateInitialAttendanceRecords();
     }
     const parsed: AttendanceRecord[] = JSON.parse(raw);
-    return parsed.map((r) => ({
-      ...r,
-      day: r.day || (r.date ? getDayName(r.date) : 'Monday'),
-    }));
+    return parsed.map((r) => {
+      let totalWorkedMinutes = r.totalWorkedMinutes || 0;
+      let regularMinutes = r.regularMinutes || 0;
+      let overtimeMinutes = r.overtimeMinutes || 0;
+      if (r.timeIn && r.timeOut && (!totalWorkedMinutes || totalWorkedMinutes === 0)) {
+        const calc = calculateWorkedMinutes(r.timeIn, r.timeOut, r.breaks);
+        totalWorkedMinutes = calc.totalWorkedMinutes;
+        regularMinutes = calc.regularMinutes;
+        overtimeMinutes = calc.overtimeMinutes;
+      }
+      return {
+        ...r,
+        day: r.day || (r.date ? getDayName(r.date) : 'Monday'),
+        totalWorkedMinutes,
+        regularMinutes,
+        overtimeMinutes,
+      };
+    });
   } catch {
     return generateInitialAttendanceRecords();
   }
