@@ -99,6 +99,15 @@ function getDayNameFromDate(dateStr) {
 /**
  * Maps PostgreSQL snake_case columns back to application camelCase objects
  */
+// jsonb-safe reader: values previously saved as JSON *strings* are parsed back.
+function readJson(v, fallback) {
+  if (v === null || v === undefined) return fallback;
+  if (typeof v === 'string') {
+    try { return JSON.parse(v); } catch (_) { return fallback; }
+  }
+  return v;
+}
+
 function mapDbEmployee(r) {
   if (!r) return null;
   let pendingObj = null;
@@ -138,7 +147,7 @@ function mapDbEmployee(r) {
     registeredAt: r.registered_at || undefined,
     deviceBoundApprovedBy: r.device_bound_approved_by || undefined,
     deviceBoundApprovedAt: r.device_bound_approved_at || undefined,
-    deviceChangeHistory: Array.isArray(r.device_change_history) ? r.device_change_history : [],
+    deviceChangeHistory: (() => { const v = readJson(r.device_change_history, []); return Array.isArray(v) ? v : []; })(),
     pendingDeviceRequest: pendingObj || undefined,
     recordUpdatedAt: r.record_updated_at || undefined,
     lastEditedByRole: r.last_edited_by_role || undefined,
@@ -175,8 +184,8 @@ function mapAppEmployeeToDb(e) {
     registered_at: e.registeredAt || null,
     device_bound_approved_by: e.deviceBoundApprovedBy || null,
     device_bound_approved_at: e.deviceBoundApprovedAt || null,
-    device_change_history: JSON.stringify(e.deviceChangeHistory || []),
-    pending_device_request: JSON.stringify(pendingWithWfh),
+    device_change_history: e.deviceChangeHistory || [],
+    pending_device_request: pendingWithWfh,
     record_updated_at: e.recordUpdatedAt || new Date().toISOString(),
     last_edited_by_role: e.lastEditedByRole || 'admin',
     deleted_at: null,
@@ -217,7 +226,7 @@ function calculateWorkedMinutes(timeIn, timeOut, breaks, expectedShiftHours = 8)
 
 function mapDbAttendance(r) {
   if (!r) return null;
-  const breaks = Array.isArray(r.breaks) ? r.breaks : (typeof r.breaks === 'string' ? JSON.parse(r.breaks || '[]') : []);
+  const breaks = (() => { const v = readJson(r.breaks, []); return Array.isArray(v) ? v : []; })();
   let totalWorked = Number(r.total_worked_minutes) || 0;
   let regular = Number(r.regular_minutes) || 0;
   let overtime = Number(r.overtime_minutes) || 0;
@@ -245,8 +254,8 @@ function mapDbAttendance(r) {
     isDeviceMismatch: Boolean(r.is_device_mismatch),
     isAutoPunchedOut: Boolean(r.is_auto_punched_out),
     monitoringPaused: Boolean(r.monitoring_paused),
-    adminVerification: r.admin_verification || undefined,
-    accountsVerification: r.accounts_verification || undefined,
+    adminVerification: readJson(r.admin_verification, undefined) || undefined,
+    accountsVerification: readJson(r.accounts_verification, undefined) || undefined,
     lastHeartbeatAt: r.last_heartbeat_at || undefined,
     lastActivityAt: r.last_activity_at || undefined,
     recordUpdatedAt: r.record_updated_at || undefined,
@@ -279,7 +288,7 @@ function mapAppAttendanceToDb(a) {
     time_out: a.timeOut || null,
     status: a.status || 'absent',
     notes: a.notes || '',
-    breaks: JSON.stringify(a.breaks || []),
+    breaks: a.breaks || [],
     total_worked_minutes: totalWorked,
     regular_minutes: regular,
     overtime_minutes: overtime,
@@ -290,8 +299,8 @@ function mapAppAttendanceToDb(a) {
     auto_punch_out_reason: a.autoPunchOutReason || null,
     disconnected_at: a.disconnectedAt || null,
     monitoring_paused: Boolean(a.monitoringPaused),
-    admin_verification: a.adminVerification ? JSON.stringify(a.adminVerification) : null,
-    accounts_verification: a.accountsVerification ? JSON.stringify(a.accountsVerification) : null,
+    admin_verification: a.adminVerification || null,
+    accounts_verification: a.accountsVerification || null,
     last_heartbeat_at: a.lastHeartbeatAt || null,
     last_activity_at: a.lastActivityAt || null,
     record_updated_at: a.recordUpdatedAt || new Date().toISOString(),
@@ -351,7 +360,7 @@ function mapDbShift(r) {
     name: r.name,
     startTime: r.start_time,
     endTime: r.end_time,
-    workDays: Array.isArray(r.work_days) ? r.work_days : [0, 1, 2, 3, 4, 5, 6],
+    workDays: (() => { const v = readJson(r.work_days, null); return Array.isArray(v) ? v : [0, 1, 2, 3, 4, 5, 6]; })(),
     graceMinutes: Number(r.grace_minutes) || 15,
     expectedHours: Number(r.expected_hours) || 8,
     color: r.color || 'blue',
@@ -366,7 +375,7 @@ function mapAppShiftToDb(s) {
     name: s.name,
     start_time: s.startTime,
     end_time: s.endTime,
-    work_days: JSON.stringify(s.workDays || [1, 2, 3, 4, 5]),
+    work_days: s.workDays || [1, 2, 3, 4, 5],
     grace_minutes: Number(s.graceMinutes) || 15,
     expected_hours: Number(s.expectedHours) || 8,
     color: s.color || 'blue',
@@ -394,7 +403,7 @@ function mapAppCommentToDb(c) {
     record_id: c.recordId || '',
     employee_id: c.employeeId || '',
     date: c.date || '',
-    comment: c.comment,
+    comment: c.comment || '',
     author_name: c.authorName || '',
     created_at: c.createdAt || new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -404,13 +413,27 @@ function mapAppCommentToDb(c) {
 /**
  * Loads entire database from Supabase PostgreSQL tables
  */
+// PostgREST returns at most ~1000 rows per request; page through everything.
+async function fetchAllPages(path, pageSize = 1000, maxPages = 50) {
+  const all = [];
+  for (let i = 0; i < maxPages; i++) {
+    const from = i * pageSize;
+    const to = from + pageSize - 1;
+    const rows = await supabaseFetch(path, { headers: { Range: `${from}-${to}`, 'Range-Unit': 'items' } });
+    if (!Array.isArray(rows)) break;
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return all;
+}
+
 export async function readSupabaseDb(defaultDb) {
   try {
     const [settingsRows, shiftsRows, empRows, attRows, leavesRows, commentsRows] = await Promise.all([
       supabaseFetch('/settings?id=eq.current&select=*'),
       supabaseFetch('/shifts?select=*&order=id.asc'),
       supabaseFetch('/employees?deleted_at=is.null&select=*&order=employee_code.asc'),
-      supabaseFetch('/attendance?select=*&order=date.desc'),
+      fetchAllPages('/attendance?select=*&order=date.desc,id.asc'),
       supabaseFetch('/leaves?deleted_at=is.null&select=*&order=applied_at.desc'),
       supabaseFetch('/ceo_comments?select=*&order=created_at.asc'),
     ]);
@@ -453,7 +476,16 @@ export async function readSupabaseDb(defaultDb) {
 
     return {
       version: '1.0',
-      updatedAt: new Date().toISOString(),
+      updatedAt: (() => {
+        let m = '';
+        for (const r of [...(attRows || []), ...(leavesRows || []), ...(empRows || [])]) {
+          const t = r.record_updated_at || r.updated_at || '';
+          if (t > m) m = t;
+        }
+        const st = settingsRows?.[0]?.updated_at || '';
+        if (st > m) m = st;
+        return m || '1970-01-01T00:00:00.000Z';
+      })(),
       settings: settingsData,
       shifts,
       employees,

@@ -1,3 +1,4 @@
+import { isSupabaseConfigured, readSupabaseDb, mutateSupabaseDb } from './_supabase.js';
 import {
   doesIpMatchRule,
   format12h,
@@ -9,6 +10,26 @@ import {
   setNoCacheHeaders,
   verifyAutoStartToken,
 } from './_cloud.js';
+
+// Runs the decision function against Supabase (preferred) or falls back to the legacy Gist store.
+async function runMutation(token, decide, label) {
+  if (!isSupabaseConfigured()) return mutateCloudDb(token, decide, label);
+  try {
+    const db = await readSupabaseDb({ settings: {}, shifts: [], employees: [], attendance: [], leaves: [], ceoComments: [] });
+    const out = decide(db);
+    if (out.abort) return { ok: false, status: out.status, result: out.result };
+    if (out.nextDb) {
+      const before = new Set((db.attendance || []).map((r) => r));
+      const changed = (out.nextDb.attendance || []).filter((r) => !before.has(r));
+      for (const rec of changed) {
+        await mutateSupabaseDb({ scope: 'attendance', changedRecord: rec, actorRole: rec.lastEditedByRole || 'employee' }, db);
+      }
+    }
+    return { ok: true, result: out.result };
+  } catch (err) {
+    return { ok: false, status: 503, error: String(err && err.message ? err.message : err) };
+  }
+}
 
 export default async function handler(req, res) {
   setNoCacheHeaders(res);
@@ -32,7 +53,7 @@ export default async function handler(req, res) {
     const token = getCloudToken();
     const clientIp = getClientIp(req);
 
-    const outcome = await mutateCloudDb(
+    const outcome = await runMutation(
       token,
       (db) => {
         const settings = db.settings || {};

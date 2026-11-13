@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { HoursBarChart, PunchTimeline } from '../charts/ChartKit';
 import {
   BarChart3,
   Calendar,
@@ -352,7 +353,7 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
         let overtimeMinutes = 0;
         let dayWorked = 0;
         let breakMins = 0;
-        let dayStatus: 'on_time' | 'late' | 'absent' | 'leave' | 'off_day' = isWorkday ? 'absent' : 'off_day';
+        let dayStatus: 'on_time' | 'late' | 'absent' | 'leave' | 'off_day' = 'off_day';
 
         if (rec?.timeIn) {
           periodRecords.push(rec);
@@ -399,7 +400,7 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
         } else if (isLeave) {
           leaveDays++;
           dayStatus = 'leave';
-        } else if (isWorkday && date <= todayStr) {
+        } else if (isWorkday && date < todayStr) {
           scheduledWorkdays++;
           absentDays++;
           dayStatus = 'absent';
@@ -1195,149 +1196,61 @@ export const SmartInsightsTab: React.FC<SmartInsightsTabProps> = ({
               </div>
             </div>
 
-            {/* Chart Viewport */}
-            <div className="overflow-x-auto pb-2">
-              {(() => {
-                const maxHours = Math.max(12, Math.ceil(maxDailyChartMinutes / 60));
-                const chartMaxMins = maxHours * 60;
-                const plotHeightPx = 184;
-                const hourTicks = [12, 10, 8, 6, 4, 2, 0].filter((h) => h <= maxHours);
-                if (!hourTicks.includes(maxHours)) hourTicks.unshift(maxHours);
-
-                return (
-                  <div
-                    className="relative h-68 min-w-[580px] flex items-end gap-1.5 sm:gap-2 pl-12 pr-3 pt-6 pb-8 border border-slate-100 dark:border-slate-800 rounded-xl bg-slate-50/70 dark:bg-slate-950/60"
-                  >
-                    {/* Left Y-Axis Hour Representation */}
-                    <div className="absolute left-0 top-6 bottom-8 w-11 flex flex-col justify-between items-end pr-2 pointer-events-none select-none text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 border-r border-slate-200 dark:border-slate-800">
-                      {hourTicks.map((h) => (
-                        <div
-                          key={`y-tick-${h}`}
-                          className="absolute right-0 flex items-center pr-2"
-                          style={{ bottom: `${(h * 60 / chartMaxMins) * plotHeightPx}px` }}
-                        >
-                          <span className="pr-1 text-[9px] text-slate-500 dark:text-slate-400">{h}h</span>
-                          <div className="w-1.5 h-px bg-slate-300 dark:bg-slate-700" />
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Horizontal Reference Grid Lines */}
-                    {hourTicks.map((h) => (
-                      <div
-                        key={`grid-line-${h}`}
-                        className="absolute left-11 right-2 border-t border-slate-200/50 dark:border-slate-800/50 pointer-events-none"
-                        style={{ bottom: `${32 + (h * 60 / chartMaxMins) * plotHeightPx}px` }}
+            {/* Chart Viewport: accurate shared-scale SVG chart */}
+            {(() => {
+              const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+              const mapStatus = (d: (typeof selectedAnalytics.dailySeries)[number]) =>
+                d.dayStatus === 'off_day' ? (d.isWorkday ? 'pending' : 'off') : d.dayStatus;
+              const nowD = new Date();
+              return (
+                <div className="space-y-5">
+                  <HoursBarChart
+                    height={280}
+                    targetHours={selectedAnalytics.shift?.expectedHours || 8}
+                    activeKey={hoveredDate || pinnedDate}
+                    onHover={setHoveredDate}
+                    onSelect={setPinnedDate}
+                    days={selectedAnalytics.dailySeries.map((d) => ({
+                      key: d.date,
+                      weekday: WD[d.weekday] || '',
+                      dateLabel: d.date.slice(5),
+                      regularMin: d.regularMinutes,
+                      overtimeMin: d.overtimeMinutes,
+                      status: mapStatus(d),
+                    }))}
+                  />
+                  {selectedAnalytics.dailySeries.length <= 31 && (
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">
+                        Arrival and departure timeline
+                      </h3>
+                      <p className="text-[11px] text-slate-500 mb-2">
+                        Each bar runs from punch-in to punch-out. The green band is the shift, amber is the grace period.
+                      </p>
+                      <PunchTimeline
+                        shiftStart={selectedAnalytics.shift?.startTime}
+                        shiftEnd={selectedAnalytics.shift?.endTime}
+                        graceMinutes={selectedAnalytics.shift?.graceMinutes || 0}
+                        activeKey={hoveredDate || pinnedDate}
+                        onHover={setHoveredDate}
+                        onSelect={setPinnedDate}
+                        days={selectedAnalytics.dailySeries.map((d) => ({
+                          key: d.date,
+                          weekday: WD[d.weekday] || '',
+                          dateLabel: d.date.slice(5),
+                          status: mapStatus(d),
+                          timeIn: d.record?.timeIn,
+                          timeOut: d.record?.timeOut,
+                          isOpen: Boolean(d.record?.timeIn && !d.record?.timeOut),
+                          nowMinutes: nowD.getHours() * 60 + nowD.getMinutes(),
+                          breaks: (d.record?.breaks || []).map((x) => ({ start: x.start, end: x.end })),
+                        }))}
                       />
-                    ))}
-
-                    {/* Shift Expected Target Reference Line */}
-                    <div
-                      className="absolute left-11 right-2 border-t-2 border-dashed border-emerald-500/70 pointer-events-none z-10 flex justify-end"
-                      style={{
-                        bottom: `${32 + (expectedShiftMins / chartMaxMins) * plotHeightPx}px`,
-                      }}
-                    >
-                      <span className="-mt-4 px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/90 text-[9px] font-bold text-emerald-700 dark:text-emerald-300 font-mono shadow-2xs">
-                        Target {selectedAnalytics.shift?.expectedHours || 8}h
-                      </span>
                     </div>
-
-                    {selectedAnalytics.dailySeries.map((day) => {
-                      const totalPx = Math.round((day.totalWorkedMinutes / chartMaxMins) * plotHeightPx);
-                      const regPx = Math.round((day.regularMinutes / chartMaxMins) * plotHeightPx);
-                      const otPx = Math.max(0, totalPx - regPx);
-                      const isActive = (hoveredDate || pinnedDate) === day.date;
-                      const shortDate = day.date.slice(5); // MM-DD
-                      const workedHours = day.totalWorkedMinutes / 60;
-
-                      return (
-                        <button
-                          key={day.date}
-                          type="button"
-                          onMouseEnter={() => setHoveredDate(day.date)}
-                          onMouseLeave={() => setHoveredDate(null)}
-                          onClick={() => setPinnedDate(day.date)}
-                          className={`group relative flex-1 min-w-[22px] h-full flex flex-col justify-end items-center cursor-pointer rounded-lg transition-colors ${
-                            isActive ? 'bg-indigo-500/10' : 'hover:bg-slate-200/50 dark:hover:bg-slate-800/40'
-                          }`}
-                        >
-                          {/* Top Hours Label with visible badge */}
-                          {day.totalWorkedMinutes > 0 ? (
-                            <span
-                              className={`text-[10px] font-mono font-bold px-1 py-0.5 rounded border mb-1 shadow-2xs whitespace-nowrap ${
-                                day.dayStatus === 'late'
-                                  ? 'bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-800'
-                                  : 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-800'
-                              }`}
-                            >
-                              {workedHours.toFixed(1)}h
-                            </span>
-                          ) : (
-                            <span className="text-[9px] font-mono text-slate-400 mb-1">
-                              {day.dayStatus === 'absent' ? '0h' : day.dayStatus === 'leave' ? 'Leave' : 'Off'}
-                            </span>
-                          )}
-
-                          {/* Stacked Graphical Bar */}
-                          <div className="w-full max-w-[32px] flex flex-col-reverse items-center rounded-t-lg overflow-hidden shadow-xs">
-                            {day.totalWorkedMinutes > 0 ? (
-                              <>
-                                {regPx > 0 && (
-                                  <div
-                                    className={`w-full flex items-center justify-center transition-all duration-300 ${
-                                      day.dayStatus === 'late'
-                                        ? 'bg-gradient-to-t from-purple-600 to-indigo-400'
-                                        : 'bg-gradient-to-t from-blue-600 to-cyan-400'
-                                    }`}
-                                    style={{ height: `${Math.max(4, regPx)}px` }}
-                                  >
-                                    {regPx >= 30 && (
-                                      <span className="text-[9px] font-mono font-black text-white/90 drop-shadow-xs">
-                                        {(day.regularMinutes / 60).toFixed(0)}h
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                                {otPx > 0 && (
-                                  <div
-                                    className="w-full flex items-center justify-center bg-gradient-to-t from-amber-500 to-orange-400 transition-all duration-300"
-                                    style={{ height: `${Math.max(3, otPx)}px` }}
-                                  >
-                                    {otPx >= 18 && (
-                                      <span className="text-[8px] font-mono font-bold text-white drop-shadow-xs">
-                                        +{(day.overtimeMinutes / 60).toFixed(1)}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                              </>
-                            ) : (
-                              <div
-                                className={`w-full rounded-full ${
-                                  day.dayStatus === 'absent'
-                                    ? 'h-2 bg-rose-400/80'
-                                    : day.dayStatus === 'leave'
-                                    ? 'h-2 bg-sky-400/80'
-                                    : 'h-1.5 bg-slate-300/60 dark:bg-slate-700/60'
-                                }`}
-                              />
-                            )}
-                          </div>
-
-                          {/* X-Axis Date & Status Dot */}
-                          <div className="absolute -bottom-6 flex flex-col items-center">
-                            <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400">
-                              {shortDate}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-            </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Selected / Hovered Day Breakdown Strip */}
             {inspectedDay && (
