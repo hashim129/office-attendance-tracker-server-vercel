@@ -126,6 +126,18 @@ export const PrintableTimesheetModal: React.FC<PrintableTimesheetModalProps> = (
       className="fixed inset-0 z-50 flex items-start justify-center p-2 sm:p-4 bg-slate-900/80 backdrop-blur-xs overflow-auto"
       onClick={onClose}
     >
+      {/* Floating Global Exit / Close Button (Always in view on all devices) */}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Exit and return to Attendance Panel"
+        title="Exit to Main Menu / Attendance Panel (Esc)"
+        className="fixed top-3 right-3 sm:top-5 sm:right-6 z-[60] flex items-center gap-1.5 px-3 py-2 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl text-xs font-bold transition-all cursor-pointer border-2 border-white dark:border-slate-800"
+      >
+        <X className="w-4 h-4" />
+        <span className="hidden sm:inline">Close / Back to Panel</span>
+      </button>
+
       <div
         className="w-full max-w-6xl bg-white text-slate-900 rounded-xl shadow-2xl overflow-hidden my-2 sm:my-4 border border-slate-200 flex flex-col"
         onClick={(e) => e.stopPropagation()}
