@@ -34,6 +34,11 @@ export const DEFAULT_DB = {
     enforceOfficeIpLock: true,
     allowedOfficeIps: [
       {
+        ip: '2400:adc5:1b5:9f00:*',
+        label: 'Office Primary ISP IPv6 Subnet (Cybernet /64) — All Mobile & Desktop Wi-Fi',
+        addedAt: '2026-11-13',
+      },
+      {
         ip: '175.107.239.140',
         label: 'Office Primary ISP (Cyber Internet Services) — All Extenders & LAN',
         addedAt: '2026-11-05',
@@ -48,12 +53,32 @@ export const DEFAULT_DB = {
         label: 'Localhost / Internal',
         addedAt: '2026-11-05',
       },
+      {
+        ip: '::1',
+        label: 'Localhost IPv6',
+        addedAt: '2026-11-13',
+      },
     ],
     allowedOfficeIsps: [
       {
         ispName: 'Cyber Internet Services',
         label: 'Primary Office ISP',
         addedAt: '2026-11-05',
+      },
+      {
+        ispName: 'Cybernet',
+        label: 'Cybernet Broadband',
+        addedAt: '2026-11-13',
+      },
+      {
+        ispName: 'Pakistan Telecommunication Company Limited',
+        label: 'PTCL Broadband / Fiber',
+        addedAt: '2026-11-13',
+      },
+      {
+        ispName: 'PTCL',
+        label: 'PTCL Short Name',
+        addedAt: '2026-11-13',
       },
     ],
     allowAdminBypassIpLock: true,
