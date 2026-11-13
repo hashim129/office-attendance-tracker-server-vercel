@@ -183,8 +183,51 @@ function mapAppEmployeeToDb(e) {
   };
 }
 
+function parseTimeToMinutes(timeStr) {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(':').map((p) => parseInt(p, 10));
+  return (parts[0] || 0) * 60 + (parts[1] || 0);
+}
+
+function calculateBreaksDuration(breaks) {
+  if (!breaks || !Array.isArray(breaks) || breaks.length === 0) return 0;
+  return breaks.reduce((total, b) => {
+    if (!b || !b.end || !b.start) return total;
+    const startMins = parseTimeToMinutes(b.start);
+    const endMins = parseTimeToMinutes(b.end);
+    const diff = endMins >= startMins ? endMins - startMins : 24 * 60 - startMins + endMins;
+    return total + Math.max(0, diff);
+  }, 0);
+}
+
+function calculateWorkedMinutes(timeIn, timeOut, breaks, expectedShiftHours = 8) {
+  if (!timeIn || !timeOut) {
+    return { totalWorkedMinutes: 0, regularMinutes: 0, overtimeMinutes: 0 };
+  }
+  const inMins = parseTimeToMinutes(timeIn);
+  const outMins = parseTimeToMinutes(timeOut);
+  const rawDiff = outMins >= inMins ? outMins - inMins : 24 * 60 - inMins + outMins;
+  const breakMins = calculateBreaksDuration(breaks);
+  const netWorked = Math.max(0, rawDiff - breakMins);
+  const regularThreshold = expectedShiftHours * 60;
+  const regular = Math.min(netWorked, regularThreshold);
+  const overtime = Math.max(0, netWorked - regularThreshold);
+  return { totalWorkedMinutes: netWorked, regularMinutes: regular, overtimeMinutes: overtime };
+}
+
 function mapDbAttendance(r) {
   if (!r) return null;
+  const breaks = Array.isArray(r.breaks) ? r.breaks : (typeof r.breaks === 'string' ? JSON.parse(r.breaks || '[]') : []);
+  let totalWorked = Number(r.total_worked_minutes) || 0;
+  let regular = Number(r.regular_minutes) || 0;
+  let overtime = Number(r.overtime_minutes) || 0;
+  if (r.time_in && r.time_out && (!totalWorked || totalWorked === 0)) {
+    const calc = calculateWorkedMinutes(r.time_in, r.time_out, breaks);
+    totalWorked = calc.totalWorkedMinutes;
+    regular = calc.regularMinutes;
+    overtime = calc.overtimeMinutes;
+  }
+
   const out = {
     id: r.id,
     employeeId: r.employee_id,
@@ -193,10 +236,10 @@ function mapDbAttendance(r) {
     timeIn: r.time_in || '',
     status: r.status || 'absent',
     notes: r.notes || '',
-    breaks: Array.isArray(r.breaks) ? r.breaks : (typeof r.breaks === 'string' ? JSON.parse(r.breaks || '[]') : []),
-    totalWorkedMinutes: Number(r.total_worked_minutes) || 0,
-    regularMinutes: Number(r.regular_minutes) || 0,
-    overtimeMinutes: Number(r.overtime_minutes) || 0,
+    breaks,
+    totalWorkedMinutes: totalWorked,
+    regularMinutes: regular,
+    overtimeMinutes: overtime,
     deviceId: r.device_id || '',
     deviceName: r.device_name || '',
     isDeviceMismatch: Boolean(r.is_device_mismatch),
@@ -218,6 +261,16 @@ function mapDbAttendance(r) {
 }
 
 function mapAppAttendanceToDb(a) {
+  let totalWorked = Number(a.totalWorkedMinutes) || 0;
+  let regular = Number(a.regularMinutes) || 0;
+  let overtime = Number(a.overtimeMinutes) || 0;
+  if (a.timeIn && a.timeOut && (!totalWorked || totalWorked === 0)) {
+    const calc = calculateWorkedMinutes(a.timeIn, a.timeOut, a.breaks);
+    totalWorked = calc.totalWorkedMinutes;
+    regular = calc.regularMinutes;
+    overtime = calc.overtimeMinutes;
+  }
+
   return {
     id: a.id,
     employee_id: a.employeeId,
@@ -227,6 +280,9 @@ function mapAppAttendanceToDb(a) {
     status: a.status || 'absent',
     notes: a.notes || '',
     breaks: JSON.stringify(a.breaks || []),
+    total_worked_minutes: totalWorked,
+    regular_minutes: regular,
+    overtime_minutes: overtime,
     device_id: a.deviceId || null,
     device_name: a.deviceName || null,
     is_device_mismatch: Boolean(a.isDeviceMismatch),
@@ -359,7 +415,22 @@ export async function readSupabaseDb(defaultDb) {
       supabaseFetch('/ceo_comments?select=*&order=created_at.asc'),
     ]);
 
-    const settingsData = settingsRows?.[0]?.data || defaultDb.settings;
+    const rawSettings = settingsRows?.[0]?.data || {};
+    const defaultSettings = defaultDb?.settings || {};
+    const settingsData = {
+      ...defaultSettings,
+      ...rawSettings,
+      allowedOfficeIps:
+        Array.isArray(rawSettings.allowedOfficeIps) && rawSettings.allowedOfficeIps.length > 0
+          ? rawSettings.allowedOfficeIps
+          : defaultSettings.allowedOfficeIps || [],
+      allowedOfficeIsps:
+        Array.isArray(rawSettings.allowedOfficeIsps) && rawSettings.allowedOfficeIsps.length > 0
+          ? rawSettings.allowedOfficeIsps
+          : defaultSettings.allowedOfficeIsps || [],
+      enforceOfficeIpLock: rawSettings.enforceOfficeIpLock ?? true,
+      enforceDeviceBinding: false,
+    };
     let shifts = Array.isArray(shiftsRows) && shiftsRows.length > 0 ? shiftsRows.map(mapDbShift) : defaultDb.shifts;
     if (!shifts.some((s) => s.id === 'shift-freelance')) {
       shifts.push({
@@ -383,10 +454,7 @@ export async function readSupabaseDb(defaultDb) {
     return {
       version: '1.0',
       updatedAt: new Date().toISOString(),
-      settings: {
-        ...settingsData,
-        enforceDeviceBinding: false,
-      },
+      settings: settingsData,
       shifts,
       employees,
       attendance,
