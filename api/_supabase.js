@@ -79,9 +79,14 @@ async function supabaseFetch(endpoint, options = {}) {
     throw err;
   }
 
-  // Handle 204 No Content
-  if (res.status === 204) return null;
-  return res.json();
+  // Handle empty bodies (204 No Content, 201 Created with 0 bytes, etc.)
+  const text = await res.text();
+  if (!text || !text.trim()) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 /**
