@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Clock,
   Coffee,
@@ -47,6 +47,13 @@ import {
   canEmployeeAutoPunch,
   downloadAutoStartScriptForUser,
 } from '../../lib/autoStartScript';
+
+interface CoworkerPresenceItem {
+  employee: Employee;
+  record: AttendanceRecord | undefined;
+  status: 'in' | 'break' | 'out' | 'absent';
+  elapsedMins: number;
+}
 
 interface PunchClockTabProps {
   currentUser: Employee;
@@ -127,13 +134,13 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   const [coworkerSearch, setCoworkerSearch] = useState<string>('');
   const [coworkerFilter, setCoworkerFilter] = useState<'all' | 'in' | 'break' | 'out' | 'absent'>('all');
 
-  const coworkerPresenceList = useMemo(() => {
+  const coworkerPresenceList: CoworkerPresenceItem[] = useMemo(() => {
     const list = (allEmployees && allEmployees.length > 0 ? allEmployees : [currentUser])
-      .filter((e) => e.isActive)
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .filter((e: Employee) => e.isActive)
+      .sort((a: Employee, b: Employee) => a.name.localeCompare(b.name));
 
-    return list.map((emp) => {
-      const rec = records.find((r) => r.employeeId === emp.id && r.date === todayStr);
+    return list.map((emp: Employee): CoworkerPresenceItem => {
+      const rec = records.find((r: AttendanceRecord) => r.employeeId === emp.id && r.date === todayStr);
       let status: 'in' | 'break' | 'out' | 'absent' = 'absent';
       let elapsedMins = 0;
 
@@ -164,8 +171,8 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     });
   }, [allEmployees, currentUser, records, todayStr, currentTime]);
 
-  const filteredCoworkers = useMemo(() => {
-    return coworkerPresenceList.filter((item) => {
+  const filteredCoworkers = useMemo<CoworkerPresenceItem[]>(() => {
+    return coworkerPresenceList.filter((item: CoworkerPresenceItem) => {
       if (coworkerFilter !== 'all' && item.status !== coworkerFilter) return false;
       if (coworkerSearch.trim()) {
         const q = coworkerSearch.toLowerCase();
@@ -183,7 +190,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     let breakCount = 0;
     let outCount = 0;
     let absentCount = 0;
-    coworkerPresenceList.forEach((c) => {
+    coworkerPresenceList.forEach((c: CoworkerPresenceItem) => {
       if (c.status === 'in') inCount++;
       else if (c.status === 'break') breakCount++;
       else if (c.status === 'out') outCount++;
@@ -873,7 +880,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
         {/* Coworker Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[380px] overflow-y-auto pr-1">
-          {filteredCoworkers.map(({ employee: emp, record: rec, status, elapsedMins }) => {
+          {filteredCoworkers.map(({ employee: emp, record: rec, status, elapsedMins }: CoworkerPresenceItem) => {
             const isMe = emp.id === currentUser.id;
             return (
               <div
@@ -887,7 +894,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-2xs">
-                      {emp.name.split(' ').map((n) => n[0]).slice(0, 2).join('')}
+                      {emp.name.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
