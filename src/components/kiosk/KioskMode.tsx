@@ -33,6 +33,8 @@ interface KioskModeProps {
   onEndBreak: (employeeId: string) => void;
   onExitKiosk: () => void;
   currentClientIp?: string;
+  currentClientIsp?: string;
+  alternateIp?: string;
 }
 
 export const KioskMode: React.FC<KioskModeProps> = ({
@@ -46,6 +48,8 @@ export const KioskMode: React.FC<KioskModeProps> = ({
   onEndBreak,
   onExitKiosk,
   currentClientIp = 'Detecting...',
+  currentClientIsp = 'Unknown ISP',
+  alternateIp,
 }) => {
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [pinInput, setPinInput] = useState<string>('');
@@ -182,7 +186,7 @@ export const KioskMode: React.FC<KioskModeProps> = ({
       }, 4000);
       return;
     }
-    const check = verifyOfficeIpAccess(currentClientIp, settings, matchedEmployee);
+    const check = verifyOfficeIpAccess(currentClientIp, settings, matchedEmployee, currentClientIsp, alternateIp);
     if (!check.allowed) {
       setToastMessage({
         text: check.reason || 'Access Denied: Connect to Office Wi-Fi to mark attendance.',
@@ -204,7 +208,7 @@ export const KioskMode: React.FC<KioskModeProps> = ({
 
   const handleKioskTimeOut = () => {
     if (!matchedEmployee) return;
-    const check = verifyOfficeIpAccess(currentClientIp, settings, matchedEmployee);
+    const check = verifyOfficeIpAccess(currentClientIp, settings, matchedEmployee, currentClientIsp, alternateIp);
     if (!check.allowed) {
       setToastMessage({
         text: check.reason || 'Access Denied: Connect to Office Wi-Fi to mark attendance.',
@@ -226,7 +230,7 @@ export const KioskMode: React.FC<KioskModeProps> = ({
 
   const handleKioskBreak = () => {
     if (!matchedEmployee) return;
-    const check = verifyOfficeIpAccess(currentClientIp, settings, matchedEmployee);
+    const check = verifyOfficeIpAccess(currentClientIp, settings, matchedEmployee, currentClientIsp, alternateIp);
     if (!check.allowed) {
       setToastMessage({
         text: check.reason || 'Access Denied: Connect to Office Wi-Fi to mark attendance.',
