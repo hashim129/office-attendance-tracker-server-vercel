@@ -79,6 +79,7 @@ export default function App() {
   const [settings, setSettings] = useState<OfficeSettings>(loadSettings());
   const [currentClientIp, setCurrentClientIp] = useState<string>('Detecting...');
   const [currentClientIsp, setCurrentClientIsp] = useState<string>('Detecting...');
+  const [alternateIp, setAlternateIp] = useState<string | undefined>(undefined);
   const [isInitialCloudSyncing, setIsInitialCloudSyncing] = useState<boolean>(true);
   const [isNetworkOnline, setIsNetworkOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
@@ -167,10 +168,17 @@ export default function App() {
       refreshFromLocal(true);
     });
 
-    void detectClientNetwork().then((net) => {
+    const handleNetworkDetection = (net: { ip: string; ipv4?: string; ipv6?: string; isp: string }) => {
       setCurrentClientIp(net.ip);
       setCurrentClientIsp(net.isp);
-    });
+      if (net.ipv4 && net.ip !== net.ipv4) {
+        setAlternateIp(net.ipv4);
+      } else if (net.ipv6 && net.ip !== net.ipv6) {
+        setAlternateIp(net.ipv6);
+      }
+    };
+
+    void detectClientNetwork().then(handleNetworkDetection);
 
     let bootFinished = false;
     // Flush any queued offline outbox mutations FIRST before pulling from server, so nothing is ever lost on reload
@@ -214,10 +222,7 @@ export default function App() {
     }, 6000);
 
     const ipInterval = setInterval(() => {
-      void detectClientNetwork().then((net) => {
-        setCurrentClientIp(net.ip);
-        setCurrentClientIsp(net.isp);
-      });
+      void detectClientNetwork().then(handleNetworkDetection);
     }, 30000);
 
     // Prevent accidental tab reload/close while a cloud DB save is still in flight
@@ -883,6 +888,8 @@ export default function App() {
           onEndBreak={handleEndBreak}
           onExitKiosk={() => handleToggleMode('desktop')}
           currentClientIp={currentClientIp}
+          currentClientIsp={currentClientIsp}
+          alternateIp={alternateIp}
         />
       ) : !currentUser ? (
         <LoginView
@@ -934,6 +941,8 @@ export default function App() {
                   onUpdatePunchNote={handleUpdatePunchNote}
                   settings={settings}
                   currentClientIp={currentClientIp}
+                  currentClientIsp={currentClientIsp}
+                  alternateIp={alternateIp}
                   isNetworkOnline={isNetworkOnline}
                   ceoComments={ceoComments}
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
