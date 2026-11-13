@@ -4,13 +4,36 @@
  * Eliminates GitHub Gist rate limits, write mutex contention, and ephemeral file wiping.
  */
 
-function getSupabaseConfig() {
-  const url = process.env.SUPABASE_URL || '';
+export function getSupabaseConfig() {
+  let url =
+    process.env.SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_PROJECT_URL ||
+    process.env.SUPABASE_API_URL ||
+    '';
+
+  const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
+  if (!url && dbUrl) {
+    const match1 = dbUrl.match(/@db\.([a-z0-9_-]+)\.supabase\.co/i);
+    const match2 = dbUrl.match(/postgres\.([a-z0-9_-]+):/i);
+    const match3 = dbUrl.match(/https?:\/\/([a-z0-9_-]+)\.supabase\.co/i);
+    const ref = match1?.[1] || match2?.[1] || match3?.[1];
+    if (ref) {
+      url = `https://${ref}.supabase.co`;
+    }
+  }
+
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_KEY ||
     process.env.SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_API_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
     '';
+
   return {
     url: url.replace(/\/+$/, ''),
     key,

@@ -8,6 +8,7 @@ import {
 } from './_cloud.js';
 import {
   isSupabaseConfigured,
+  getSupabaseConfig,
   readSupabaseDb,
   mutateSupabaseDb,
 } from './_supabase.js';
@@ -607,8 +608,17 @@ export default async function handler(req, res) {
         useEtagCache: false,
       });
       if (readRes.status === 'error') {
+        const supa = getSupabaseConfig();
         return res.status(503).json({
           error: 'Cloud database temporarily unavailable. Please retry.',
+          diagnostics: {
+            hasSupabaseUrl: Boolean(supa.url),
+            hasSupabaseKey: Boolean(supa.key),
+            hasGithubToken: Boolean(token),
+          },
+          help: !token && !supa.isConfigured
+            ? 'Missing database credentials in Vercel. Set SUPABASE_URL & SUPABASE_SERVICE_ROLE_KEY (or GITHUB_DB_TOKEN) in Vercel Settings -> Environment Variables, and Redeploy.'
+            : readRes.error,
         });
       }
 

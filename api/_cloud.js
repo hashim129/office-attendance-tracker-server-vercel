@@ -4,7 +4,13 @@ export const GIST_ID = '41c1cfdb09cf0292c729cb01eb3eccfa';
 export const DB_FILENAME = 'office_attendance_db.json';
 
 export function getCloudToken() {
-  return process.env.GITHUB_DB_TOKEN || process.env.GITHUB_TOKEN || '';
+  return (
+    process.env.GITHUB_DB_TOKEN ||
+    process.env.GITHUB_TOKEN ||
+    process.env.GH_TOKEN ||
+    process.env.GIST_TOKEN ||
+    ''
+  );
 }
 
 export function setNoCacheHeaders(res) {
