@@ -48,6 +48,7 @@ import {
 import { detectClientNetwork } from './lib/ipSecurity';
 import { getDeviceDetails } from './lib/deviceSecurity';
 import { WindowsTitleBar } from './components/common/WindowsTitleBar';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { LoginView } from './components/desktop/LoginView';
 import { DesktopHeader } from './components/desktop/DesktopHeader';
 import { DesktopSidebar } from './components/desktop/DesktopSidebar';
@@ -928,7 +929,8 @@ export default function App() {
             />
 
             <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-auto bg-slate-50/50 dark:bg-slate-950/40">
-              {activeTab === 'clock' && (
+              <ErrorBoundary>
+                {activeTab === 'clock' && (
                 <PunchClockTab
                   currentUser={currentUser}
                   allEmployees={employees}
@@ -1055,6 +1057,7 @@ export default function App() {
                   currentClientIsp={currentClientIsp}
                 />
               )}
+              </ErrorBoundary>
             </main>
           </div>
         </div>

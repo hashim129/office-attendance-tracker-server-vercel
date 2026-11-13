@@ -178,7 +178,7 @@ export async function detectClientNetwork(): Promise<ClientNetworkIdentity> {
         const data = await res.json();
         if (data && typeof data.ip === 'string' && data.ip.trim()) {
           detectedIpv4 = data.ip.trim();
-          if (detectedIp === 'Unknown') detectedIp = detectedIpv4;
+          if (detectedIp === 'Unknown' && detectedIpv4) detectedIp = detectedIpv4;
         }
       }
     } catch {}

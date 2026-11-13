@@ -270,48 +270,36 @@ function mapDbAttendance(r) {
 }
 
 function mapAppAttendanceToDb(a) {
-  let totalWorked = Number(a.totalWorkedMinutes) || 0;
-  let regular = Number(a.regularMinutes) || 0;
-  let overtime = Number(a.overtimeMinutes) || 0;
-  if (a.timeIn && a.timeOut && (!totalWorked || totalWorked === 0)) {
-    const calc = calculateWorkedMinutes(a.timeIn, a.timeOut, a.breaks);
-    totalWorked = calc.totalWorkedMinutes;
-    regular = calc.regularMinutes;
-    overtime = calc.overtimeMinutes;
-  }
-
   return {
     id: a.id,
-    employee_id: a.employeeId,
+    employee_id: a.employeeId || a.employee_id,
     date: a.date,
-    time_in: a.timeIn || null,
-    time_out: a.timeOut || null,
+    time_in: a.timeIn || a.time_in || null,
+    time_out: a.timeOut || a.time_out || null,
     status: a.status || 'absent',
     notes: a.notes || '',
     breaks: a.breaks || [],
-    total_worked_minutes: totalWorked,
-    regular_minutes: regular,
-    overtime_minutes: overtime,
-    device_id: a.deviceId || null,
-    device_name: a.deviceName || null,
-    is_device_mismatch: Boolean(a.isDeviceMismatch),
-    is_auto_punched_out: Boolean(a.isAutoPunchedOut),
-    auto_punch_out_reason: a.autoPunchOutReason || null,
-    disconnected_at: a.disconnectedAt || null,
-    monitoring_paused: Boolean(a.monitoringPaused),
-    admin_verification: a.adminVerification || null,
-    accounts_verification: a.accountsVerification || null,
-    last_heartbeat_at: a.lastHeartbeatAt || null,
-    last_activity_at: a.lastActivityAt || null,
-    record_updated_at: a.recordUpdatedAt || new Date().toISOString(),
-    last_edited_by_role: a.lastEditedByRole || 'employee',
-    admin_override_at: a.adminOverrideAt || null,
-    admin_keep_open: Boolean(a.adminKeepOpen),
+    device_id: a.deviceId || a.device_id || null,
+    device_name: a.deviceName || a.device_name || null,
+    is_device_mismatch: Boolean(a.isDeviceMismatch ?? a.is_device_mismatch),
+    is_auto_punched_out: Boolean(a.isAutoPunchedOut ?? a.is_auto_punched_out),
+    auto_punch_out_reason: a.autoPunchOutReason || a.auto_punch_out_reason || null,
+    disconnected_at: a.disconnectedAt || a.disconnected_at || null,
+    monitoring_paused: Boolean(a.monitoringPaused ?? a.monitoring_paused),
+    admin_verification: a.adminVerification || readJson(a.admin_verification, null) || null,
+    accounts_verification: a.accountsVerification || readJson(a.accounts_verification, null) || null,
+    last_heartbeat_at: a.lastHeartbeatAt || a.last_heartbeat_at || null,
+    last_activity_at: a.lastActivityAt || a.last_activity_at || null,
+    record_updated_at: a.recordUpdatedAt || a.record_updated_at || new Date().toISOString(),
+    last_edited_by_role: a.lastEditedByRole || a.last_edited_by_role || 'employee',
+    admin_override_at: a.adminOverrideAt || a.admin_override_at || null,
+    admin_keep_open: Boolean(a.adminKeepOpen ?? a.admin_keep_open),
   };
 }
 
 function mapDbLeave(r) {
   if (!r) return null;
+  const note = r.admin_note || undefined;
   return {
     id: r.id,
     employeeId: r.employee_id,
@@ -324,13 +312,15 @@ function mapDbLeave(r) {
     appliedAt: r.applied_at || undefined,
     reviewedBy: r.reviewed_by || undefined,
     reviewedAt: r.reviewed_at || undefined,
-    adminNote: r.admin_note || undefined,
+    adminNote: note,
+    reviewNote: note,
     recordUpdatedAt: r.record_updated_at || undefined,
     lastEditedByRole: r.last_edited_by_role || undefined,
   };
 }
 
 function mapAppLeaveToDb(l) {
+  const note = l.adminNote || l.reviewNote || null;
   return {
     id: l.id,
     employee_id: l.employeeId,
@@ -342,8 +332,8 @@ function mapAppLeaveToDb(l) {
     status: l.status || 'pending',
     applied_at: l.appliedAt || new Date().toISOString(),
     reviewed_by: l.reviewedBy || null,
-    reviewed_at: l.reviewedAt || null,
-    admin_note: l.adminNote || null,
+    reviewed_at: l.reviewedAt || (l.status !== 'pending' ? l.recordUpdatedAt || new Date().toISOString() : null),
+    admin_note: note,
     record_updated_at: l.recordUpdatedAt || new Date().toISOString(),
     last_edited_by_role: l.lastEditedByRole || 'employee',
     deleted_at: null,
@@ -474,18 +464,23 @@ export async function readSupabaseDb(defaultDb) {
     const leaves = Array.isArray(leavesRows) ? leavesRows.map(mapDbLeave) : [];
     const ceoComments = Array.isArray(commentsRows) ? commentsRows.map(mapDbComment) : [];
 
+    let maxUpdatedMs = 0;
+    const checkMax = (iso) => {
+      if (!iso) return;
+      const ms = Date.parse(iso);
+      if (!Number.isNaN(ms) && ms > maxUpdatedMs) maxUpdatedMs = ms;
+    };
+    checkMax(rawSettings?.settingsUpdatedAt || settingsRows?.[0]?.updated_at);
+    if (Array.isArray(empRows)) empRows.forEach(r => checkMax(r.record_updated_at || r.created_at));
+    if (Array.isArray(attRows)) attRows.forEach(r => checkMax(r.record_updated_at || r.created_at || r.admin_override_at));
+    if (Array.isArray(leavesRows)) leavesRows.forEach(r => checkMax(r.record_updated_at || r.applied_at || r.reviewed_at));
+    if (Array.isArray(commentsRows)) commentsRows.forEach(r => checkMax(r.updated_at || r.created_at));
+
+    const latestDbUpdatedAt = maxUpdatedMs > 0 ? new Date(maxUpdatedMs).toISOString() : new Date().toISOString();
+
     return {
       version: '1.0',
-      updatedAt: (() => {
-        let m = '';
-        for (const r of [...(attRows || []), ...(leavesRows || []), ...(empRows || [])]) {
-          const t = r.record_updated_at || r.updated_at || '';
-          if (t > m) m = t;
-        }
-        const st = settingsRows?.[0]?.updated_at || '';
-        if (st > m) m = st;
-        return m || '1970-01-01T00:00:00.000Z';
-      })(),
+      updatedAt: latestDbUpdatedAt,
       settings: settingsData,
       shifts,
       employees,
@@ -497,6 +492,113 @@ export async function readSupabaseDb(defaultDb) {
     console.error('Failed to read from Supabase:', err);
     throw err;
   }
+}
+
+/**
+ * Intelligent, atomic merge for an individual attendance record against existing Supabase record
+ */
+export function mergeSupabaseAttendanceRecord(existing, incomingRec, options = {}) {
+  const actorRole = incomingRec.lastEditedByRole || options.actorRole || 'employee';
+  const isAdmin = actorRole === 'admin';
+  const nowIso = new Date().toISOString();
+
+  if (!existing) {
+    const fresh = { ...incomingRec };
+    if (fresh.clearTimeOut) {
+      delete fresh.timeOut;
+      delete fresh.clearTimeOut;
+    }
+    fresh.recordUpdatedAt = nowIso;
+    fresh.lastEditedByRole = actorRole;
+    return fresh;
+  }
+
+  const existingHasAdminOverride = Boolean(existing.adminOverrideAt);
+  const isTimeOutAction = incomingRec.actorAction === 'time_out' || (incomingRec.timeOut !== undefined && incomingRec.timeOut !== null && incomingRec.timeOut !== '');
+  const isBreakAction = incomingRec.actorAction === 'start_break' || incomingRec.actorAction === 'end_break';
+  const isNoteAction = incomingRec.actorAction === 'update_note';
+  const isFreshPunchIn = incomingRec.actorAction === 'time_in' && !existing.timeIn && Boolean(incomingRec.timeIn);
+
+  // If Admin edited the record, only allow fresh employee actions (punch out, breaks, notes)
+  // Do NOT let non-admin stale writes overwrite Admin punch times
+  if (existingHasAdminOverride && !isAdmin) {
+    if (!isTimeOutAction && !isBreakAction && !isNoteAction && !isFreshPunchIn) {
+      return {
+        ...existing,
+        lastHeartbeatAt: incomingRec.lastHeartbeatAt || existing.lastHeartbeatAt,
+        lastActivityAt: incomingRec.lastActivityAt || existing.lastActivityAt,
+        connectionStatus: incomingRec.connectionStatus || existing.connectionStatus,
+      };
+    }
+  }
+
+  const shouldClearTimeOut = Boolean(
+    incomingRec.clearTimeOut ||
+    incomingRec.adminKeepOpen ||
+    (isAdmin && (incomingRec.timeOut === null || incomingRec.timeOut === ''))
+  );
+  const shouldClearTimeIn = Boolean(isAdmin && incomingRec.timeIn === '');
+
+  // Determine final timeIn
+  let finalTimeIn = existing.timeIn;
+  if (shouldClearTimeIn) {
+    finalTimeIn = null;
+  } else if (incomingRec.timeIn) {
+    if (isAdmin || (!existing.timeIn && incomingRec.actorAction === 'time_in') || (!existingHasAdminOverride && incomingRec.actorAction === 'time_in')) {
+      finalTimeIn = incomingRec.timeIn;
+    }
+  }
+
+  // Determine final timeOut
+  let finalTimeOut = existing.timeOut;
+  if (shouldClearTimeOut) {
+    finalTimeOut = null;
+  } else if (incomingRec.timeOut !== undefined && incomingRec.timeOut !== null && incomingRec.timeOut !== '') {
+    finalTimeOut = incomingRec.timeOut;
+  }
+
+  // Determine breaks
+  let finalBreaks = existing.breaks || [];
+  if (Array.isArray(incomingRec.breaks)) {
+    if (isAdmin || incomingRec.breaks.length > 0 || isBreakAction) {
+      finalBreaks = incomingRec.breaks;
+    }
+  }
+
+  // Determine status
+  let finalStatus = existing.status || 'absent';
+  if (shouldClearTimeIn) {
+    finalStatus = 'absent';
+  } else if (incomingRec.status && incomingRec.status !== 'absent') {
+    finalStatus = incomingRec.status;
+  } else if (finalTimeIn && finalStatus === 'absent') {
+    finalStatus = 'present';
+  }
+
+  const merged = {
+    ...existing,
+    ...incomingRec,
+    timeIn: finalTimeIn,
+    timeOut: finalTimeOut,
+    breaks: finalBreaks,
+    status: finalStatus,
+    notes: incomingRec.notes !== undefined ? incomingRec.notes : existing.notes,
+    deviceId: incomingRec.deviceId || existing.deviceId,
+    deviceName: incomingRec.deviceName || existing.deviceName,
+    isDeviceMismatch: incomingRec.isDeviceMismatch !== undefined ? Boolean(incomingRec.isDeviceMismatch) : Boolean(existing.isDeviceMismatch),
+    isAutoPunchedOut: shouldClearTimeOut ? false : (incomingRec.isAutoPunchedOut !== undefined ? Boolean(incomingRec.isAutoPunchedOut) : Boolean(existing.isAutoPunchedOut)),
+    adminVerification: incomingRec.adminVerification !== undefined ? incomingRec.adminVerification : existing.adminVerification,
+    accountsVerification: incomingRec.accountsVerification !== undefined ? incomingRec.accountsVerification : existing.accountsVerification,
+    adminOverrideAt: isAdmin ? (incomingRec.adminOverrideAt || nowIso) : existing.adminOverrideAt,
+    adminKeepOpen: shouldClearTimeOut
+      ? Boolean(!shouldClearTimeIn && finalTimeIn)
+      : (incomingRec.adminKeepOpen !== undefined ? Boolean(incomingRec.adminKeepOpen) : Boolean(existing.adminKeepOpen)),
+    lastEditedByRole: actorRole,
+    recordUpdatedAt: nowIso,
+  };
+
+  delete merged.clearTimeOut;
+  return merged;
 }
 
 /**
@@ -514,33 +616,7 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
         const existingRows = await supabaseFetch(`/attendance?id=eq.${encodeURIComponent(rec.id)}&select=*`);
         const existing = existingRows?.[0] ? mapDbAttendance(existingRows[0]) : null;
 
-        let mergedRec = { ...rec };
-        if (existing) {
-          const existingIsAdmin = existing.lastEditedByRole === 'admin' || Boolean(existing.adminOverrideAt);
-          if (existingIsAdmin && incoming.actorRole !== 'admin') {
-            mergedRec = {
-              ...existing,
-              ...rec,
-              timeIn: existing.timeIn || rec.timeIn,
-              timeOut: existing.timeOut !== undefined ? existing.timeOut : rec.timeOut,
-              adminOverrideAt: existing.adminOverrideAt,
-              lastEditedByRole: 'admin',
-            };
-          } else {
-            mergedRec = {
-              ...existing,
-              ...rec,
-              timeIn: rec.timeIn || existing.timeIn,
-              timeOut: rec.clearTimeOut ? undefined : (rec.timeOut !== undefined && rec.timeOut !== null && rec.timeOut !== '' ? rec.timeOut : existing.timeOut),
-              notes: rec.notes || existing.notes,
-              breaks: (Array.isArray(rec.breaks) && rec.breaks.length > 0) ? rec.breaks : existing.breaks,
-            };
-          }
-        }
-        mergedRec.recordUpdatedAt = new Date().toISOString();
-        if (incoming.actorRole) {
-          mergedRec.lastEditedByRole = incoming.actorRole;
-        }
+        const mergedRec = mergeSupabaseAttendanceRecord(existing, rec, { actorRole: incoming.actorRole });
         rowsToUpsert.push(mapAppAttendanceToDb(mergedRec));
       }
 
