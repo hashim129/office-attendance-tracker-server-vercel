@@ -299,31 +299,39 @@ export function getLiveWorkedStats(params: {
     return { totalWorkedMinutes: 0, regularMinutes: 0, overtimeMinutes: 0, isLiveOvertime: false };
   }
   if (record.timeOut) {
+    let totalWorked = record.totalWorkedMinutes || 0;
+    let regular = record.regularMinutes || 0;
+    let overtime = record.overtimeMinutes || 0;
+    if (!totalWorked || totalWorked === 0) {
+      const calc = calculateWorkedMinutes(
+        record.timeIn,
+        record.timeOut,
+        record.breaks,
+        shift?.expectedHours || 8
+      );
+      totalWorked = calc.totalWorkedMinutes;
+      regular = calc.regularMinutes;
+      overtime = calc.overtimeMinutes;
+    }
     return {
-      totalWorkedMinutes: record.totalWorkedMinutes || 0,
-      regularMinutes: record.regularMinutes || 0,
-      overtimeMinutes: record.overtimeMinutes || 0,
+      totalWorkedMinutes: totalWorked,
+      regularMinutes: regular,
+      overtimeMinutes: overtime,
       isLiveOvertime: false,
     };
   }
 
-  const graceHours =
-    settings?.autoPunchOutOnInactiveHours !== undefined
-      ? Number(settings.autoPunchOutOnInactiveHours)
-      : 2;
-  const { inMs, checkAtMs } = getShiftEndWindowMs(record.date, record.timeIn, shift, graceHours);
   const expectedHours = shift?.expectedHours || 8;
+  const todayStr = getTodayDateString();
 
-  if (
-    liveState === 'in' &&
-    graceHours > 0 &&
-    !Number.isNaN(inMs) &&
-    !Number.isNaN(checkAtMs) &&
-    nowMs >= checkAtMs
-  ) {
-    const elapsedMins = Math.max(0, Math.floor((nowMs - inMs) / 60000));
+  // If currently working on today's shift, compute running live worked minutes
+  if (liveState === 'in' || liveState === 'break' || record.date === todayStr) {
+    const inMins = parseTimeToMinutes(record.timeIn);
+    const now = new Date(nowMs);
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    const rawElapsed = nowMins >= inMins ? nowMins - inMins : 24 * 60 - inMins + nowMins;
     const breakMins = calculateBreaksDuration(record.breaks || []);
-    const netWorked = Math.max(0, elapsedMins - breakMins);
+    const netWorked = Math.max(0, rawElapsed - breakMins);
     const threshold = Math.max(1, expectedHours) * 60;
     const regular = Math.min(netWorked, threshold);
     const overtime = Math.max(0, netWorked - threshold);
