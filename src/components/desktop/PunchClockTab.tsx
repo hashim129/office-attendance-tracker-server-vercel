@@ -19,6 +19,9 @@ import {
   Terminal,
   Download,
   Home,
+  Users,
+  Search,
+  Sparkles,
 } from 'lucide-react';
 import {
   AttendanceRecord,
@@ -28,6 +31,7 @@ import {
   ShiftSchedule,
 } from '../../types';
 import {
+  calculateBreaksDuration,
   calculateWorkedMinutes,
   deriveLiveAttendanceState,
   formatMinutesToHoursMinutes,
@@ -56,6 +60,8 @@ interface PunchClockTabProps {
   onUpdatePunchNote?: (employeeId: string, notes: string) => void;
   settings: OfficeSettings;
   currentClientIp?: string;
+  currentClientIsp?: string;
+  alternateIp?: string;
   isNetworkOnline?: boolean;
   ceoComments?: CeoComment[];
   onMarkCeoCommentRead?: (commentId: string) => void;
@@ -74,6 +80,8 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   onUpdatePunchNote,
   settings,
   currentClientIp = 'Detecting...',
+  currentClientIsp = 'Unknown ISP',
+  alternateIp,
   isNetworkOnline = true,
   ceoComments = [],
   onMarkCeoCommentRead,
@@ -115,6 +123,82 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     }
   }, [todayRecord?.notes]);
 
+  // Today's Coworker Live Presence (Specific Day Only)
+  const [coworkerSearch, setCoworkerSearch] = useState<string>('');
+  const [coworkerFilter, setCoworkerFilter] = useState<'all' | 'in' | 'break' | 'out' | 'absent'>('all');
+
+  const coworkerPresenceList = useMemo(() => {
+    const list = (allEmployees && allEmployees.length > 0 ? allEmployees : [currentUser])
+      .filter((e) => e.isActive)
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return list.map((emp) => {
+      const rec = records.find((r) => r.employeeId === emp.id && r.date === todayStr);
+      let status: 'in' | 'break' | 'out' | 'absent' = 'absent';
+      let elapsedMins = 0;
+
+      if (rec?.timeIn) {
+        if (rec.timeOut) {
+          status = 'out';
+          const calc = calculateWorkedMinutes(rec.timeIn, rec.timeOut, rec.breaks);
+          elapsedMins = calc.totalWorkedMinutes;
+        } else if (Array.isArray(rec.breaks) && rec.breaks.some((b) => !b.end)) {
+          status = 'break';
+        } else {
+          status = 'in';
+          const inM = parseTimeToMinutes(rec.timeIn);
+          const now = currentTime;
+          const nowM = now.getHours() * 60 + now.getMinutes();
+          const raw = nowM >= inM ? nowM - inM : 24 * 60 - inM + nowM;
+          const breakM = calculateBreaksDuration(rec.breaks);
+          elapsedMins = Math.max(0, raw - breakM);
+        }
+      }
+
+      return {
+        employee: emp,
+        record: rec,
+        status,
+        elapsedMins,
+      };
+    });
+  }, [allEmployees, currentUser, records, todayStr, currentTime]);
+
+  const filteredCoworkers = useMemo(() => {
+    return coworkerPresenceList.filter((item) => {
+      if (coworkerFilter !== 'all' && item.status !== coworkerFilter) return false;
+      if (coworkerSearch.trim()) {
+        const q = coworkerSearch.toLowerCase();
+        const matchesName = item.employee.name.toLowerCase().includes(q);
+        const matchesDept = (item.employee.department || '').toLowerCase().includes(q);
+        const matchesCode = (item.employee.employeeCode || '').toLowerCase().includes(q);
+        if (!matchesName && !matchesDept && !matchesCode) return false;
+      }
+      return true;
+    });
+  }, [coworkerPresenceList, coworkerFilter, coworkerSearch]);
+
+  const coworkerCounts = useMemo(() => {
+    let inCount = 0;
+    let breakCount = 0;
+    let outCount = 0;
+    let absentCount = 0;
+    coworkerPresenceList.forEach((c) => {
+      if (c.status === 'in') inCount++;
+      else if (c.status === 'break') breakCount++;
+      else if (c.status === 'out') outCount++;
+      else absentCount++;
+    });
+    return {
+      total: coworkerPresenceList.length,
+      present: inCount + breakCount + outCount,
+      in: inCount,
+      break: breakCount,
+      out: outCount,
+      absent: absentCount,
+    };
+  }, [coworkerPresenceList]);
+
   const liveState = deriveLiveAttendanceState({
     record: todayRecord,
     settings,
@@ -129,7 +213,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   const isNoInternet = liveState === 'no_internet';
 
   // Office Wi-Fi IP Security Check
-  const ipCheck = verifyOfficeIpAccess(currentClientIp, settings, currentUser);
+  const ipCheck = verifyOfficeIpAccess(currentClientIp, settings, currentUser, currentClientIsp, alternateIp);
   const isPunchBlockedByIp = !ipCheck.allowed;
   const isPunchBlocked = isPunchBlockedByIp;
 
@@ -470,6 +554,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                 </div>
                 <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 border border-current/20 shrink-0">
                   IP: {currentClientIp}
+                  {currentClientIsp && currentClientIsp !== 'Unknown ISP' && currentClientIsp !== 'Detected via IP' ? ` · ${currentClientIsp}` : ''}
                 </span>
               </div>
             )}
@@ -686,6 +771,186 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
               <span className="font-medium text-blue-600 dark:text-blue-400">1 Punch Cycle / Day</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Today's Team Live Presence Board (Today Only - Available to All Employees) */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900/50 flex items-center justify-center">
+                <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <span>Today's Team Live Presence</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                    {dayName}, {todayStr}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Live presence board for today. See coworkers currently working live, on break, or punched out.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Filter Buttons */}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setCoworkerFilter('all')}
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                coworkerFilter === 'all'
+                  ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              All ({coworkerCounts.total})
+            </button>
+            <button
+              type="button"
+              onClick={() => setCoworkerFilter('in')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                coworkerFilter === 'in'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Working Live ({coworkerCounts.in})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCoworkerFilter('break')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                coworkerFilter === 'break'
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 hover:bg-amber-100'
+              }`}
+            >
+              <Coffee className="w-3 h-3 text-amber-500" />
+              <span>Break ({coworkerCounts.break})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCoworkerFilter('out')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                coworkerFilter === 'out'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 hover:bg-blue-100'
+              }`}
+            >
+              <LogOut className="w-3 h-3 text-blue-500" />
+              <span>Shift Ended ({coworkerCounts.out})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCoworkerFilter('absent')}
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                coworkerFilter === 'absent'
+                  ? 'bg-rose-600 text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+              }`}
+            >
+              Absent / Not In ({coworkerCounts.absent})
+            </button>
+          </div>
+        </div>
+
+        {/* Search coworker bar */}
+        <div className="relative">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+          <input
+            type="text"
+            value={coworkerSearch}
+            onChange={(e) => setCoworkerSearch(e.target.value)}
+            placeholder="Search coworker by name, department, or employee ID..."
+            className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+          />
+        </div>
+
+        {/* Coworker Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[380px] overflow-y-auto pr-1">
+          {filteredCoworkers.map(({ employee: emp, record: rec, status, elapsedMins }) => {
+            const isMe = emp.id === currentUser.id;
+            return (
+              <div
+                key={emp.id}
+                className={`p-3 rounded-xl border transition-all ${
+                  isMe
+                    ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-300 dark:border-blue-700 shadow-2xs'
+                    : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/80'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-2xs">
+                      {emp.name.split(' ').map((n) => n[0]).slice(0, 2).join('')}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
+                        <span>{emp.name}</span>
+                        {isMe && (
+                          <span className="text-[9px] font-black uppercase px-1 rounded bg-blue-600 text-white">
+                            You
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                        {emp.department || emp.designation || 'Staff'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Status Badge */}
+                  {status === 'in' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/90 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span>Live</span>
+                    </span>
+                  )}
+                  {status === 'break' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/90 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 shrink-0">
+                      <Coffee className="w-3 h-3 text-amber-600" />
+                      <span>Break</span>
+                    </span>
+                  )}
+                  {status === 'out' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950/90 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-700 shrink-0">
+                      <span>Out</span>
+                    </span>
+                  )}
+                  {status === 'absent' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0">
+                      <span>Absent</span>
+                    </span>
+                  )}
+                </div>
+
+                {/* Sub info / Timestamps for today */}
+                <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[10px] font-mono text-slate-600 dark:text-slate-400">
+                  {rec?.timeIn ? (
+                    <>
+                      <span>In: {formatTime12h(rec.timeIn)}</span>
+                      {status === 'in' ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                          {formatMinutesToHoursMinutes(elapsedMins)}
+                        </span>
+                      ) : status === 'out' && rec.timeOut ? (
+                        <span>Out: {formatTime12h(rec.timeOut)}</span>
+                      ) : (
+                        <span>{status === 'break' ? 'On Break' : ''}</span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-slate-400 italic">Not punched in today</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
