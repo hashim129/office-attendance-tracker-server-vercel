@@ -483,18 +483,62 @@ export function format12h(timeStr) {
   return `${h}:${mStr} ${ampm}`;
 }
 
+export function normalizeIpv6(ip) {
+  const clean = String(ip || '').trim().toLowerCase();
+  if (!clean.includes(':')) return null;
+  const base = clean.split('*')[0].split('/')[0].replace(/:+$/, '');
+  const parts = base.split('::');
+  const left = parts[0] ? parts[0].split(':').filter(Boolean) : [];
+  const right = parts[1] ? parts[1].split(':').filter(Boolean) : [];
+  const missing = 8 - (left.length + right.length);
+  const middle = missing > 0 && parts.length > 1 ? new Array(missing).fill('0') : [];
+  const full = [...left, ...middle, ...right];
+  try {
+    return full.map((g) => parseInt(g || '0', 16).toString(16));
+  } catch {
+    return null;
+  }
+}
+
 export function doesIpMatchRule(clientIp, ruleIp) {
   const cleanClient = String(clientIp || '').trim().toLowerCase();
   const cleanRule = String(ruleIp || '').trim().toLowerCase();
   if (!cleanClient || !cleanRule) return false;
   if (cleanClient === cleanRule) return true;
 
+  // 1. IPv6 Subnet & Wildcard Matching (/64 standard office Wi-Fi subnet)
+  if (cleanClient.includes(':') && cleanRule.includes(':')) {
+    const cNorm = normalizeIpv6(cleanClient);
+    const rNorm = normalizeIpv6(cleanRule);
+    if (cNorm && rNorm) {
+      let requiredGroups = 4; // /64
+      if (cleanRule.includes('/48')) requiredGroups = 3;
+      else if (cleanRule.includes('/56')) requiredGroups = 4;
+      else if (cleanRule.includes('/64')) requiredGroups = 4;
+      else if (cleanRule.includes('*')) {
+        const pre = cleanRule.split('*')[0].replace(/:+$/, '');
+        requiredGroups = pre.split(':').filter(Boolean).length || 4;
+      }
+      const count = Math.min(requiredGroups, cNorm.length, rNorm.length);
+      let match = true;
+      for (let i = 0; i < count; i++) {
+        if (cNorm[i] !== rNorm[i]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return true;
+    }
+  }
+
+  // 2. IPv4 Wildcard matching e.g. 175.107.239.*
   if (cleanRule.includes('*')) {
     const prefix = cleanRule.split('*')[0];
     if (prefix && cleanClient.startsWith(prefix)) return true;
   }
 
-  if (cleanRule.includes('/')) {
+  // 3. IPv4 CIDR matching (/24 or /16)
+  if (cleanRule.includes('/') && !cleanRule.includes(':')) {
     const [baseIp, bitsStr] = cleanRule.split('/');
     const bits = parseInt(bitsStr, 10);
     const clientParts = cleanClient.split('.');
