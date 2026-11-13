@@ -35,6 +35,7 @@ import {
 } from '../../types';
 import {
   calculateBreaksDuration,
+  calculateWorkedMinutes,
   deriveLiveAttendanceState,
   formatMinutesToDecimal,
   formatMinutesToHoursMinutes,
@@ -194,7 +195,14 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
     const sunStr = sunday.toISOString().slice(0, 10);
 
     const weekRecords = myAllRecords.filter((r) => r.date >= monStr && r.date <= sunStr);
-    const weekWorkedMins = weekRecords.reduce((acc, r) => acc + (r.totalWorkedMinutes || 0), 0);
+    const weekWorkedMins = weekRecords.reduce((acc, r) => {
+      let m = r.totalWorkedMinutes || 0;
+      if (r.timeIn && r.timeOut && (!m || m === 0)) {
+        const c = calculateWorkedMinutes(r.timeIn, r.timeOut, r.breaks, userShift?.expectedHours || 8);
+        m = c.totalWorkedMinutes;
+      }
+      return acc + m;
+    }, 0);
     const targetMins = 40 * 60; // 40 hours target
     const percent = Math.min(100, Math.round((weekWorkedMins / targetMins) * 100));
 
@@ -205,15 +213,24 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
       monStr,
       sunStr,
     };
-  }, [myAllRecords]);
+  }, [myAllRecords, userShift]);
 
   // Chronological recent days (up to 10 days) for the interactive bar chart
   const recentDaysForChart = useMemo(() => {
     const slice = filteredRecords.slice(0, 10).reverse();
     return slice.map((r) => {
-      const workedHours = (r.totalWorkedMinutes || 0) / 60;
-      const regularHours = (r.regularMinutes || 0) / 60;
-      const overtimeHours = (r.overtimeMinutes || 0) / 60;
+      let totalMins = r.totalWorkedMinutes || 0;
+      let regMins = r.regularMinutes || 0;
+      let otMins = r.overtimeMinutes || 0;
+      if (r.timeIn && r.timeOut && (!totalMins || totalMins === 0)) {
+        const calc = calculateWorkedMinutes(r.timeIn, r.timeOut, r.breaks, userShift?.expectedHours || 8);
+        totalMins = calc.totalWorkedMinutes;
+        regMins = calc.regularMinutes;
+        otMins = calc.overtimeMinutes;
+      }
+      const workedHours = totalMins / 60;
+      const regularHours = regMins / 60;
+      const overtimeHours = otMins / 60;
       const dayStr = r.day || (r.date ? getDayName(r.date) : 'Day');
       return {
         id: r.id,
@@ -226,10 +243,11 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
         workedHours,
         regularHours,
         overtimeHours,
+        totalWorkedMinutes: totalMins,
         isLate: r.status === 'late',
       };
     });
-  }, [filteredRecords]);
+  }, [filteredRecords, userShift]);
 
   const handleDownloadCsv = () => {
     exportAttendanceToCsv({
@@ -593,10 +611,29 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
             </div>
           ) : (
             <div className="relative pt-6 pb-2">
-              {/* 8.0h Reference Line across the chart */}
+              {/* Left Y-Axis Hour Representation */}
+              <div className="absolute left-0 top-6 bottom-7 w-9 flex flex-col justify-between items-end pr-1 pointer-events-none select-none text-[9px] font-mono font-bold text-slate-400 dark:text-slate-500 border-r border-slate-200 dark:border-slate-800">
+                {[12, 8, 4, 0].map((h) => (
+                  <div key={h} className="flex items-center -mr-1">
+                    <span className="pr-1">{h}h</span>
+                    <div className="w-1 h-px bg-slate-300 dark:bg-slate-700" />
+                  </div>
+                ))}
+              </div>
+
+              {/* Horizontal Reference Grid Lines */}
+              {[12, 8, 4].map((h) => (
+                <div
+                  key={`grid-${h}`}
+                  className="absolute left-9 right-2 border-t border-slate-200/50 dark:border-slate-800/50 pointer-events-none"
+                  style={{ bottom: `${28 + (h / 12) * 148}px` }}
+                />
+              ))}
+
+              {/* 8.0h Target Reference Line across chart */}
               <div
-                className="absolute left-0 right-0 border-b-2 border-dashed border-emerald-400/80 dark:border-emerald-600 z-10 pointer-events-none flex items-center justify-end pr-2"
-                style={{ bottom: `${(8 / 12) * 100}%` }}
+                className="absolute left-9 right-2 border-b-2 border-dashed border-emerald-400/80 dark:border-emerald-600 z-10 pointer-events-none flex items-center justify-end pr-2"
+                style={{ bottom: `${28 + (8 / 12) * 148}px` }}
                 title="8.0h Standard Target"
               >
                 <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-white/95 dark:bg-slate-900/95 px-1.5 py-0.5 rounded shadow-2xs border border-emerald-300 dark:border-emerald-700">
@@ -605,10 +642,10 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
               </div>
 
               {/* Chart Plot Area */}
-              <div className="h-44 flex items-end justify-between gap-2 px-2 border-b border-slate-200 dark:border-slate-800">
+              <div className="h-44 flex items-end justify-between gap-2 pl-11 pr-2 border-b border-slate-200 dark:border-slate-800">
                 {recentDaysForChart.map((d) => {
                   const maxChartHours = 12;
-                  const totalPercent = Math.min(100, Math.max(8, (d.workedHours / maxChartHours) * 100));
+                  const totalPercent = Math.min(100, Math.max(10, (d.workedHours / maxChartHours) * 100));
                   const overtimePercent = d.workedHours > 0 ? Math.min(100, (d.overtimeHours / d.workedHours) * 100) : 0;
 
                   return (
@@ -632,28 +669,51 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                         {d.isLate && <p className="text-purple-300 font-bold">Late Arrival</p>}
                       </div>
 
+                      {/* Top Hours Label with visible badge on each bar */}
+                      <span className={`text-[9px] font-mono font-bold px-1 py-0.2 rounded border mb-1 shadow-2xs whitespace-nowrap ${
+                        d.workedHours > 0
+                          ? d.isLate
+                            ? 'bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-800'
+                            : 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-slate-700'
+                      }`}>
+                        {d.workedHours.toFixed(1)}h
+                      </span>
+
                       {/* Bar Visual (Regular + Overtime stacked) */}
                       <div
-                        className="w-full max-w-[36px] rounded-t-md overflow-hidden flex flex-col justify-end transition-all group-hover:brightness-110 shadow-xs"
+                        className="w-full max-w-[36px] rounded-t-md overflow-hidden flex flex-col justify-end transition-all group-hover:brightness-110 shadow-xs relative"
                         style={{ height: `${totalPercent}%` }}
                       >
                         {/* Overtime stack segment */}
                         {d.overtimeHours > 0 && (
                           <div
-                            className="w-full bg-gradient-to-t from-amber-500 to-amber-400"
+                            className="w-full bg-gradient-to-t from-amber-500 to-amber-400 flex items-center justify-center"
                             style={{ height: `${overtimePercent}%` }}
                             title={`Overtime: ${d.overtimeHours.toFixed(1)}h`}
-                          />
+                          >
+                            {overtimePercent >= 30 && (
+                              <span className="text-[8px] font-mono font-bold text-white drop-shadow-xs">
+                                +{d.overtimeHours.toFixed(1)}
+                              </span>
+                            )}
+                          </div>
                         )}
                         {/* Regular stack segment */}
                         <div
-                          className={`w-full flex-1 ${
+                          className={`w-full flex-1 flex items-center justify-center ${
                             d.isLate
                               ? 'bg-gradient-to-t from-purple-600 to-indigo-500'
                               : 'bg-gradient-to-t from-blue-600 to-emerald-500'
                           }`}
                           title={`Regular: ${d.regularHours.toFixed(1)}h`}
-                        />
+                        >
+                          {totalPercent >= 28 && (
+                            <span className="text-[9px] font-mono font-black text-white drop-shadow-xs">
+                              {d.regularHours.toFixed(0)}h
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       {/* Late arrival dot indicator */}
@@ -666,7 +726,7 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
               </div>
 
               {/* X-Axis Labels */}
-              <div className="flex items-center justify-between gap-2 px-2 pt-2 text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+              <div className="flex items-center justify-between gap-2 pl-11 pr-2 pt-2 text-[10px] text-slate-500 dark:text-slate-400 font-mono">
                 {recentDaysForChart.map((d) => (
                   <div key={d.id} className="flex-1 text-center truncate">
                     <span className="font-semibold block">{d.day}</span>
