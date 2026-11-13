@@ -414,6 +414,52 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
         body: JSON.stringify(rows),
       });
     }
+  } else if (scope === 'legacy_bulk' || scope === 'full_restore') {
+    if (Array.isArray(incoming.employees) && incoming.employees.length > 0) {
+      const rows = incoming.employees.map(mapAppEmployeeToDb);
+      await supabaseFetch('/employees', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify(rows),
+      });
+    }
+    if (Array.isArray(incoming.attendance) && incoming.attendance.length > 0) {
+      const rows = incoming.attendance.map(mapAppAttendanceToDb);
+      await supabaseFetch('/attendance', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify(rows),
+      });
+    }
+    if (Array.isArray(incoming.leaves) && incoming.leaves.length > 0) {
+      const rows = incoming.leaves.map(mapAppLeaveToDb);
+      await supabaseFetch('/leaves', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify(rows),
+      });
+    }
+    if (Array.isArray(incoming.shifts) && incoming.shifts.length > 0) {
+      const rows = incoming.shifts.map(mapAppShiftToDb);
+      await supabaseFetch('/shifts', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify(rows),
+      });
+    }
+    if (incoming.settings) {
+      await supabaseFetch('/settings', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify([
+          {
+            id: 'current',
+            data: { ...incoming.settings, enforceDeviceBinding: false },
+            updated_at: new Date().toISOString(),
+          },
+        ]),
+      });
+    }
   }
 
   // Return the fresh database state

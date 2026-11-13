@@ -566,20 +566,45 @@ export default async function handler(req, res) {
   if (isSupabaseConfigured()) {
     try {
       if (req.method === 'GET') {
-        const supabaseDb = await readSupabaseDb(DEFAULT_DB);
-        if (Array.isArray(supabaseDb.attendance)) {
+        let currentSupaDb = await readSupabaseDb(DEFAULT_DB);
+
+        // If Supabase was just initialized (only 1 default admin employee), auto-migrate all 17 employees and attendance from Gist
+        if (Array.isArray(currentSupaDb.employees) && currentSupaDb.employees.length <= 1) {
+          const token = getCloudToken();
+          if (token) {
+            try {
+              const gistRes = await readFromGist(token, 'Office-Attendance-Tracker-Server', { useEtagCache: false });
+              if (gistRes.status === 'ok' && gistRes.data && Array.isArray(gistRes.data.employees) && gistRes.data.employees.length > 1) {
+                console.log(`Auto-migrating ${gistRes.data.employees.length} employees and ${gistRes.data.attendance?.length || 0} attendance records from Gist to Supabase...`);
+                const mutRes = await mutateSupabaseDb({
+                  scope: 'full_restore',
+                  employees: gistRes.data.employees,
+                  attendance: gistRes.data.attendance || [],
+                  leaves: gistRes.data.leaves || [],
+                  shifts: gistRes.data.shifts || [],
+                  settings: gistRes.data.settings || DEFAULT_DB.settings,
+                }, DEFAULT_DB);
+                currentSupaDb = mutRes.db;
+              }
+            } catch (migErr) {
+              console.warn('Gist auto-migration to Supabase skipped:', migErr);
+            }
+          }
+        }
+
+        if (Array.isArray(currentSupaDb.attendance)) {
           const { records: displayRecs } = evaluateAttendancePresenceAndAutoClose(
-            supabaseDb.attendance,
-            supabaseDb.settings,
-            supabaseDb.employees,
-            supabaseDb.shifts
+            currentSupaDb.attendance,
+            currentSupaDb.settings,
+            currentSupaDb.employees,
+            currentSupaDb.shifts
           );
           return res.status(200).json({
-            ...supabaseDb,
+            ...currentSupaDb,
             attendance: displayRecs,
           });
         }
-        return res.status(200).json(supabaseDb);
+        return res.status(200).json(currentSupaDb);
       }
 
       if (req.method === 'POST') {
