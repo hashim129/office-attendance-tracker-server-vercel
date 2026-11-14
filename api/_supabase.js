@@ -1,3 +1,4 @@
+import { checkOfficeNetwork } from './_netmatch.js';
 /**
  * Supabase (PostgreSQL) REST Adapter
  * Provides zero-dependency, atomic cloud database persistence via Supabase PostgREST API.
@@ -578,10 +579,55 @@ export function mergeSupabaseAttendanceRecord(existing, incomingRec, options = {
   return merged;
 }
 
+// ---------------------------------------------------------------------------
+// Office network lock, enforced on the SERVER (the browser check alone can be skipped).
+// A write counts as a "punch" when it adds or changes a punch-in time, punch-out time or breaks.
+// Heartbeats, verification stamps and admin notes never trigger the check.
+// ---------------------------------------------------------------------------
+function readJson(v, fallback) {
+  if (v === null || v === undefined) return fallback;
+  if (typeof v === 'string') {
+    try { return JSON.parse(v); } catch (_) { return fallback; }
+  }
+  return v;
+}
+
+function punchFieldsChanged(existing, rec) {
+  if (!existing) return Boolean(rec.timeIn || rec.timeOut);
+  const brk = (r) => JSON.stringify(r.breaks || []);
+  return (
+    (rec.timeIn || '') !== (existing.timeIn || '') && Boolean(rec.timeIn) ||
+    (rec.timeOut || '') !== (existing.timeOut || '') && Boolean(rec.timeOut) ||
+    (Array.isArray(rec.breaks) && brk(rec) !== brk(existing))
+  );
+}
+
+async function enforceOfficeNetworkForPunch(existing, rec, actorRole, clientIps) {
+  if (!Array.isArray(clientIps)) return; // internal callers (auto-punch checks its own IP)
+  if (!punchFieldsChanged(existing, rec)) return;
+
+  const setRows = await supabaseFetch('/settings?id=eq.current&select=data');
+  const settings = readJson(setRows?.[0]?.data, {}) || {};
+  if (!settings.enforceOfficeIpLock) return;
+  if (actorRole === 'admin' && (settings.allowAdminBypassIpLock ?? true)) return;
+
+  const empRows = await supabaseFetch(
+    `/employees?id=eq.${encodeURIComponent(rec.employeeId || existing?.employeeId || '')}&select=role,pending_device_request`
+  );
+  const wfh = Boolean(readJson(empRows?.[0]?.pending_device_request, null)?.allowWorkFromHome);
+  const verdict = checkOfficeNetwork({ settings, employee: { allowWorkFromHome: wfh }, ips: clientIps });
+  if (!verdict.allowed) {
+    const err = new Error(verdict.reason || 'You are not on the office network.');
+    err.status = 403;
+    err.code = verdict.code || 'OUTSIDE_OFFICE_NETWORK';
+    throw err;
+  }
+}
+
 /**
  * Applies a mutation payload directly to Supabase with ACID UPSERT / Soft-Delete
  */
-export async function mutateSupabaseDb(incoming, defaultDb) {
+export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
   const scope = incoming.scope || 'legacy_bulk';
 
   if (scope === 'attendance') {
@@ -593,6 +639,7 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
         const existingRows = await supabaseFetch(`/attendance?id=eq.${encodeURIComponent(rec.id)}&select=*`);
         const existing = existingRows?.[0] ? mapDbAttendance(existingRows[0]) : null;
 
+        await enforceOfficeNetworkForPunch(existing, rec, incoming.actorRole, ctx.clientIps);
         const mergedRec = mergeSupabaseAttendanceRecord(existing, rec, { actorRole: incoming.actorRole });
         rowsToUpsert.push(mapAppAttendanceToDb(mergedRec));
       }

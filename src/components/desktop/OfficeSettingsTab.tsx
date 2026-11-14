@@ -23,7 +23,7 @@ import {
   importDatabaseBackup,
   resetToFactoryDefaults,
 } from '../../lib/storage';
-import { detectClientNetwork } from '../../lib/ipSecurity';
+import { detectClientNetwork, describeIpRule, doesIpMatchRule, toNetworkRule } from '../../lib/ipSecurity';
 import {
   downloadWindowsBatFile,
   generatePortalLauncherBat,
@@ -54,6 +54,9 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
   const [detectedIp, setDetectedIp] = useState<string>(currentClientIp || 'Detecting...');
   const [detectedIsp, setDetectedIsp] = useState<string>(currentClientIsp || 'Detecting...');
+  const [detectedV4, setDetectedV4] = useState<string>('');
+  const [detectedV6, setDetectedV6] = useState<string>('');
+  const [serverSeen, setServerSeen] = useState<string>('');
   const [newIpInput, setNewIpInput] = useState<string>('');
   const [newIpLabelInput, setNewIpLabelInput] = useState<string>('');
 
@@ -71,25 +74,69 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
     if (currentClientIp && currentClientIp !== 'Detecting...') {
       setDetectedIp(currentClientIp);
       if (currentClientIsp) setDetectedIsp(currentClientIsp);
-    } else {
-      void detectClientNetwork().then((net) => {
-        setDetectedIp(net.ip);
-        setDetectedIsp(net.isp);
-      });
     }
+    // Always look up both address families so an office with IPv6 gets captured too
+    void detectClientNetwork().then((net) => {
+      setDetectedIp((prev) => (prev && prev !== 'Detecting...' && prev !== 'Unknown' ? prev : net.ip));
+      setDetectedIsp(net.isp);
+      setDetectedV4(net.ipv4 || '');
+      setDetectedV6(net.ipv6 || '');
+      setServerSeen(net.serverSeenIp || '');
+    });
   }, [currentClientIp, currentClientIsp]);
 
-  const getIpSubnetWildcard = (ip: string): string | null => {
-    const parts = ip.trim().split('.');
-    if (parts.length === 4) {
-      return `${parts[0]}.${parts[1]}.${parts[2]}.*`;
+  // The internet company name is never used to allow access any more - clear any old entries.
+  useEffect(() => {
+    if ((settings.allowedOfficeIsps || []).length > 0) {
+      onUpdateSettings({ ...settings, allowedOfficeIsps: [] });
     }
-    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Adds every address this device is using right now: the exact IPv4 and the IPv6 office network (/64).
+  const handleCaptureNetwork = () => {
+    const found = Array.from(
+      new Set([detectedV4, detectedV6, serverSeen].map((x) => (x ? toNetworkRule(x) : null)).filter((x): x is string => Boolean(x)))
+    );
+    const existing = formData.allowedOfficeIps || [];
+    const fresh = found.filter((rule) => !existing.some((e) => e.ip.toLowerCase() === rule.toLowerCase()));
+    if (found.length === 0) {
+      alert('Could not read this network yet. Check the internet connection and try again.');
+      return;
+    }
+    if (fresh.length === 0) {
+      alert('This network is already registered.');
+      return;
+    }
+    const today = new Date().toISOString().split('T')[0];
+    const added = fresh.map((rule) => ({
+      ip: rule,
+      label: rule.includes(':') ? 'Office IPv6 network' : 'Office public IPv4 (exact address)',
+      addedAt: today,
+    }));
+    const updated: OfficeSettings = { ...formData, allowedOfficeIps: [...existing, ...added] };
+    setFormData(updated);
+    onUpdateSettings(updated);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 3000);
   };
 
   const handleAddAllowedIp = (ipToAdd: string, labelToAdd: string) => {
     const cleanIp = ipToAdd.trim();
     if (!cleanIp || cleanIp === 'Detecting...' || cleanIp === 'Unknown') return;
+
+    const scope = describeIpRule(cleanIp);
+    if (!scope.valid) {
+      alert(`"${cleanIp}" is not a valid IP address or range.`);
+      return;
+    }
+    if (scope.level === 'broad') {
+      alert(`"${cleanIp}" is too wide (${scope.note}). Add the exact office IP instead so people at home on the same internet company cannot punch in.`);
+      return;
+    }
+    if (scope.level === 'small' && !confirm(`"${cleanIp}" allows ${scope.note}. Only continue if all of them belong to your office. Add it?`)) {
+      return;
+    }
 
     const currentList = formData.allowedOfficeIps || [];
     if (currentList.some((item) => item.ip.toLowerCase() === cleanIp.toLowerCase())) {
@@ -315,7 +362,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
               <Wifi className="w-4 h-4 text-emerald-600" />
-              <span>Office Multi-Wi-Fi, Extender & Dual-ISP Public IP Lock</span>
+              <span>Office Network Lock (exact IPv4 + IPv6)</span>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -330,17 +377,20 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
             </div>
           </div>
 
-          {/* Multi-WiFi / Extender / Ethernet Explanation Banner */}
+          {/* How the lock works */}
           <div className="p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-900/50 text-xs text-slate-700 dark:text-slate-300 space-y-1.5">
             <div className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
               <Globe className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>How Multiple Wi-Fi Extenders, Access Points & Ethernet Cables Work Automatically:</span>
+              <span>How the office is recognised</span>
             </div>
             <p className="text-[11px] leading-relaxed">
-              Even if you have <strong>10 different Wi-Fi names (extenders/repeaters) or Ethernet cables</strong> across your office, they all route out to the internet through your <strong>2 main Internet Service Providers (ISPs)</strong>. That means every Wi-Fi extender and Ethernet cable in your building shares only <strong>2 Public IP Addresses</strong> (one for Provider 1, one for Provider 2)!
+              Only your office&apos;s own <strong>public IP addresses</strong> are allowed: one IPv4 address and, if your line has it, one IPv6 network. The internet company (ISP) is <strong>never</strong> used, because every customer of that company, including employees at home, shares its name. All Wi-Fi extenders and LAN cables behind the same router share these addresses.
             </p>
             <p className="text-[11px] leading-relaxed font-medium text-emerald-700 dark:text-emerald-400">
-              ✓ Setup in 2 steps: Connect to Provider 1 and click "Authorize Provider 1" below. Then switch to Provider 2 and click "Authorize Provider 2" (or enter its IP manually). All Wi-Fi extenders and Ethernet cables on both providers will automatically work!
+              ✓ Connect to the office Wi-Fi, then press <strong>Capture this network</strong>. If you have a second internet line, repeat it while connected to that line. The check runs on the server for every punch.
+            </p>
+            <p className="text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
+              DNS servers cannot be read by a web page, so they are not part of the check. The IP addresses above are what the server can see reliably.
             </p>
           </div>
 
@@ -362,7 +412,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
                   Enforce Office Public IP Restriction
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Block employees from marking attendance unless they are on one of your authorized Office Internet Providers
+                  Block punching unless the employee is on one of the registered office addresses below (checked on the server)
                 </p>
               </div>
             </label>
@@ -383,7 +433,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
                   Allow Admin Role to Bypass IP Lock
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Lets Admins manage settings or authorize a new ISP IP even if a router restarts
+                  Lets Admins register a new office IP from anywhere, for example after the router gets a new address
                 </p>
               </div>
             </label>
@@ -394,42 +444,30 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                 <Globe className="w-3.5 h-3.5 text-blue-600" />
-                <span>Authorize Your 2 Office Internet Providers & Additional IPs</span>
+                <span>Register your office network</span>
               </label>
 
-              {detectedIp && detectedIp !== 'Detecting...' && detectedIp !== 'Unknown' && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleAddAllowedIp(
-                        detectedIp,
-                        `Office ISP (${detectedIsp !== 'Detecting...' ? detectedIsp : 'Provider 1'}) — All Extenders & LAN`
-                      )
-                    }
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors cursor-pointer"
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>+ Authorize Exact IP ({detectedIp})</span>
-                  </button>
+              <button
+                type="button"
+                onClick={handleCaptureNetwork}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors cursor-pointer"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Capture this network</span>
+              </button>
+            </div>
 
-                  {getIpSubnetWildcard(detectedIp) && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleAddAllowedIp(
-                          getIpSubnetWildcard(detectedIp)!,
-                          `ISP Dynamic Subnet (${detectedIsp !== 'Detecting...' ? detectedIsp : 'Office ISP'})`
-                        )
-                      }
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer"
-                      title="Useful if your ISP slightly changes the last digits of your IP when the router restarts"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>+ Authorize ISP Subnet ({getIpSubnetWildcard(detectedIp)})</span>
-                    </button>
-                  )}
-                </div>
+            {/* What this device is using right now */}
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="text-slate-500 dark:text-slate-400">This device right now:</span>
+              <span className="px-2 py-0.5 rounded font-mono font-bold bg-slate-900 text-emerald-400 border border-slate-700">
+                IPv4 {detectedV4 || 'none'}
+              </span>
+              <span className="px-2 py-0.5 rounded font-mono font-bold bg-slate-900 text-sky-300 border border-slate-700 max-w-full truncate">
+                IPv6 {detectedV6 || 'none'}
+              </span>
+              {serverSeen && (
+                <span className="text-slate-500 dark:text-slate-400">Server sees: <span className="font-mono font-semibold">{serverSeen}</span></span>
               )}
             </div>
 
@@ -439,7 +477,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
                   type="text"
                   value={newIpInput}
                   onChange={(e) => setNewIpInput(e.target.value)}
-                  placeholder="Enter 2nd Provider IP or Range (e.g. 175.107.239.*)"
+                  placeholder="Another office IP (e.g. 175.107.239.140 or 2400:adc5:1b5:9f00::/64)"
                   className="w-full text-xs font-mono px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                 />
               </div>
@@ -448,7 +486,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
                   type="text"
                   value={newIpLabelInput}
                   onChange={(e) => setNewIpLabelInput(e.target.value)}
-                  placeholder="Label (e.g. ISP Provider 2 — All Extenders & Ethernet)"
+                  placeholder="Label (e.g. Second internet line)"
                   className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                 />
               </div>
@@ -470,23 +508,22 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
           <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
             <div className="bg-slate-50 dark:bg-slate-800/70 px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Authorized Office Internet Providers & Public IPs ({(formData.allowedOfficeIps || []).length})
+                Authorized office addresses ({(formData.allowedOfficeIps || []).length})
               </span>
               <span className="text-[11px] text-slate-500">
-                Covers all Wi-Fi extenders & Ethernet cables under these IPs
+                Covers every Wi-Fi extender & LAN cable behind them
               </span>
             </div>
 
             {(formData.allowedOfficeIps || []).length === 0 ? (
               <div className="p-5 text-center text-xs text-slate-500 dark:text-slate-400">
-                No Office Provider IPs added yet. Click <strong>"+ Authorize Exact IP"</strong> or <strong>"+ Authorize ISP Subnet"</strong> above for Provider 1, then add Provider 2.
+                No office address registered yet. While connected to the office Wi-Fi, press <strong>Capture this network</strong>. Until then employees cannot punch in.
               </div>
             ) : (
               <div className="divide-y divide-slate-200 dark:divide-slate-800">
                 {(formData.allowedOfficeIps || []).map((item) => {
-                  const isCurrentMatch =
-                    item.ip === detectedIp ||
-                    (item.ip.includes('*') && detectedIp.startsWith(item.ip.split('*')[0]));
+                  const isCurrentMatch = [detectedV4, detectedV6, serverSeen].some((x) => x && doesIpMatchRule(x, item.ip));
+                  const scope = describeIpRule(item.ip);
                   return (
                     <div
                       key={item.ip}
@@ -505,7 +542,9 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] text-slate-400">Added on {item.addedAt}</div>
+                          <div className={`text-[10px] ${scope.level === 'broad' || scope.level === 'invalid' ? 'text-rose-600 font-semibold' : 'text-slate-400'}`}>
+                            {scope.note} · Added on {item.addedAt}
+                          </div>
                         </div>
                       </div>
 

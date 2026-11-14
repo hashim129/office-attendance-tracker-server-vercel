@@ -6,102 +6,147 @@ export interface ClientNetworkIdentity {
   ipv6?: string;
   isp: string;
   asn: string;
+  /** The address our own server sees for this device (this is what the server-side lock checks). */
+  serverSeenIp?: string;
 }
 
-/**
- * Normalizes an IPv6 address into lowercase hex groups without leading zeros.
- * Expands '::' abbreviations to reconstruct all 8 16-bit groups.
- */
-export function normalizeIpv6(ip: string): string[] | null {
-  const clean = ip.trim().toLowerCase();
-  if (!clean.includes(':')) return null;
+// Exact office-network matching (IPv4 + IPv6). Mirrors api/_netmatch.js - keep the two in sync.
+// The office is identified ONLY by its public IP addresses; an internet company name never grants access.
 
-  // Strip trailing colons, CIDR, or wildcards
-  const base = clean.split('*')[0].split('/')[0].replace(/:+$/, '');
-  const parts = base.split('::');
-  const left = parts[0] ? parts[0].split(':').filter(Boolean) : [];
-  const right = parts[1] ? parts[1].split(':').filter(Boolean) : [];
-  const missing = 8 - (left.length + right.length);
-  const middle = missing > 0 && parts.length > 1 ? new Array(missing).fill('0') : [];
-  const full = [...left, ...middle, ...right];
+const ZERO = BigInt(0);
 
-  try {
-    return full.map((g) => parseInt(g || '0', 16).toString(16));
-  } catch {
-    return null;
+function parseV4(s: string): bigint | null {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);
+  if (!m) return null;
+  let n: bigint = ZERO;
+  for (let i = 1; i <= 4; i++) {
+    const o = Number(m[i]);
+    if (o > 255) return null;
+    n = (n << BigInt(8)) | BigInt(o);
   }
+  return n;
 }
 
-/**
- * Checks whether a single IP matches an allowed IP rule.
- * Supports:
- * - Exact match: "175.107.239.140"
- * - Wildcard IPv4: "175.107.239.*" or "175.107.*"
- * - IPv4 CIDR: "175.107.239.0/24" or "/16"
- * - IPv6 Subnet: Matches standard /64 office Wi-Fi prefix (first 4 groups),
- *   allowing all devices on the same office IPv6 router to connect without
- *   being blocked by SLAAC/RFC 4941 randomized device privacy extensions.
- * - IPv6 Wildcard: "2400:adc5:1b5:9f00:*"
- * - IPv6 CIDR: "/64", "/56", "/48"
- */
+function parseV6(s: string): bigint | null {
+  let str = s;
+  let tailV4: bigint | null = null;
+  const lastColon = str.lastIndexOf(':');
+  if (str.includes('.') && lastColon >= 0) {
+    tailV4 = parseV4(str.slice(lastColon + 1));
+    if (tailV4 === null) return null;
+    str = str.slice(0, lastColon + 1) + '0:0';
+  }
+  const halves = str.split('::');
+  if (halves.length > 2) return null;
+  const toGroups = (h: string) => (h === '' ? [] : h.split(':'));
+  const left = toGroups(halves[0]);
+  const right = halves.length === 2 ? toGroups(halves[1]) : [];
+  const missing = 8 - left.length - right.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
+  const groups = [...left, ...new Array<string>(halves.length === 2 ? missing : 0).fill('0'), ...right];
+  if (groups.length !== 8) return null;
+  let n: bigint = ZERO;
+  for (const g of groups) {
+    if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+    n = (n << BigInt(16)) | BigInt(parseInt(g, 16));
+  }
+  if (tailV4 !== null) n = (n & ~BigInt(0xffffffff)) | tailV4;
+  return n;
+}
+
+/** -> { v: 4 | 6, n: bigint } or null */
+export function parseIp(raw: string): { v: 4 | 6; n: bigint } | null {
+  let s = String(raw || '').trim().toLowerCase();
+  if (!s) return null;
+  s = s.replace(/^\[|\]$/g, '').split('%')[0];
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(s);
+  if (mapped) s = mapped[1];
+  if (s.includes(':')) {
+    const n = parseV6(s);
+    return n === null ? null : { v: 6, n };
+  }
+  const n = parseV4(s);
+  return n === null ? null : { v: 4, n };
+}
+
+/** -> { v, base, bits } or null (invalid or dangerously broad) */
+export function parseRule(raw: string): { v: 4 | 6; base: bigint; bits: number } | null {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return null;
+
+  if (s.includes('*')) {
+    const pre = s.split('*')[0].replace(/[.:]+$/, '');
+    if (!pre) return null;
+    if (pre.includes(':')) {
+      const groups = pre.split(':').filter((g) => g !== '');
+      if (groups.length < 2 || groups.length > 7 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null;
+      const n = parseV6(groups.join(':') + new Array<string>(8 - groups.length).fill(':0').join(''));
+      return n === null ? null : { v: 6, base: n, bits: groups.length * 16 };
+    }
+    const octets = pre.split('.');
+    if (octets.length < 1 || octets.length > 3 || octets.some((o) => !/^\d{1,3}$/.test(o) || Number(o) > 255)) return null;
+    const padded = [...octets, ...new Array<string>(4 - octets.length).fill('0')].join('.');
+    const n = parseV4(padded);
+    return n === null ? null : { v: 4, base: n, bits: octets.length * 8 };
+  }
+
+  if (s.includes('/')) {
+    const [addr, bitsStr] = s.split('/');
+    const ip = parseIp(addr);
+    const bits = Number(bitsStr);
+    if (!ip || !Number.isInteger(bits)) return null;
+    if (ip.v === 4 && (bits < 8 || bits > 32)) return null;
+    if (ip.v === 6 && (bits < 32 || bits > 128)) return null;
+    return { v: ip.v, base: ip.n, bits };
+  }
+
+  const ip = parseIp(s);
+  if (!ip) return null;
+  return { v: ip.v, base: ip.n, bits: ip.v === 4 ? 32 : 64 };
+}
+
 export function doesIpMatchRule(clientIp: string, ruleIp: string): boolean {
-  const cleanClient = String(clientIp || '').trim().toLowerCase();
-  const cleanRule = String(ruleIp || '').trim().toLowerCase();
+  const c = parseIp(clientIp);
+  const r = parseRule(ruleIp);
+  if (!c || !r || c.v !== r.v) return false;
+  const total = r.v === 4 ? 32 : 128;
+  const shift = BigInt(total - r.bits);
+  return c.n >> shift === r.base >> shift;
+}
 
-  if (!cleanClient || !cleanRule) return false;
-  if (cleanClient === cleanRule) return true;
-
-  // 1. IPv6 Subnet & Wildcard Matching
-  if (cleanClient.includes(':') && cleanRule.includes(':')) {
-    const cNorm = normalizeIpv6(cleanClient);
-    const rNorm = normalizeIpv6(cleanRule);
-    if (cNorm && rNorm) {
-      let requiredGroups = 4; // Standard IPv6 office router subnet is /64 (first 4 groups)
-      if (cleanRule.includes('/48')) requiredGroups = 3;
-      else if (cleanRule.includes('/56')) requiredGroups = 4;
-      else if (cleanRule.includes('/64')) requiredGroups = 4;
-      else if (cleanRule.includes('*')) {
-        const pre = cleanRule.split('*')[0].replace(/:+$/, '');
-        requiredGroups = pre.split(':').filter(Boolean).length || 4;
-      }
-
-      const count = Math.min(requiredGroups, cNorm.length, rNorm.length);
-      let match = true;
-      for (let i = 0; i < count; i++) {
-        if (cNorm[i] !== rNorm[i]) {
-          match = false;
-          break;
-        }
-      }
-      if (match) return true;
-    }
+/** Describes how wide a rule is, so the admin screen can warn before it lets other customers in. */
+export function describeIpRule(ruleIp: string): { valid: boolean; level: "exact" | "small" | "broad" | "invalid"; family: 4 | 6 | null; bits: number; note: string } {
+  const r = parseRule(ruleIp);
+  if (!r) return { valid: false, level: 'invalid', family: null, bits: 0, note: 'Not a valid IP address or range' };
+  if (r.v === 4) {
+    if (r.bits === 32) return { valid: true, level: 'exact', family: 4, bits: r.bits, note: 'Exactly one IPv4 address' };
+    const count = Math.pow(2, 32 - r.bits);
+    if (r.bits >= 28) return { valid: true, level: 'small', family: 4, bits: r.bits, note: `${count} addresses` };
+    return {
+      valid: true,
+      level: 'broad',
+      family: 4,
+      bits: r.bits,
+      note: `${count.toLocaleString('en-US')} addresses - other customers of your internet company are included`,
+    };
   }
+  if (r.bits >= 64) return { valid: true, level: 'exact', family: 6, bits: r.bits, note: 'Your office IPv6 network (one LAN)' };
+  if (r.bits >= 56) return { valid: true, level: 'small', family: 6, bits: r.bits, note: 'A small IPv6 block' };
+  return { valid: true, level: 'broad', family: 6, bits: r.bits, note: 'A very large IPv6 block - other customers may be included' };
+}
 
-  // 2. IPv4 Wildcard matching e.g. 175.107.239.*
-  if (cleanRule.includes('*')) {
-    const prefix = cleanRule.split('*')[0];
-    if (prefix && cleanClient.startsWith(prefix)) {
-      return true;
-    }
+
+/** The rule to store for a detected address: IPv4 is exact, IPv6 becomes its /64 office network. */
+export function toNetworkRule(ip: string): string | null {
+  const parsed = parseIp(ip);
+  if (!parsed) return null;
+  if (parsed.v === 4) {
+    const n = parsed.n;
+    return [24, 16, 8, 0].map((sh) => Number((n >> BigInt(sh)) & BigInt(255))).join('.');
   }
-
-  // 3. IPv4 CIDR matching (/24 or /16)
-  if (cleanRule.includes('/') && !cleanRule.includes(':')) {
-    const [baseIp, bitsStr] = cleanRule.split('/');
-    const bits = parseInt(bitsStr, 10);
-    const clientParts = cleanClient.split('.');
-    const baseParts = baseIp.split('.');
-    if (clientParts.length === 4 && baseParts.length === 4) {
-      if (bits === 24 && clientParts.slice(0, 3).join('.') === baseParts.slice(0, 3).join('.')) {
-        return true;
-      }
-      if (bits === 16 && clientParts.slice(0, 2).join('.') === baseParts.slice(0, 2).join('.')) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  const groups: string[] = [];
+  for (let i = 7; i >= 4; i--) groups.push(((parsed.n >> BigInt(i * 16)) & BigInt(0xffff)).toString(16));
+  return `${groups.join(':')}::/64`;
 }
 
 /**
@@ -115,6 +160,7 @@ export async function detectClientNetwork(): Promise<ClientNetworkIdentity> {
   let detectedIpv6: string | undefined;
   let detectedIsp = 'Unknown ISP';
   let detectedAsn = '';
+  let serverSeenIp: string | undefined;
 
   // 1. Query origin /api/my-ip (zero rate limits, fast, same origin)
   const myIpPromise = (async () => {
@@ -124,6 +170,7 @@ export async function detectClientNetwork(): Promise<ClientNetworkIdentity> {
         const data = await res.json();
         if (data && typeof data.ip === 'string' && data.ip.trim()) {
           const ipStr = data.ip.trim();
+          serverSeenIp = ipStr;
           if (ipStr.includes(':')) {
             detectedIpv6 = ipStr;
           } else {
@@ -184,7 +231,26 @@ export async function detectClientNetwork(): Promise<ClientNetworkIdentity> {
     } catch {}
   })();
 
-  await Promise.allSettled([myIpPromise, ipwhoPromise, ipifyV4Promise]);
+  // 4. IPv6-only endpoint: succeeds only when this network really has IPv6
+  const ipifyV6Promise = (async () => {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3500);
+      const res = await fetch('https://api6.ipify.org?format=json', {
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data.ip === 'string' && data.ip.includes(':')) {
+          detectedIpv6 = data.ip.trim();
+        }
+      }
+    } catch {}
+  })();
+
+  await Promise.allSettled([myIpPromise, ipwhoPromise, ipifyV4Promise, ipifyV6Promise]);
 
   // Fallback ISP resolution by ASN if name was not retrieved
   if (detectedIsp === 'Unknown ISP' && detectedAsn) {
@@ -206,6 +272,7 @@ export async function detectClientNetwork(): Promise<ClientNetworkIdentity> {
     ipv6: detectedIpv6,
     isp: detectedIsp,
     asn: detectedAsn,
+    serverSeenIp,
   };
 }
 
@@ -218,36 +285,15 @@ export async function detectClientIp(): Promise<string> {
 }
 
 /**
- * Checks whether an ISP name matches a configured rule or common aliases
- */
-function doesIspMatch(clientIsp: string, ruleIsp: string): boolean {
-  const c = clientIsp.toLowerCase().replace(/[^\w]/g, '');
-  const r = ruleIsp.toLowerCase().replace(/[^\w]/g, '');
-  if (!c || !r) return false;
-  if (c.includes(r) || r.includes(c)) return true;
-
-  // Specific alias matching for Pakistani ISPs
-  const isCybernet = (s: string) => s.includes('cyber') || s.includes('cybernet');
-  const isPtcl = (s: string) => s.includes('ptcl') || s.includes('pakistantelecom');
-  const isNayatel = (s: string) => s.includes('nayatel');
-  const isStormFiber = (s: string) => s.includes('stormfiber');
-
-  if (isCybernet(c) && isCybernet(r)) return true;
-  if (isPtcl(c) && isPtcl(r)) return true;
-  if (isNayatel(c) && isNayatel(r)) return true;
-  if (isStormFiber(c) && isStormFiber(r)) return true;
-
-  return false;
-}
-
-/**
- * Evaluates whether the current user, IP (IPv4 and/or IPv6), and ISP are allowed to mark attendance.
+ * Evaluates whether the current user is on the office network (IPv4 and/or IPv6).
+ * The internet company (ISP) is shown for information only and NEVER grants access.
+ * The server repeats this check on every punch, so this is the friendly early warning.
  */
 export function verifyOfficeIpAccess(
   clientIp: string,
   settings: OfficeSettings,
   user?: Employee | null,
-  clientIsp?: string,
+  _clientIsp?: string,
   alternateIp?: string
 ): {
   allowed: boolean;
@@ -258,73 +304,41 @@ export function verifyOfficeIpAccess(
     return { allowed: true, matchedLabel: 'IP Lock Disabled' };
   }
 
-  // 1. Check if Work From Home (WFH) is enabled for this specific employee
   if (user?.allowWorkFromHome) {
+    return { allowed: true, matchedLabel: 'Work From Home (WFH Remote Allowed)' };
+  }
+
+  if (user?.role === 'admin' && (settings.allowAdminBypassIpLock ?? true)) {
+    return { allowed: true, matchedLabel: 'Admin Remote Bypass' };
+  }
+
+  const rules = settings.allowedOfficeIps || [];
+  const candidates = Array.from(
+    new Set(
+      [clientIp, alternateIp].filter(
+        (ip): ip is string => Boolean(ip && ip !== 'Unknown' && ip !== 'Detecting...' && parseIp(ip))
+      )
+    )
+  );
+
+  if (rules.length === 0) {
     return {
-      allowed: true,
-      matchedLabel: 'Work From Home (WFH Remote Allowed)',
+      allowed: false,
+      reason:
+        'No office network has been registered yet. Ask the administrator to open Office Settings on the office Wi-Fi and press "Capture this network".',
     };
   }
 
-  // 2. Check if Admin bypass is enabled for Admin role
-  if (user?.role === 'admin' && settings.allowAdminBypassIpLock) {
-    return {
-      allowed: true,
-      matchedLabel: 'Admin Remote Bypass',
-    };
-  }
-
-  const allowedList = settings.allowedOfficeIps || [];
-  const allowedIsps = settings.allowedOfficeIsps || [];
-
-  if (allowedList.length === 0 && allowedIsps.length === 0) {
-    return {
-      allowed: true,
-      matchedLabel: 'No IPs/ISPs configured yet',
-    };
-  }
-
-  // Collect candidate IPs (handles dual-stack IPv4 and IPv6)
-  const candidateIps = Array.from(new Set([clientIp, alternateIp].filter((ip): ip is string => Boolean(ip && ip !== 'Unknown' && ip !== 'Detecting...'))));
-
-  // 3. Check if ANY candidate IP matches any configured Office IP / Subnet
-  for (const item of allowedList) {
-    for (const ip of candidateIps) {
-      if (doesIpMatchRule(ip, item.ip)) {
-        return {
-          allowed: true,
-          matchedLabel: item.label || `Authorized Office IP (${item.ip})`,
-        };
+  for (const rule of rules) {
+    for (const ip of candidates) {
+      if (doesIpMatchRule(ip, rule.ip)) {
+        return { allowed: true, matchedLabel: rule.label || `Office network (${rule.ip})` };
       }
     }
   }
 
-  // 4. Check if the ISP matches any configured Office Internet Provider
-  if (clientIsp && clientIsp !== 'Unknown ISP' && clientIsp !== 'Detected via IP') {
-    // 4a. Match against explicit allowedOfficeIsps list
-    for (const ispItem of allowedIsps) {
-      if (doesIspMatch(clientIsp, ispItem.ispName)) {
-        return {
-          allowed: true,
-          matchedLabel: `${ispItem.label || 'Authorized Office ISP'} (${ispItem.ispName})`,
-        };
-      }
-    }
-
-    // 4b. Match against ISP mentions in IP rule labels (e.g. "Office ISP (Cyber Internet Services)")
-    for (const item of allowedList) {
-      if (item.label && doesIspMatch(clientIsp, item.label)) {
-        return {
-          allowed: true,
-          matchedLabel: item.label,
-        };
-      }
-    }
-  }
-
-  const displayIp = candidateIps.join(' / ') || clientIp || 'Unknown';
   return {
     allowed: false,
-    reason: `Your current network (IP: ${displayIp}${clientIsp && clientIsp !== 'Unknown ISP' ? `, ISP: ${clientIsp}` : ''}) is not recognized as an authorized Office Internet Provider. Please connect to an Office Wi-Fi, Extender, or Office Ethernet cable to mark attendance.`,
+    reason: `You are not on the office network (your IP: ${candidates.join(' / ') || 'unknown'}). Connect to the office Wi-Fi or LAN cable and try again.`,
   };
 }
