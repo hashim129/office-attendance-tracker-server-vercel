@@ -36,6 +36,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   const isAdmin = currentUser.role === 'admin';
   const isCeo = currentUser.role === 'ceo';
   const isAccounts = currentUser.role === 'accounts';
+  const [activeTeamSource, setActiveTeamSource] = useState<'workspace' | 'ceo' | 'admin'>(() => (isAdmin ? 'admin' : isCeo ? 'ceo' : 'workspace'));
 
   // Sliding highlight that glides to whichever menu item is active
   const navRef = useRef<HTMLDivElement | null>(null);
@@ -54,9 +55,10 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       window.removeEventListener('resize', measure);
       window.clearTimeout(t);
     };
-  }, [activeTab, currentUser.role, pendingLeavesCount]);
+  }, [activeTab, currentUser.role, pendingLeavesCount, activeTeamSource]);
 
-  const handleTabClick = (tab: ActiveDesktopTab) => {
+  const handleTabClick = (tab: ActiveDesktopTab, teamSource?: 'workspace' | 'ceo' | 'admin') => {
+    if (teamSource) setActiveTeamSource(teamSource);
     onSelectTab(tab);
     onCloseMobile?.();
   };
@@ -70,9 +72,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         />
       )}
       <aside
-        className={`${
-          isMobileOpen ? 'fixed inset-y-0 left-0 z-50 flex shadow-2xl' : 'hidden'
-        } md:static md:flex w-64 bg-slate-50/95 md:bg-slate-50/70 dark:bg-slate-900/95 md:dark:bg-slate-900/60 border-r border-slate-200 dark:border-slate-800 flex-col shrink-0 select-none`}
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ease-in-out ${isMobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'} md:static md:translate-x-0 md:flex md:flex-col w-64 bg-slate-50/95 md:bg-slate-50/70 dark:bg-slate-900/95 md:dark:bg-slate-900/60 border-r border-slate-200 dark:border-slate-800 shrink-0 select-none`}
       >
       {/* Brand & Office Server Header */}
       <div className="p-4 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-2">
@@ -102,14 +102,15 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       </div>
 
       {/* Nav List */}
-      <div ref={navRef} className="nav-scope flex-1 py-4 px-3 space-y-6 overflow-y-auto" onClick={(e) => {
+      <div ref={navRef} className="nav-scope relative flex-1 pt-2 pb-4 px-3 overflow-y-auto" onClick={(e) => {
         const btn = (e.target as HTMLElement).closest('button');
         if (btn && onCloseMobile) onCloseMobile();
       }}>
         {pills.map((p, i) => (
-          <div key={i} className="nav-pill" style={{ top: p.top, height: p.height }} aria-hidden="true" />
+          <div key={i} className="nav-pill absolute left-3 right-3 pointer-events-none" style={{ top: p.top, height: p.height }} aria-hidden="true" />
         ))}
-        {/* Employee Section (Available to All) */}
+        <div className="space-y-6">
+          {/* Employee Section (Available to All) */}
         <div>
           <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">
             My Workspace
@@ -140,12 +141,13 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             </button>
 
             <button
-              onClick={() => onSelectTab('team-attendance')}
+              onClick={() => handleTabClick('team-attendance', 'workspace')}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                activeTab === 'team-attendance'
+                activeTab === 'team-attendance' && activeTeamSource === 'workspace'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
               }`}
+              data-active={activeTab === 'team-attendance' && activeTeamSource === 'workspace' ? 'true' : undefined}
               title="View all employees' time in and presence status"
             >
               <UserCheck className="w-4 h-4 shrink-0" />
@@ -287,13 +289,14 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             </p>
             <div className="space-y-1">
               <button
-                onClick={() => onSelectTab('team-attendance')}
+                onClick={() => handleTabClick('team-attendance', 'admin')}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                  activeTab === 'team-attendance'
+                  activeTab === 'team-attendance' && activeTeamSource === 'admin'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
                 }`}
-              >
+              data-active={activeTab === 'team-attendance' && activeTeamSource === 'admin' ? 'true' : undefined}
+                >
                 <UserCheck className="w-4 h-4 shrink-0" />
                 <span>Team Roster & Logs</span>
               </button>
@@ -369,6 +372,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             </div>
           </div>
         )}
+      </div>
       </div>
 
       {/* Footer Status */}
