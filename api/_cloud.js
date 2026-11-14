@@ -500,61 +500,7 @@ export function normalizeIpv6(ip) {
   }
 }
 
-export function doesIpMatchRule(clientIp, ruleIp) {
-  const cleanClient = String(clientIp || '').trim().toLowerCase();
-  const cleanRule = String(ruleIp || '').trim().toLowerCase();
-  if (!cleanClient || !cleanRule) return false;
-  if (cleanClient === cleanRule) return true;
-
-  // 1. IPv6 Subnet & Wildcard Matching (/64 standard office Wi-Fi subnet)
-  if (cleanClient.includes(':') && cleanRule.includes(':')) {
-    const cNorm = normalizeIpv6(cleanClient);
-    const rNorm = normalizeIpv6(cleanRule);
-    if (cNorm && rNorm) {
-      let requiredGroups = 4; // /64
-      if (cleanRule.includes('/48')) requiredGroups = 3;
-      else if (cleanRule.includes('/56')) requiredGroups = 4;
-      else if (cleanRule.includes('/64')) requiredGroups = 4;
-      else if (cleanRule.includes('*')) {
-        const pre = cleanRule.split('*')[0].replace(/:+$/, '');
-        requiredGroups = pre.split(':').filter(Boolean).length || 4;
-      }
-      const count = Math.min(requiredGroups, cNorm.length, rNorm.length);
-      let match = true;
-      for (let i = 0; i < count; i++) {
-        if (cNorm[i] !== rNorm[i]) {
-          match = false;
-          break;
-        }
-      }
-      if (match) return true;
-    }
-  }
-
-  // 2. IPv4 Wildcard matching e.g. 175.107.239.*
-  if (cleanRule.includes('*')) {
-    const prefix = cleanRule.split('*')[0];
-    if (prefix && cleanClient.startsWith(prefix)) return true;
-  }
-
-  // 3. IPv4 CIDR matching (/24 or /16)
-  if (cleanRule.includes('/') && !cleanRule.includes(':')) {
-    const [baseIp, bitsStr] = cleanRule.split('/');
-    const bits = parseInt(bitsStr, 10);
-    const clientParts = cleanClient.split('.');
-    const baseParts = baseIp.split('.');
-    if (clientParts.length === 4 && baseParts.length === 4) {
-      if (bits === 24 && clientParts.slice(0, 3).join('.') === baseParts.slice(0, 3).join('.')) {
-        return true;
-      }
-      if (bits === 16 && clientParts.slice(0, 2).join('.') === baseParts.slice(0, 2).join('.')) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
+export { doesIpMatchRule } from './_netmatch.js';
 
 export function getClientIp(req) {
   const forwarded = req.headers['x-forwarded-for'];

@@ -628,7 +628,7 @@ export function flushPendingCloudWrites(options?: { respectCooldown?: boolean })
           // If the server explicitly rejected the write due to a conflict or validation (400 or 409),
           // do NOT retry forever. Pop the rejected item from the outbox so the queue isn't permanently blocked,
           // notify listeners, and pull the authoritative server state to reconcile local storage.
-          if (res.status === 400 || res.status === 409) {
+          if (res.status === 400 || res.status === 403 || res.status === 409) {
             const consumedSet = new Set(consumedIds);
             const latestQueue = readOutbox();
             const remaining = latestQueue.filter((q) => !consumedSet.has(q.id));

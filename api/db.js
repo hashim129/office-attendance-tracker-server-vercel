@@ -646,7 +646,16 @@ export default async function handler(req, res) {
 
       if (req.method === 'POST') {
         const incoming = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-        const result = await mutateSupabaseDb(incoming, DEFAULT_DB);
+        // Every address we can see for this request (Vercel overwrites these headers, so they cannot be faked)
+        const seen = [
+          req.headers['x-vercel-forwarded-for'],
+          req.headers['x-real-ip'],
+          typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',')[0] : '',
+        ]
+          .map((x) => String(x || '').trim().replace(/^::ffff:/, ''))
+          .filter(Boolean);
+        if (seen.length === 0 && req.socket?.remoteAddress) seen.push(String(req.socket.remoteAddress).replace(/^::ffff:/, ''));
+        const result = await mutateSupabaseDb(incoming, DEFAULT_DB, { clientIps: Array.from(new Set(seen)) });
         return res.status(200).json({
           ok: true,
           updatedAt: result.db.updatedAt,
@@ -657,7 +666,7 @@ export default async function handler(req, res) {
       return res.status(405).json({ error: 'Method not allowed' });
     } catch (err) {
       console.error('Supabase operation error:', err);
-      return res.status(err.status || 500).json({ error: err.message || 'Supabase operation failed.' });
+      return res.status(err.status || 500).json({ error: err.message || 'Supabase operation failed.', code: err.code });
     }
   }
 
