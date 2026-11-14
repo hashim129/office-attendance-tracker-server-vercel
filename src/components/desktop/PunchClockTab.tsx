@@ -533,37 +533,49 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
           <div className="space-y-2">
             {/* 1. Office Wi-Fi Public IP Verification Banner */}
             {settings.enforceOfficeIpLock && (
-              <div
-                className={`p-3 rounded-xl border flex items-start justify-between gap-3 ${
-                  isPunchBlockedByIp
-                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200'
-                    : 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50 text-emerald-800 dark:text-emerald-200'
-                }`}
-              >
-                <div className="flex items-start gap-2.5">
-                  {isPunchBlockedByIp ? (
+              isPunchBlockedByIp ? (
+                /* Everyone sees the blocked message, but employees don't see raw IP */
+                <div className="p-3 rounded-xl border flex items-start justify-between gap-3 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200">
+                  <div className="flex items-start gap-2.5">
                     <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                  ) : (
-                    <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                  )}
-                  <div className="text-xs">
-                    <div className="font-bold">
-                      {isPunchBlockedByIp
-                        ? 'Attendance Locked — Unauthorized Network IP'
-                        : `Verified Office Wi-Fi (${ipCheck.matchedLabel || 'Authorized Office Network'})`}
+                    <div className="text-xs">
+                      <div className="font-bold">Attendance Locked — Unauthorized Network</div>
+                      <p className="text-[11px] opacity-90 mt-0.5">
+                        {currentUser.role === 'admin' || currentUser.role === 'ceo'
+                          ? ipCheck.reason
+                          : 'Please connect to the authorized Office Wi-Fi network to mark attendance.'}
+                      </p>
                     </div>
-                    <p className="text-[11px] opacity-90 mt-0.5">
-                      {isPunchBlockedByIp
-                        ? ipCheck.reason
-                        : 'Your connection matches an authorized Office Wi-Fi network.'}
-                    </p>
                   </div>
+                  {(currentUser.role === 'admin' || currentUser.role === 'ceo') && (
+                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 border border-current/20 shrink-0">
+                      IP: {currentClientIp}
+                      {currentClientIsp && currentClientIsp !== 'Unknown ISP' && currentClientIsp !== 'Detected via IP' ? ` · ${currentClientIsp}` : ''}
+                    </span>
+                  )}
                 </div>
-                <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 border border-current/20 shrink-0">
-                  IP: {currentClientIp}
-                  {currentClientIsp && currentClientIsp !== 'Unknown ISP' && currentClientIsp !== 'Detected via IP' ? ` · ${currentClientIsp}` : ''}
-                </span>
-              </div>
+              ) : (
+                /* Verified — only admin/CEO see the full green banner with IP */
+                (currentUser.role === 'admin' || currentUser.role === 'ceo') && (
+                  <div className="p-3 rounded-xl border flex items-start justify-between gap-3 bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50 text-emerald-800 dark:text-emerald-200">
+                    <div className="flex items-start gap-2.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <div className="text-xs">
+                        <div className="font-bold">
+                          {`Verified Office Wi-Fi (${ipCheck.matchedLabel || 'Authorized Office Network'})`}
+                        </div>
+                        <p className="text-[11px] opacity-90 mt-0.5">
+                          Your connection matches an authorized Office Wi-Fi network.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 border border-current/20 shrink-0">
+                      IP: {currentClientIp}
+                      {currentClientIsp && currentClientIsp !== 'Unknown ISP' && currentClientIsp !== 'Detected via IP' ? ` · ${currentClientIsp}` : ''}
+                    </span>
+                  </div>
+                )
+              )
             )}
           </div>
 
