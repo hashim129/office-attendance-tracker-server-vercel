@@ -45,7 +45,7 @@ export function isSupabaseConfigured() {
   return getSupabaseConfig().isConfigured;
 }
 
-export async function supabaseFetch(endpoint, options = {}) {
+async function supabaseFetch(endpoint, options = {}) {
   const { url, key } = getSupabaseConfig();
   if (!url || !key) {
     throw new Error('Supabase credentials not configured in environment variables.');
@@ -99,15 +99,6 @@ function getDayNameFromDate(dateStr) {
 /**
  * Maps PostgreSQL snake_case columns back to application camelCase objects
  */
-// jsonb-safe reader: values previously saved as JSON *strings* are parsed back.
-function readJson(v, fallback) {
-  if (v === null || v === undefined) return fallback;
-  if (typeof v === 'string') {
-    try { return JSON.parse(v); } catch (_) { return fallback; }
-  }
-  return v;
-}
-
 function mapDbEmployee(r) {
   if (!r) return null;
   let pendingObj = null;
@@ -147,7 +138,7 @@ function mapDbEmployee(r) {
     registeredAt: r.registered_at || undefined,
     deviceBoundApprovedBy: r.device_bound_approved_by || undefined,
     deviceBoundApprovedAt: r.device_bound_approved_at || undefined,
-    deviceChangeHistory: (() => { const v = readJson(r.device_change_history, []); return Array.isArray(v) ? v : []; })(),
+    deviceChangeHistory: Array.isArray(r.device_change_history) ? r.device_change_history : [],
     pendingDeviceRequest: pendingObj || undefined,
     recordUpdatedAt: r.record_updated_at || undefined,
     lastEditedByRole: r.last_edited_by_role || undefined,
@@ -184,10 +175,11 @@ function mapAppEmployeeToDb(e) {
     registered_at: e.registeredAt || null,
     device_bound_approved_by: e.deviceBoundApprovedBy || null,
     device_bound_approved_at: e.deviceBoundApprovedAt || null,
-    device_change_history: e.deviceChangeHistory || [],
-    pending_device_request: pendingWithWfh,
+    device_change_history: JSON.stringify(e.deviceChangeHistory || []),
+    pending_device_request: JSON.stringify(pendingWithWfh),
     record_updated_at: e.recordUpdatedAt || new Date().toISOString(),
     last_edited_by_role: e.lastEditedByRole || 'admin',
+    deleted_at: null,
   };
 }
 
@@ -225,7 +217,7 @@ function calculateWorkedMinutes(timeIn, timeOut, breaks, expectedShiftHours = 8)
 
 function mapDbAttendance(r) {
   if (!r) return null;
-  const breaks = (() => { const v = readJson(r.breaks, []); return Array.isArray(v) ? v : []; })();
+  const breaks = Array.isArray(r.breaks) ? r.breaks : (typeof r.breaks === 'string' ? JSON.parse(r.breaks || '[]') : []);
   let totalWorked = Number(r.total_worked_minutes) || 0;
   let regular = Number(r.regular_minutes) || 0;
   let overtime = Number(r.overtime_minutes) || 0;
@@ -253,8 +245,8 @@ function mapDbAttendance(r) {
     isDeviceMismatch: Boolean(r.is_device_mismatch),
     isAutoPunchedOut: Boolean(r.is_auto_punched_out),
     monitoringPaused: Boolean(r.monitoring_paused),
-    adminVerification: readJson(r.admin_verification, undefined) || undefined,
-    accountsVerification: readJson(r.accounts_verification, undefined) || undefined,
+    adminVerification: r.admin_verification || undefined,
+    accountsVerification: r.accounts_verification || undefined,
     lastHeartbeatAt: r.last_heartbeat_at || undefined,
     lastActivityAt: r.last_activity_at || undefined,
     recordUpdatedAt: r.record_updated_at || undefined,
@@ -277,7 +269,7 @@ function mapAppAttendanceToDb(a) {
     time_out: a.timeOut || a.time_out || null,
     status: a.status || 'absent',
     notes: a.notes || '',
-    breaks: a.breaks || [],
+    breaks: JSON.stringify(a.breaks || []),
     device_id: a.deviceId || a.device_id || null,
     device_name: a.deviceName || a.device_name || null,
     is_device_mismatch: Boolean(a.isDeviceMismatch ?? a.is_device_mismatch),
@@ -285,8 +277,8 @@ function mapAppAttendanceToDb(a) {
     auto_punch_out_reason: a.autoPunchOutReason || a.auto_punch_out_reason || null,
     disconnected_at: a.disconnectedAt || a.disconnected_at || null,
     monitoring_paused: Boolean(a.monitoringPaused ?? a.monitoring_paused),
-    admin_verification: a.adminVerification || readJson(a.admin_verification, null) || null,
-    accounts_verification: a.accountsVerification || readJson(a.accounts_verification, null) || null,
+    admin_verification: a.adminVerification ? JSON.stringify(a.adminVerification) : (a.admin_verification ? (typeof a.admin_verification === 'string' ? a.admin_verification : JSON.stringify(a.admin_verification)) : null),
+    accounts_verification: a.accountsVerification ? JSON.stringify(a.accountsVerification) : (a.accounts_verification ? (typeof a.accounts_verification === 'string' ? a.accounts_verification : JSON.stringify(a.accounts_verification)) : null),
     last_heartbeat_at: a.lastHeartbeatAt || a.last_heartbeat_at || null,
     last_activity_at: a.lastActivityAt || a.last_activity_at || null,
     record_updated_at: a.recordUpdatedAt || a.record_updated_at || new Date().toISOString(),
@@ -349,7 +341,7 @@ function mapDbShift(r) {
     name: r.name,
     startTime: r.start_time,
     endTime: r.end_time,
-    workDays: (() => { const v = readJson(r.work_days, null); return Array.isArray(v) ? v : [0, 1, 2, 3, 4, 5, 6]; })(),
+    workDays: Array.isArray(r.work_days) ? r.work_days : [0, 1, 2, 3, 4, 5, 6],
     graceMinutes: Number(r.grace_minutes) || 15,
     expectedHours: Number(r.expected_hours) || 8,
     color: r.color || 'blue',
@@ -364,7 +356,7 @@ function mapAppShiftToDb(s) {
     name: s.name,
     start_time: s.startTime,
     end_time: s.endTime,
-    work_days: s.workDays || [1, 2, 3, 4, 5],
+    work_days: JSON.stringify(s.workDays || [1, 2, 3, 4, 5]),
     grace_minutes: Number(s.graceMinutes) || 15,
     expected_hours: Number(s.expectedHours) || 8,
     color: s.color || 'blue',
@@ -392,7 +384,7 @@ function mapAppCommentToDb(c) {
     record_id: c.recordId || '',
     employee_id: c.employeeId || '',
     date: c.date || '',
-    comment: c.comment || '',
+    comment: c.comment,
     author_name: c.authorName || '',
     created_at: c.createdAt || new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -402,27 +394,13 @@ function mapAppCommentToDb(c) {
 /**
  * Loads entire database from Supabase PostgreSQL tables
  */
-// PostgREST returns at most ~1000 rows per request; page through everything.
-async function fetchAllPages(path, pageSize = 1000, maxPages = 50) {
-  const all = [];
-  for (let i = 0; i < maxPages; i++) {
-    const from = i * pageSize;
-    const to = from + pageSize - 1;
-    const rows = await supabaseFetch(path, { headers: { Range: `${from}-${to}`, 'Range-Unit': 'items' } });
-    if (!Array.isArray(rows)) break;
-    all.push(...rows);
-    if (rows.length < pageSize) break;
-  }
-  return all;
-}
-
 export async function readSupabaseDb(defaultDb) {
   try {
     const [settingsRows, shiftsRows, empRows, attRows, leavesRows, commentsRows] = await Promise.all([
       supabaseFetch('/settings?id=eq.current&select=*'),
       supabaseFetch('/shifts?select=*&order=id.asc'),
       supabaseFetch('/employees?deleted_at=is.null&select=*&order=employee_code.asc'),
-      fetchAllPages('/attendance?select=*&order=date.desc,id.asc'),
+      supabaseFetch('/attendance?select=*&order=date.desc'),
       supabaseFetch('/leaves?deleted_at=is.null&select=*&order=applied_at.desc'),
       supabaseFetch('/ceo_comments?select=*&order=created_at.asc'),
     ]);
@@ -600,17 +578,6 @@ export function mergeSupabaseAttendanceRecord(existing, incomingRec, options = {
   return merged;
 }
 
-// Deleted employees are soft-deleted (tombstoned). A stale browser tab, device or queued
-// request must never resurrect them, so writes for tombstoned ids are dropped.
-async function dropDeletedEmployeeRows(rows) {
-  const ids = rows.map((r) => r && r.id).filter(Boolean);
-  if (ids.length === 0) return rows;
-  const list = ids.map((i) => `"${String(i).replace(/"/g, '')}"`).join(',');
-  const dead = await supabaseFetch(`/employees?id=in.(${encodeURIComponent(list)})&deleted_at=not.is.null&select=id`);
-  const deadIds = new Set(Array.isArray(dead) ? dead.map((d) => d.id) : []);
-  return rows.filter((r) => !deadIds.has(r.id));
-}
-
 /**
  * Applies a mutation payload directly to Supabase with ACID UPSERT / Soft-Delete
  */
@@ -674,16 +641,13 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
         mergedEmp.lastEditedByRole = incoming.actorRole;
       }
       const row = mapAppEmployeeToDb(mergedEmp);
-      const liveRows = await dropDeletedEmployeeRows([row]);
-      if (liveRows.length > 0) {
-        await supabaseFetch('/employees', {
-          method: 'POST',
-          headers: { Prefer: 'resolution=merge-duplicates' },
-          body: JSON.stringify(liveRows),
-        });
-      }
+      await supabaseFetch('/employees', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify([row]),
+      });
     } else if (Array.isArray(incoming.employees) && incoming.employees.length > 0) {
-      const rows = await dropDeletedEmployeeRows(incoming.employees.map(mapAppEmployeeToDb));
+      const rows = incoming.employees.map(mapAppEmployeeToDb);
       await supabaseFetch('/employees', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },
@@ -692,19 +656,10 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
     }
   } else if (scope === 'employee_delete') {
     const targetId = incoming.deletedEmployeeId || incoming.employeeId;
-    if (targetId) {
-      // Safety: never delete the last active administrator (nobody could log in to manage the system).
-      const rows = await supabaseFetch(`/employees?deleted_at=is.null&is_active=eq.true&role=eq.admin&select=id`);
-      const otherAdmins = (Array.isArray(rows) ? rows : []).filter((r) => r.id !== targetId);
-      const targetRows = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(targetId)}&select=role`);
-      if (targetRows?.[0]?.role === 'admin' && otherAdmins.length === 0) {
-        const err = new Error('You cannot delete the last active administrator. Create or promote another admin first.');
-        err.status = 409;
-        throw err;
-      }
+    if (targetId && targetId !== 'emp-101') {
       await supabaseFetch(`/employees?id=eq.${encodeURIComponent(targetId)}`, {
         method: 'PATCH',
-        body: JSON.stringify({ deleted_at: new Date().toISOString(), record_updated_at: new Date().toISOString(), is_active: false }),
+        body: JSON.stringify({ deleted_at: new Date().toISOString(), is_active: false }),
       });
     }
   } else if (scope === 'leaves') {
@@ -796,7 +751,7 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
     }
   } else if (scope === 'legacy_bulk' || scope === 'full_restore') {
     if (Array.isArray(incoming.employees) && incoming.employees.length > 0) {
-      const rows = await dropDeletedEmployeeRows(incoming.employees.map(mapAppEmployeeToDb));
+      const rows = incoming.employees.map(mapAppEmployeeToDb);
       await supabaseFetch('/employees', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },
