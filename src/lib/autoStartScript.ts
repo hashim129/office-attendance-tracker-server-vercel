@@ -421,11 +421,11 @@ if ($TestOnce -or $shiftCompleted) {
   exit 0
 }
 
-# Continuous silent presence & activity monitor loop (checks every 90s)
+# Continuous silent presence & activity monitor loop (pings every 45s so one missed ping never shows 'No Internet')
 $wasOffline = (-not $online)
 $didAutoPunchOnce = $online
 while ($true) {
-  Start-Sleep -Seconds 90
+  Start-Sleep -Seconds 45
   if ((Get-Date).ToString('yyyy-MM-dd') -ne $startDate) {
     Write-Log 'Calendar day ended; background monitor stopping cleanly.'
     break
@@ -473,6 +473,13 @@ while ($true) {
       } else {
         Write-Log "Shift completed ($($hbResp.timeOutFormatted)). Background monitor stopping."
       }
+      break
+    }
+  } elseif ($hbResp -and $hbResp.code) {
+    # Server was reached but refused the ping (expired PIN token, deactivated account...). Not an internet problem.
+    Write-Log "HEARTBEAT REFUSED [$($hbResp.code)]: $($hbResp.message)"
+    if ($hbResp.code -eq 'TOKEN_INVALID' -or $hbResp.code -eq 'EMPLOYEE_INACTIVE') {
+      Show-TrayToast "$($cfg.companyName) - Notice" $hbResp.message $true
       break
     }
   } else {

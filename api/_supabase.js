@@ -45,7 +45,7 @@ export function isSupabaseConfigured() {
   return getSupabaseConfig().isConfigured;
 }
 
-async function supabaseFetch(endpoint, options = {}) {
+export async function supabaseFetch(endpoint, options = {}) {
   const { url, key } = getSupabaseConfig();
   if (!url || !key) {
     throw new Error('Supabase credentials not configured in environment variables.');
@@ -188,7 +188,6 @@ function mapAppEmployeeToDb(e) {
     pending_device_request: pendingWithWfh,
     record_updated_at: e.recordUpdatedAt || new Date().toISOString(),
     last_edited_by_role: e.lastEditedByRole || 'admin',
-    deleted_at: null,
   };
 }
 
@@ -601,6 +600,17 @@ export function mergeSupabaseAttendanceRecord(existing, incomingRec, options = {
   return merged;
 }
 
+// Deleted employees are soft-deleted (tombstoned). A stale browser tab, device or queued
+// request must never resurrect them, so writes for tombstoned ids are dropped.
+async function dropDeletedEmployeeRows(rows) {
+  const ids = rows.map((r) => r && r.id).filter(Boolean);
+  if (ids.length === 0) return rows;
+  const list = ids.map((i) => `"${String(i).replace(/"/g, '')}"`).join(',');
+  const dead = await supabaseFetch(`/employees?id=in.(${encodeURIComponent(list)})&deleted_at=not.is.null&select=id`);
+  const deadIds = new Set(Array.isArray(dead) ? dead.map((d) => d.id) : []);
+  return rows.filter((r) => !deadIds.has(r.id));
+}
+
 /**
  * Applies a mutation payload directly to Supabase with ACID UPSERT / Soft-Delete
  */
@@ -664,13 +674,16 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
         mergedEmp.lastEditedByRole = incoming.actorRole;
       }
       const row = mapAppEmployeeToDb(mergedEmp);
-      await supabaseFetch('/employees', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify([row]),
-      });
+      const liveRows = await dropDeletedEmployeeRows([row]);
+      if (liveRows.length > 0) {
+        await supabaseFetch('/employees', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: JSON.stringify(liveRows),
+        });
+      }
     } else if (Array.isArray(incoming.employees) && incoming.employees.length > 0) {
-      const rows = incoming.employees.map(mapAppEmployeeToDb);
+      const rows = await dropDeletedEmployeeRows(incoming.employees.map(mapAppEmployeeToDb));
       await supabaseFetch('/employees', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },
@@ -679,10 +692,19 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
     }
   } else if (scope === 'employee_delete') {
     const targetId = incoming.deletedEmployeeId || incoming.employeeId;
-    if (targetId && targetId !== 'emp-101') {
+    if (targetId) {
+      // Safety: never delete the last active administrator (nobody could log in to manage the system).
+      const rows = await supabaseFetch(`/employees?deleted_at=is.null&is_active=eq.true&role=eq.admin&select=id`);
+      const otherAdmins = (Array.isArray(rows) ? rows : []).filter((r) => r.id !== targetId);
+      const targetRows = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(targetId)}&select=role`);
+      if (targetRows?.[0]?.role === 'admin' && otherAdmins.length === 0) {
+        const err = new Error('You cannot delete the last active administrator. Create or promote another admin first.');
+        err.status = 409;
+        throw err;
+      }
       await supabaseFetch(`/employees?id=eq.${encodeURIComponent(targetId)}`, {
         method: 'PATCH',
-        body: JSON.stringify({ deleted_at: new Date().toISOString(), is_active: false }),
+        body: JSON.stringify({ deleted_at: new Date().toISOString(), record_updated_at: new Date().toISOString(), is_active: false }),
       });
     }
   } else if (scope === 'leaves') {
@@ -774,7 +796,7 @@ export async function mutateSupabaseDb(incoming, defaultDb) {
     }
   } else if (scope === 'legacy_bulk' || scope === 'full_restore') {
     if (Array.isArray(incoming.employees) && incoming.employees.length > 0) {
-      const rows = incoming.employees.map(mapAppEmployeeToDb);
+      const rows = await dropDeletedEmployeeRows(incoming.employees.map(mapAppEmployeeToDb));
       await supabaseFetch('/employees', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },

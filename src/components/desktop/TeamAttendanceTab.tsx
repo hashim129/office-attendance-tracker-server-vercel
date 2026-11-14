@@ -22,6 +22,7 @@ import {
   Send,
   LogOut,
   WifiOff,
+  Wifi,
   FileText,
   Download,
   X,
@@ -830,7 +831,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
           </div>
           <div className="flex flex-wrap items-center gap-3 mt-1.5">
             <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-              Office Presence:
+              Office Presence
             </h1>
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-100/90 dark:bg-emerald-950/80 border-2 border-emerald-400 dark:border-emerald-600 shadow-xs">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -922,183 +923,62 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         </div>
       </div>
 
-      {/* Clickable Presence & Verification KPI Summary Cards (Click any tab for employee list) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2.5">
-        {/* Total Present ('P') */}
-        <button
-          type="button"
-          onClick={() => handleClickCategoryCard('present')}
-          title="Click to view list of all Present ('P') employees"
-          className={`text-left p-3 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border-2 shadow-2xs transition-all hover:scale-[1.01] hover:shadow-sm cursor-pointer ${
-            statusFilter === 'present'
-              ? 'border-emerald-600 ring-2 ring-emerald-400/50'
-              : 'border-emerald-400/90 dark:border-emerald-600'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wider">
-              Present ('P')
-            </span>
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+      {/* Clickable presence & verification tiles (tap a tile for the employee list) */}
+      {(() => {
+        const activeTotal = Math.max(1, liveCounts.presentPCount + liveCounts.absentACount);
+        const tiles: {
+          key: RosterCategoryKey;
+          label: string;
+          hint: string;
+          value: number;
+          icon: React.ReactNode;
+          grad: string;
+          bar: string;
+          show: boolean;
+          pulse?: boolean;
+        }[] = [
+          { key: 'present', label: 'Present', hint: 'Clocked in today', value: liveCounts.presentPCount, icon: <CheckCircle2 className="w-5 h-5" />, grad: 'from-emerald-500 to-teal-500', bar: 'bg-emerald-500', show: true },
+          { key: 'absent', label: 'Absent', hint: 'Not arrived yet', value: liveCounts.absentACount, icon: <UserX className="w-5 h-5" />, grad: 'from-rose-500 to-pink-500', bar: 'bg-rose-500', show: true },
+          { key: 'in', label: 'Online now', hint: 'Working at desk', value: liveCounts.inCount, icon: <Wifi className="w-5 h-5" />, grad: 'from-sky-500 to-blue-600', bar: 'bg-sky-500', show: true, pulse: liveCounts.inCount > 0 },
+          { key: 'no_internet', label: 'Offline', hint: 'Clocked in, no signal', value: liveCounts.noInternetCount, icon: <WifiOff className="w-5 h-5" />, grad: 'from-amber-500 to-orange-500', bar: 'bg-amber-500', show: true, pulse: liveCounts.noInternetCount > 0 },
+          { key: 'break', label: 'On break', hint: 'Short pause', value: liveCounts.breakCount, icon: <Coffee className="w-5 h-5" />, grad: 'from-orange-400 to-amber-500', bar: 'bg-orange-400', show: true },
+          { key: 'out', label: 'Shift ended', hint: 'Punched out', value: liveCounts.completedCount, icon: <LogOut className="w-5 h-5" />, grad: 'from-slate-500 to-slate-700', bar: 'bg-slate-500', show: true },
+          { key: 'admin_verified', label: 'Admin OK', hint: 'Verified by admin', value: liveCounts.adminVerifiedCount, icon: <ShieldCheck className="w-5 h-5" />, grad: 'from-violet-500 to-purple-600', bar: 'bg-violet-500', show: canManage },
+          { key: 'accounts_verified', label: 'Accounts OK', hint: 'Verified by accounts', value: liveCounts.accountsVerifiedCount, icon: <CheckCheck className="w-5 h-5" />, grad: 'from-emerald-500 to-green-600', bar: 'bg-emerald-600', show: canManage },
+        ];
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
+            {tiles.filter((t) => t.show).map((t) => {
+              const pct = Math.min(100, Math.round((t.value / activeTotal) * 100));
+              const selected = statusFilter === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => handleClickCategoryCard(t.key)}
+                  title={`Show ${t.label.toLowerCase()} employees`}
+                  className={`group relative text-left p-3.5 rounded-2xl bg-white dark:bg-slate-900 border shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer ${
+                    selected ? 'border-indigo-500 ring-2 ring-indigo-400/40' : 'border-slate-200 dark:border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <span className={`relative inline-flex items-center justify-center w-10 h-10 rounded-xl text-white bg-gradient-to-br ${t.grad} shadow-sm`}>
+                      {t.icon}
+                      {t.pulse && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-white ring-2 ring-current animate-pulse" />}
+                    </span>
+                    <span className="text-2xl font-black tabular-nums text-slate-900 dark:text-slate-50 leading-none">{t.value}</span>
+                  </div>
+                  <div className="mt-3 text-xs font-bold text-slate-800 dark:text-slate-100">{t.label}</div>
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400">{t.hint}</div>
+                  <div className="mt-2 h-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                    <div className={`h-full rounded-full ${t.bar} transition-all`} style={{ width: `${pct}%` }} />
+                  </div>
+                </button>
+              );
+            })}
           </div>
-          <div className="text-xl font-black font-mono text-emerald-700 dark:text-emerald-300 mt-1">
-            {liveCounts.presentPCount}
-          </div>
-          <span className="text-[10px] font-medium text-emerald-600/90 dark:text-emerald-400">Active present · View list</span>
-        </button>
-
-        {/* Total Absent ('A') */}
-        <button
-          type="button"
-          onClick={() => handleClickCategoryCard('absent')}
-          title="Click to view list of all Absent ('A') employees"
-          className={`text-left p-3 rounded-xl bg-rose-50/80 dark:bg-rose-950/40 border shadow-2xs transition-all hover:scale-[1.01] hover:shadow-sm cursor-pointer ${
-            statusFilter === 'absent'
-              ? 'border-rose-600 ring-2 ring-rose-400/50'
-              : 'border-rose-300 dark:border-rose-800'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider">
-              Absent ('A')
-            </span>
-            <span className="w-2 h-2 rounded-full bg-rose-500" />
-          </div>
-          <div className="text-xl font-black font-mono text-rose-700 dark:text-rose-300 mt-1">
-            {liveCounts.absentACount}
-          </div>
-          <span className="text-[10px] font-medium text-rose-600/90 dark:text-rose-400">Not arrived · View list</span>
-        </button>
-
-        {/* Working at desk (Online) */}
-        <button
-          type="button"
-          onClick={() => handleClickCategoryCard('in')}
-          title="Click to view list of all Clocked In (Online) employees"
-          className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-emerald-400 hover:shadow-sm cursor-pointer ${
-            statusFilter === 'in'
-              ? 'border-emerald-500 ring-2 ring-emerald-400/40'
-              : 'border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            Clocked In (Online)
-          </span>
-          <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
-            {liveCounts.inCount}
-          </div>
-          <span className="text-[10px] text-slate-400">At desks · View list</span>
-        </button>
-
-        {/* No Internet / Offline (Still In) */}
-        <button
-          type="button"
-          onClick={() => handleClickCategoryCard('no_internet')}
-          title="Click to view list of all Offline / No Internet (In) employees"
-          className={`text-left p-3 rounded-xl border shadow-2xs transition-all hover:scale-[1.01] hover:shadow-sm cursor-pointer ${
-            statusFilter === 'no_internet'
-              ? 'border-amber-600 ring-2 ring-amber-400/50 bg-amber-50 dark:bg-amber-950/60'
-              : liveCounts.noInternetCount > 0
-              ? 'bg-amber-50/90 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700'
-              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
-              Offline / No Internet (In)
-            </span>
-            <WifiOff className={`w-3 h-3 text-amber-600 ${liveCounts.noInternetCount > 0 ? 'animate-pulse' : 'opacity-40'}`} />
-          </div>
-          <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
-            {liveCounts.noInternetCount}
-          </div>
-          <span className="text-[10px] text-slate-400">No internet · View list</span>
-        </button>
-
-        {/* On Break */}
-        <button
-          type="button"
-          onClick={() => handleClickCategoryCard('break')}
-          title="Click to view list of employees currently On Break"
-          className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-amber-400 hover:shadow-sm cursor-pointer ${
-            statusFilter === 'break'
-              ? 'border-amber-500 ring-2 ring-amber-400/40'
-              : 'border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            On Break
-          </span>
-          <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
-            {liveCounts.breakCount}
-          </div>
-          <span className="text-[10px] text-slate-400">Temporary pause · List</span>
-        </button>
-
-        {/* Completed / Shift Ended */}
-        <button
-          type="button"
-          onClick={() => handleClickCategoryCard('out')}
-          title="Click to view list of employees whose Shift Ended"
-          className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-slate-400 hover:shadow-sm cursor-pointer ${
-            statusFilter === 'out'
-              ? 'border-slate-600 ring-2 ring-slate-400/40'
-              : 'border-slate-200 dark:border-slate-800'
-          }`}
-        >
-          <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            Shift Ended
-          </span>
-          <div className="text-xl font-bold font-mono text-slate-700 dark:text-slate-300 mt-1">
-            {liveCounts.completedCount}
-          </div>
-          <span className="text-[10px] text-slate-400">Punched out · View list</span>
-        </button>
-
-        {/* Admin Verified (Management & Executives only) */}
-        {canManage && (
-          <button
-            type="button"
-            onClick={() => handleClickCategoryCard('admin_verified')}
-            title="Click to view list of Admin Verified employees"
-            className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-purple-400 hover:shadow-sm cursor-pointer ${
-              statusFilter === 'admin_verified'
-                ? 'border-purple-500 ring-2 ring-purple-400/40'
-                : 'border-purple-200/60 dark:border-purple-900/40'
-            }`}
-          >
-            <span className="text-[10px] font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
-              Admin Verified
-            </span>
-            <div className="text-xl font-bold font-mono text-purple-700 dark:text-purple-300 mt-1">
-              {liveCounts.adminVerifiedCount}
-            </div>
-            <span className="text-[10px] text-slate-400">Validated · View list</span>
-          </button>
-        )}
-
-        {/* Accounts Verified (Management & Executives only) */}
-        {canManage && (
-          <button
-            type="button"
-            onClick={() => handleClickCategoryCard('accounts_verified')}
-            title="Click to view list of Accounts Verified employees"
-            className={`text-left p-3 rounded-xl bg-white dark:bg-slate-900 border shadow-2xs transition-all hover:scale-[1.01] hover:border-emerald-400 hover:shadow-sm cursor-pointer ${
-              statusFilter === 'accounts_verified'
-                ? 'border-emerald-500 ring-2 ring-emerald-400/40'
-                : 'border-emerald-200/60 dark:border-emerald-900/40'
-            }`}
-          >
-            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-              Accounts Verified
-            </span>
-            <div className="text-xl font-bold font-mono text-emerald-700 dark:text-emerald-300 mt-1">
-              {liveCounts.accountsVerifiedCount}
-            </div>
-            <span className="text-[10px] text-slate-400">Validated · View list</span>
-          </button>
-        )}
-      </div>
+        );
+      })()}
 
       {/* Filter and Search Bar */}
       <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-3">
@@ -1420,26 +1300,26 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                       {/* Actions Column (Admin, Accounts Officer & CEO) */}
                       {canManage && (
                         <td className="py-3 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
                               onClick={() => handleOpenEmployeeTimesheet(employee)}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-1 p-2 rounded-xl font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-colors cursor-pointer"
                               title={`Preview & download official PDF timesheet for ${employee.name}`}
                             >
-                              <FileText className="w-3 h-3" />
-                              <span>PDF</span>
+                              <FileText className="w-4 h-4" />
+                              <span className="sr-only">PDF</span>
                             </button>
 
                             {/* CEO / Management Mention Directive */}
                             {(isCeo || isAdmin) && onAddCeoComment && (
                               <button
                                 onClick={() => handleOpenMentionModal(employee)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition-colors cursor-pointer"
+                                className="inline-flex items-center gap-1 p-2 rounded-xl font-semibold bg-amber-500 hover:bg-amber-600 text-white shadow-2xs transition-colors cursor-pointer"
                                 title={`Send executive directive or mention comment to ${employee.name}`}
                               >
-                                <MessageSquare className="w-3 h-3" />
-                                <span>Mention</span>
+                                <MessageSquare className="w-4 h-4" />
+                                <span className="sr-only">Mention</span>
                               </button>
                             )}
 
@@ -1447,15 +1327,15 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                             {isAdmin && record?.timeIn && (
                               <button
                                 onClick={() => handleToggleAdminVerify(record)}
-                                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                                className={`inline-flex items-center gap-1 p-2 rounded-xl font-medium transition-colors cursor-pointer ${
                                   record.adminVerification?.verified
                                     ? 'bg-purple-50 text-purple-700 hover:bg-purple-100 dark:bg-purple-950/40 dark:text-purple-300'
                                     : 'bg-purple-600 text-white hover:bg-purple-700'
                                 }`}
                                 title="Toggle Admin Attendance Verification"
                               >
-                                <ShieldCheck className="w-3 h-3" />
-                                <span>{record.adminVerification?.verified ? 'Admin ✓' : 'Verify (Admin)'}</span>
+                                <ShieldCheck className="w-4 h-4" />
+                                <span className="sr-only">{record.adminVerification?.verified ? 'Admin ✓' : 'Verify (Admin)'}</span>
                               </button>
                             )}
 
@@ -1463,15 +1343,15 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                             {isAccountsOfficer && record?.timeIn && (
                               <button
                                 onClick={() => handleToggleAccountsVerify(record)}
-                                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                                className={`inline-flex items-center gap-1 p-2 rounded-xl font-medium transition-colors cursor-pointer ${
                                   record.accountsVerification?.verified
                                     ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300'
                                     : 'bg-emerald-600 text-white hover:bg-emerald-700'
                                 }`}
                                 title="Toggle Accounts Officer Attendance Verification"
                               >
-                                <CheckCircle2 className="w-3 h-3" />
-                                <span>{record.accountsVerification?.verified ? 'Accounts ✓' : 'Verify (Accounts)'}</span>
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span className="sr-only">{record.accountsVerification?.verified ? 'Accounts ✓' : 'Verify (Accounts)'}</span>
                               </button>
                             )}
 
@@ -1480,20 +1360,20 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                               !record?.timeIn ? (
                                 <button
                                   onClick={() => handleQuickAdminPunch(employee, 'in')}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-colors cursor-pointer"
+                                  className="inline-flex items-center gap-1 p-2 rounded-xl font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-colors cursor-pointer"
                                   title={`Immediately punch clock-in for ${employee.name} right now`}
                                 >
-                                  <Sunrise className="w-3 h-3" />
-                                  <span>Clock In</span>
+                                  <Sunrise className="w-4 h-4" />
+                                  <span className="sr-only">Clock In</span>
                                 </button>
                               ) : !record?.timeOut ? (
                                 <button
                                   onClick={() => handleQuickAdminPunch(employee, 'out')}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-2xs transition-colors cursor-pointer"
+                                  className="inline-flex items-center gap-1 p-2 rounded-xl font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-2xs transition-colors cursor-pointer"
                                   title={`Immediately punch clock-out for ${employee.name} right now`}
                                 >
-                                  <Sunset className="w-3 h-3" />
-                                  <span>Clock Out</span>
+                                  <Sunset className="w-4 h-4" />
+                                  <span className="sr-only">Clock Out</span>
                                 </button>
                               ) : null
                             )}
@@ -1502,11 +1382,11 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                             {isAdmin && (
                               <button
                                 onClick={() => handleOpenAdjustment(employee, record)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition-colors cursor-pointer"
+                                className="inline-flex items-center gap-1 p-2 rounded-xl font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-2xs transition-colors cursor-pointer"
                                 title="Edit employee punch in, punch out, or working status"
                               >
-                                <Edit3 className="w-3 h-3" />
-                                <span>{record?.timeIn ? 'Edit Punch' : 'Add Punch'}</span>
+                                <Edit3 className="w-4 h-4" />
+                                <span className="sr-only">{record?.timeIn ? 'Edit Punch' : 'Add Punch'}</span>
                               </button>
                             )}
                           </div>
