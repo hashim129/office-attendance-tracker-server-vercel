@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import {
   Clock,
   CalendarCheck,
@@ -36,6 +36,25 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   const isAdmin = currentUser.role === 'admin';
   const isCeo = currentUser.role === 'ceo';
   const isAccounts = currentUser.role === 'accounts';
+
+  // Sliding highlight that glides to whichever menu item is active
+  const navRef = useRef<HTMLDivElement | null>(null);
+  const [pills, setPills] = useState<{ top: number; height: number }[]>([]);
+  useLayoutEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const measure = () => {
+      const active = Array.from(el.querySelectorAll<HTMLButtonElement>('button.text-white.shadow-xs'));
+      setPills(active.map((b) => ({ top: b.offsetTop, height: b.offsetHeight })));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const t = window.setTimeout(measure, 350);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.clearTimeout(t);
+    };
+  }, [activeTab, currentUser.role, pendingLeavesCount]);
 
   const handleTabClick = (tab: ActiveDesktopTab) => {
     onSelectTab(tab);
@@ -83,10 +102,13 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       </div>
 
       {/* Nav List */}
-      <div className="flex-1 py-4 px-3 space-y-6 overflow-y-auto" onClick={(e) => {
+      <div ref={navRef} className="nav-scope flex-1 py-4 px-3 space-y-6 overflow-y-auto" onClick={(e) => {
         const btn = (e.target as HTMLElement).closest('button');
         if (btn && onCloseMobile) onCloseMobile();
       }}>
+        {pills.map((p, i) => (
+          <div key={i} className="nav-pill" style={{ top: p.top, height: p.height }} aria-hidden="true" />
+        ))}
         {/* Employee Section (Available to All) */}
         <div>
           <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">

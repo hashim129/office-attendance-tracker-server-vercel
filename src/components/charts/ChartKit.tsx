@@ -225,14 +225,16 @@ export function HoursBarChart({
           }
           return (
             <g key={d.key}>
-              {otH > 0.5 ? (
-                <>
-                  <rect x={x0} y={base - regH} width={barW} height={Math.max(regH, 1)} fill={regFill} />
-                  <path d={roundedTopPath(x0, base - regH - otH, barW, otH, 6)} fill={`url(#${uid}-overtime)`} />
-                </>
-              ) : (
-                <path d={roundedTopPath(x0, base - regH, barW, Math.max(regH, 2), 6)} fill={regFill} />
-              )}
+              <g className="bar-grow" style={{ ['--i' as string]: i }}>
+                {otH > 0.5 ? (
+                  <>
+                    <rect x={x0} y={base - regH} width={barW} height={Math.max(regH, 1)} fill={regFill} />
+                    <path d={roundedTopPath(x0, base - regH - otH, barW, otH, 6)} fill={`url(#${uid}-overtime)`} />
+                  </>
+                ) : (
+                  <path d={roundedTopPath(x0, base - regH, barW, Math.max(regH, 2), 6)} fill={regFill} />
+                )}
+              </g>
               <text
                 x={cx}
                 y={base - regH - otH - 6}
@@ -457,7 +459,7 @@ export function PunchTimeline({ days, shiftStart, shiftEnd, graceMinutes = 0, ac
               </text>
               {r.a !== null && r.b !== null ? (
                 <>
-                  <rect x={x(r.a)} y={cy - barH / 2} width={Math.max(3, x(r.b) - x(r.a))} height={barH} rx={barH / 2} fill={color} opacity={r.d.isOpen ? 0.55 : 0.92} />
+                  <rect className="bar-sweep" style={{ ['--i' as string]: i }} x={x(r.a)} y={cy - barH / 2} width={Math.max(3, x(r.b) - x(r.a))} height={barH} rx={barH / 2} fill={color} opacity={r.d.isOpen ? 0.55 : 0.92} />
                   {r.brks.map((b, bi) => (
                     <rect key={bi} x={x(b.s)} y={cy - barH / 2} width={Math.max(2, x(b.e) - x(b.s))} height={barH} className="fill-white/80 dark:fill-slate-900/80" />
                   ))}
@@ -664,8 +666,10 @@ export function TeamTrendChart({ days, headcount, height = 280 }: { days: TeamDa
           return (
             <g key={d.key}>
               {hover === d.key && <rect x={M.l + i * band + 1} y={M.t - 4} width={band - 2} height={plotH + 8} rx={8} className="fill-indigo-500/10" />}
-              {regH > 0 && <rect x={cx - barW / 2} y={base - regH} width={barW} height={regH} fill={`url(#${uid}-r)`} />}
-              {otH > 0 && <path d={roundedTopPath(cx - barW / 2, base - regH - otH, barW, otH, 6)} fill={`url(#${uid}-o)`} />}
+              <g className="bar-grow" style={{ ['--i' as string]: i }}>
+                {regH > 0 && <rect x={cx - barW / 2} y={base - regH} width={barW} height={regH} fill={`url(#${uid}-r)`} />}
+                {otH > 0 && <path d={roundedTopPath(cx - barW / 2, base - regH - otH, barW, otH, 6)} fill={`url(#${uid}-o)`} />}
+              </g>
               {regH > 0 && otH <= 0 && <rect x={cx - barW / 2} y={base - regH} width={barW} height={2} fill="transparent" />}
               {i % labelEvery === 0 && (
                 <>

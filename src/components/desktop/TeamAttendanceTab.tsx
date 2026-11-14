@@ -50,6 +50,7 @@ import {
 import { exportAttendanceToCsv } from '../../lib/exportUtils';
 import { downloadOfficialTimesheetPdf } from '../../lib/pdfTimesheet';
 import { Modal } from '../common/Modal';
+import { CountUp } from '../common/CountUp';
 
 export type RosterCategoryKey =
   | 'present'
@@ -948,7 +949,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         ];
         return (
           <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
-            {tiles.filter((t) => t.show).map((t) => {
+            {tiles.filter((t) => t.show).map((t, ti) => {
               const pct = Math.min(100, Math.round((t.value / activeTotal) * 100));
               const selected = statusFilter === t.key;
               return (
@@ -957,7 +958,8 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                   type="button"
                   onClick={() => handleClickCategoryCard(t.key)}
                   title={`Show ${t.label.toLowerCase()} employees`}
-                  className={`group relative text-left p-3.5 rounded-2xl bg-white dark:bg-slate-900 border shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer ${
+                  style={{ ['--i' as string]: ti }}
+                  className={`tile-pop lift group relative text-left p-3.5 rounded-2xl bg-white dark:bg-slate-900 border shadow-xs cursor-pointer ${
                     selected ? 'border-indigo-500 ring-2 ring-indigo-400/40' : 'border-slate-200 dark:border-slate-800'
                   }`}
                 >
@@ -966,12 +968,12 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                       {t.icon}
                       {t.pulse && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-white ring-2 ring-current animate-pulse" />}
                     </span>
-                    <span className="text-2xl font-black tabular-nums text-slate-900 dark:text-slate-50 leading-none">{t.value}</span>
+                    <CountUp value={t.value} className="text-2xl font-black text-slate-900 dark:text-slate-50 leading-none" />
                   </div>
                   <div className="mt-3 text-xs font-bold text-slate-800 dark:text-slate-100">{t.label}</div>
                   <div className="text-[10px] text-slate-500 dark:text-slate-400">{t.hint}</div>
                   <div className="mt-2 h-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                    <div className={`h-full rounded-full ${t.bar} transition-all`} style={{ width: `${pct}%` }} />
+                    <div className={`grow-x h-full rounded-full ${t.bar}`} style={{ width: `${pct}%` }} />
                   </div>
                 </button>
               );
