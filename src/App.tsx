@@ -103,6 +103,19 @@ export default function App() {
   const appModeRef = useRef<AppMode>(appMode);
   const refreshFromLocalRef = useRef<((verifySession?: boolean) => void) | null>(null);
 
+  // Dark backdrop behind the circular reveal that plays when the app opens after login
+  const revealUserId = currentUser?.id;
+  useEffect(() => {
+    if (!revealUserId) return;
+    const root = document.documentElement;
+    root.classList.add('app-revealing');
+    const t = window.setTimeout(() => root.classList.remove('app-revealing'), 1300);
+    return () => {
+      window.clearTimeout(t);
+      root.classList.remove('app-revealing');
+    };
+  }, [revealUserId]);
+
   useEffect(() => {
     currentUserRef.current = currentUser;
   }, [currentUser]);
@@ -900,7 +913,7 @@ export default function App() {
           isSyncing={isInitialCloudSyncing}
         />
       ) : (
-        <div className="flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] min-w-0 w-full">
+        <div key={currentUser.id} className="app-reveal flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] min-w-0 w-full">
           {/* Header */}
           <DesktopHeader
             currentUser={currentUser}
@@ -930,6 +943,7 @@ export default function App() {
 
             <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-auto bg-slate-50/50 dark:bg-slate-950/40">
               <ErrorBoundary>
+                <div key={activeTab} className="page-enter">
                 {activeTab === 'clock' && (
                 <PunchClockTab
                   currentUser={currentUser}
@@ -1057,6 +1071,7 @@ export default function App() {
                   currentClientIsp={currentClientIsp}
                 />
               )}
+                </div>
               </ErrorBoundary>
             </main>
           </div>
