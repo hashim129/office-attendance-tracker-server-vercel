@@ -3,7 +3,7 @@ import { ScanFace, Loader2, CheckCircle2, AlertCircle, Trash2 } from 'lucide-rea
 import { Modal } from './Modal';
 import { setFacePass } from '../../lib/storage';
 import {
-  enrollFace, removeFace, scanForEnrollment, scanForPunch, startCamera, stopCamera, verifyFace,
+  enrollFace, removeFace, scanForEnrollment, scanForPunch, startCamera, stopCamera, verifyFace, loadFaceEngine, FaceLiveTelemetry,
 } from '../../lib/faceScan';
 
 export type FaceScanMode = 'verify' | 'enroll' | 'remove';
@@ -29,7 +29,56 @@ export const FaceScanModal: React.FC<Props> = ({ isOpen, mode, employeeId, emplo
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const signalRef = useRef({ cancelled: false });
-
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [telemetry, setTelemetry] = useState<FaceLiveTelemetry | null>(null);
+const [liveTime, setLiveTime] = useState(() => new Date());
+  useEffect(() => {
+    if (!isOpen) return;
+    setLiveTime(new Date());
+    const id = setInterval(() => setLiveTime(new Date()), 1000);
+    return () => clearInterval(id);
+  }, [isOpen]);
+  const handleTelemetry = useCallback((t: FaceLiveTelemetry) => {
+    setTelemetry(t);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const cw = Math.round(rect.width || canvas.clientWidth);
+    const ch = Math.round(rect.height || canvas.clientHeight);
+    if (!cw || !ch) return;
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw;
+      canvas.height = ch;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, cw, ch);
+    if (!t.detected || !t.box) return;
+    const vw = t.box.videoWidth || 640;
+    const vh = t.box.videoHeight || 480;
+    const scale = Math.max(cw / vw, ch / vh);
+    const ox = (cw - vw * scale) / 2;
+    const oy = (ch - vh * scale) / 2;
+    const mapX = (x: number) => x * scale + ox;
+    const mapY = (y: number) => y * scale + oy;
+    ctx.strokeStyle = t.livenessOk ? '#10b981' : '#06b6d4';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(mapX(t.box.x), mapY(t.box.y), t.box.width * scale, t.box.height * scale);
+    if (t.landmarks && t.landmarks.length > 0) {
+      t.landmarks.forEach((pt, idx) => {
+        let color = '#34d399';
+        if (idx <= 16) color = t.jawOk ? '#10b981' : '#22d3ee';
+        else if (idx >= 27 && idx <= 35) color = t.noseOk ? '#10b981' : '#22d3ee';
+        else if (idx >= 36 && idx <= 47) color = t.eyesOk ? '#10b981' : '#22d3ee';
+        else if (idx >= 48 && idx <= 67) color = t.mouthOk ? '#10b981' : '#22d3ee';
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(mapX(pt.x), mapY(pt.y), 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  }, []);
+  
   const cleanup = useCallback(() => {
     signalRef.current.cancelled = true;
     stopCamera(streamRef.current);
@@ -53,16 +102,17 @@ export const FaceScanModal: React.FC<Props> = ({ isOpen, mode, employeeId, emplo
       setMessage('Starting camera and loading face model…');
       const video = videoRef.current;
       if (!video) return;
-      streamRef.current = await startCamera(video);
+      const [stream] = await Promise.all([startCamera(video), loadFaceEngine()]);
+      streamRef.current = stream;
       if (signal.cancelled) return;
       setPhase('scanning');
       if (mode === 'verify') {
-        const descriptor = await scanForPunch(video, setMessage, signal);
+        const descriptor = await scanForPunch(video, setMessage, signal, 25000, handleTelemetry);
         setPhase('sending');
         const pass = await verifyFace(employeeId, descriptor);
         setFacePass(employeeId, { token: pass.token, expiresAt: pass.expiresAt });
       } else {
-        const samples = await scanForEnrollment(video, setMessage, signal);
+        const samples = await scanForEnrollment(video, setMessage, signal, 5, 40000, handleTelemetry);
         setPhase('sending');
         await enrollFace(employeeId, samples, adminId || '', adminPin);
       }
@@ -80,7 +130,7 @@ export const FaceScanModal: React.FC<Props> = ({ isOpen, mode, employeeId, emplo
       setError(msg);
       setPhase('error');
     }
-  }, [mode, employeeId, adminId, cleanup, onSuccess]);
+  }, [mode, employeeId, adminId, cleanup, onSuccess, handleTelemetry]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -122,11 +172,48 @@ export const FaceScanModal: React.FC<Props> = ({ isOpen, mode, employeeId, emplo
           </form>
         )}
 
-        <div className={showVideo ? 'relative rounded-xl overflow-hidden bg-slate-900 aspect-[4/3]' : 'hidden'}>
+        <div className={showVideo ? 'relative rounded-xl overflow-hidden bg-slate-900 w-full aspect-[3/4] sm:aspect-[4/3] max-h-[58dvh] sm:max-h-[360px] mx-auto shadow-inner' : 'hidden'}>
           <video ref={videoRef} className="w-full h-full object-cover -scale-x-100" muted playsInline />
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none -scale-x-100" />
+          {showVideo && (
+            <div className="absolute top-2.5 inset-x-2.5 flex items-center justify-between gap-2 pointer-events-none z-10">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-950/75 backdrop-blur-sm border border-white/15 text-white text-[11px] font-medium min-w-0">
+                <span className={`w-2 h-2 rounded-full shrink-0 animate-pulse ${telemetry?.detected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                <span className="truncate max-w-[110px] sm:max-w-[160px]">{employeeName}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold tracking-wider shrink-0 ${telemetry?.detected ? 'bg-emerald-500/25 text-emerald-300' : 'bg-cyan-500/25 text-cyan-300'}`}>
+                  {telemetry?.detected ? 'FACE DETECTED' : 'SCANNING'}
+                </span>
+              </div>
+              <div className="px-2.5 py-1 rounded-full bg-slate-950/75 backdrop-blur-sm border border-white/15 text-white font-mono text-[10px] sm:text-[11px] shrink-0">
+                {liveTime.toLocaleDateString([], { month: 'short', day: 'numeric' })} · {liveTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </div>
+            </div>
+          )}
           {phase === 'scanning' && (
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-              <div className="w-44 h-56 rounded-[50%] border-4 border-emerald-400/80 shadow-[0_0_0_9999px_rgba(15,23,42,0.45)]" />
+              <div className="w-36 h-48 sm:w-44 sm:h-56 rounded-[50%] border-4 border-emerald-400/80 shadow-[0_0_0_9999px_rgba(15,23,42,0.45)]" />
+            </div>
+          )}
+          {showVideo && (
+            <div className="absolute bottom-2.5 inset-x-2.5 flex flex-wrap items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-950/75 backdrop-blur-sm border border-white/15 text-[10px] sm:text-[11px] pointer-events-none z-10">
+              <div className="flex flex-wrap items-center gap-1">
+                {[
+                  { label: 'Eyes', ok: telemetry?.eyesOk },
+                  { label: 'Nose', ok: telemetry?.noseOk },
+                  { label: 'Mouth', ok: telemetry?.mouthOk },
+                  { label: 'Jaw', ok: telemetry?.jawOk },
+                ].map((f) => (
+                  <span
+                    key={f.label}
+                    className={`px-1.5 py-0.5 rounded font-medium ${f.ok ? 'bg-emerald-500/25 text-emerald-300' : 'bg-white/10 text-slate-300'}`}
+                  >
+                    {f.label} {f.ok ? '✓' : '·'}
+                  </span>
+                ))}
+              </div>
+              <span className={`px-2 py-0.5 rounded font-semibold ${telemetry?.livenessOk ? 'bg-emerald-500/30 text-emerald-300' : 'bg-cyan-500/25 text-cyan-200'}`}>
+                {telemetry?.livenessOk ? 'LIVE VERIFIED ✓' : `Liveliness ${Math.round(telemetry?.livenessProgress ?? 0)}%`}
+              </span>
             </div>
           )}
         </div>
