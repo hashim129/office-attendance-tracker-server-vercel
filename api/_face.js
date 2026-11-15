@@ -6,8 +6,11 @@
 import crypto from 'crypto';
 import { getSupabaseConfig, supabaseFetch } from './_supabase.js';
 
-export const FACE_MATCH_DISTANCE = 0.58; // lower = stricter (face-api default limit is 0.6; 0.58 allows zoomed-out scans)
-export const FACE_PASS_TTL_MS = 10 * 60 * 1000;
+export const FACE_MATCH_DISTANCE = 0.42; // strict same-person Euclidean distance threshold
+export const FACE_AVG_DISTANCE = 0.44;   // max average distance across top enrolled samples
+export const FACE_CENTROID_DISTANCE = 0.41; // max distance to the mean enrolled face vector
+export const FACE_MIN_COSINE = 0.905;    // min cosine similarity to the mean enrolled face vector
+export const FACE_PASS_TTL_MS = 2 * 60 * 1000;
 export const MAX_FAILS = 5;
 export const LOCK_MS = 5 * 60 * 1000;
 export const DESCRIPTOR_LENGTH = 128;
@@ -50,10 +53,48 @@ export function distance(a, b) {
   return Math.sqrt(s);
 }
 
+export function cosineSimilarity(a, b) {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom > 0 ? dot / denom : 0;
+}
+
 export function bestDistance(descriptor, samples) {
-  let best = Infinity;
-  for (const s of samples || []) if (isValidDescriptor(s)) best = Math.min(best, distance(descriptor, s));
-  return best;
+  const valid = (samples || []).filter(isValidDescriptor);
+  if (valid.length === 0) return Infinity;
+
+  const dists = valid.map((s) => distance(descriptor, s)).sort((a, b) => a - b);
+  const minDist = dists[0];
+  const topK = dists.slice(0, Math.min(3, dists.length));
+  const avgTopDist = topK.reduce((acc, v) => acc + v, 0) / topK.length;
+
+  // Compute centroid (mean descriptor) of all enrolled samples
+  const centroid = new Array(DESCRIPTOR_LENGTH).fill(0);
+  for (const s of valid) {
+    for (let i = 0; i < DESCRIPTOR_LENGTH; i++) centroid[i] += s[i] / valid.length;
+  }
+  const centroidDist = distance(descriptor, centroid);
+  const cosSim = cosineSimilarity(descriptor, centroid);
+
+  // Must satisfy ALL strict identity criteria so another person's face is never accepted
+  const matched =
+    minDist <= FACE_MATCH_DISTANCE &&
+    avgTopDist <= FACE_AVG_DISTANCE &&
+    centroidDist <= FACE_CENTROID_DISTANCE &&
+    cosSim >= FACE_MIN_COSINE;
+
+  // If any secondary check fails, return a value > FACE_MATCH_DISTANCE so api/face.js rejects it
+  if (!matched) {
+    return Math.max(minDist, FACE_MATCH_DISTANCE + 0.05);
+  }
+  return minDist;
 }
 
 function readJson(v, fb) {

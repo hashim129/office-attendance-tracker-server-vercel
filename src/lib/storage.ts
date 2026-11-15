@@ -267,6 +267,13 @@ function applyServerDbToLocal(data: {
     if (data.shifts) localStorage.setItem(STORAGE_KEY_SHIFTS, JSON.stringify(data.shifts));
     if (data.employees) localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(data.employees));
     if (data.attendance) {
+      const parseVer = (v: unknown) => {
+        if (!v) return undefined;
+        if (typeof v === 'string') {
+          try { return JSON.parse(v); } catch { return undefined; }
+        }
+        return v;
+      };
       const sanitized = data.attendance.map((r) => {
         let totalWorkedMinutes = r.totalWorkedMinutes || 0;
         let regularMinutes = r.regularMinutes || 0;
@@ -283,6 +290,8 @@ function applyServerDbToLocal(data: {
           totalWorkedMinutes,
           regularMinutes,
           overtimeMinutes,
+          adminVerification: parseVer(r.adminVerification),
+          accountsVerification: parseVer(r.accountsVerification),
         };
       });
       localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(sanitized));
@@ -901,6 +910,13 @@ export function loadAttendanceRecords(): AttendanceRecord[] {
     if (!raw) {
       return generateInitialAttendanceRecords();
     }
+    const parseVer = (v: unknown) => {
+      if (!v) return undefined;
+      if (typeof v === 'string') {
+        try { return JSON.parse(v); } catch { return undefined; }
+      }
+      return v;
+    };
     const parsed: AttendanceRecord[] = JSON.parse(raw);
     return parsed.map((r) => {
       let totalWorkedMinutes = r.totalWorkedMinutes || 0;
@@ -918,6 +934,8 @@ export function loadAttendanceRecords(): AttendanceRecord[] {
         totalWorkedMinutes,
         regularMinutes,
         overtimeMinutes,
+        adminVerification: parseVer(r.adminVerification),
+        accountsVerification: parseVer(r.accountsVerification),
       };
     });
   } catch {

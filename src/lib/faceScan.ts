@@ -280,23 +280,46 @@ async function readFrame(faceapi: any, video: HTMLVideoElement, progress?: ScanP
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function captureDescriptor(faceapi: any, video: HTMLVideoElement): Promise<number[] | null> {
+async function captureSingleDescriptor(faceapi: any, video: HTMLVideoElement): Promise<number[] | null> {
   for (const inputSize of [224, 320]) {
-    const opts = new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.18 });
+    const opts = new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.32 });
     const full = await faceapi
       .detectSingleFace(video, opts)
       .withFaceLandmarks()
       .withFaceDescriptor();
     if (full?.descriptor) {
-      return Array.from(full.descriptor as Float32Array);
+      const pts: Pt[] = full.landmarks.positions;
+      const ear = averageEar(pts);
+      // Do not capture descriptor while eyes are closed mid-blink
+      if (ear >= 0.13) {
+        return Array.from(full.descriptor as Float32Array);
+      }
     }
   }
   return null;
 }
 
+function descriptorDistance(a: number[], b: number[]): number {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += (a[i] - b[i]) ** 2;
+  return Math.sqrt(s);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function captureDescriptor(faceapi: any, video: HTMLVideoElement): Promise<number[] | null> {
+  const d1 = await captureSingleDescriptor(faceapi, video);
+  if (!d1) return null;
+  await sleep(25);
+  const d2 = await captureSingleDescriptor(faceapi, video);
+  if (d2 && descriptorDistance(d1, d2) <= 0.36) {
+    return d1.map((v, i) => (v + d2[i]) / 2);
+  }
+  return d1;
+}
+
 /**
  * Attendance punch scan: fast detection (works zoomed out too), verifies liveness on 1 blink,
- * emits real-time FaceLiveTelemetry, and captures a 128-d face descriptor.
+ * emits real-time FaceLiveTelemetry, and captures a high-precision 128-d face descriptor.
  */
 export async function scanForPunch(
   video: HTMLVideoElement,
@@ -338,10 +361,12 @@ export async function scanForPunch(
         landmarks: points.map((p) => ({ x: p.x, y: p.y })),
       });
 
-      if (tracker.blinked || SKIP_BLINK_FOR_TESTS) {
-        progress('Liveness verified! Capturing face...');
+      if ((tracker.blinked || SKIP_BLINK_FOR_TESTS) && feat.featuresOk && ear >= 0.13) {
+        progress('Liveness verified! Matching face...');
         const desc = await captureDescriptor(faceapi, video);
         if (desc) return desc;
+      } else if (tracker.blinked) {
+        progress('Look straight at the camera...');
       } else {
         progress('Blink once to verify liveness...');
       }

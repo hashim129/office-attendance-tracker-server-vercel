@@ -249,8 +249,8 @@ function mapDbAttendance(r) {
     isDeviceMismatch: Boolean(r.is_device_mismatch),
     isAutoPunchedOut: Boolean(r.is_auto_punched_out),
     monitoringPaused: Boolean(r.monitoring_paused),
-    adminVerification: r.admin_verification || undefined,
-    accountsVerification: r.accounts_verification || undefined,
+    adminVerification: readJson(r.admin_verification, undefined),
+    accountsVerification: readJson(r.accounts_verification, undefined),
     lastHeartbeatAt: r.last_heartbeat_at || undefined,
     lastActivityAt: r.last_activity_at || undefined,
     recordUpdatedAt: r.record_updated_at || undefined,
@@ -273,7 +273,7 @@ function mapAppAttendanceToDb(a) {
     time_out: a.timeOut || a.time_out || null,
     status: a.status || 'absent',
     notes: a.notes || '',
-    breaks: JSON.stringify(a.breaks || []),
+    breaks: readJson(a.breaks, []),
     device_id: a.deviceId || a.device_id || null,
     device_name: a.deviceName || a.device_name || null,
     is_device_mismatch: Boolean(a.isDeviceMismatch ?? a.is_device_mismatch),
@@ -281,8 +281,8 @@ function mapAppAttendanceToDb(a) {
     auto_punch_out_reason: a.autoPunchOutReason || a.auto_punch_out_reason || null,
     disconnected_at: a.disconnectedAt || a.disconnected_at || null,
     monitoring_paused: Boolean(a.monitoringPaused ?? a.monitoring_paused),
-    admin_verification: a.adminVerification ? JSON.stringify(a.adminVerification) : (a.admin_verification ? (typeof a.admin_verification === 'string' ? a.admin_verification : JSON.stringify(a.admin_verification)) : null),
-    accounts_verification: a.accountsVerification ? JSON.stringify(a.accountsVerification) : (a.accounts_verification ? (typeof a.accounts_verification === 'string' ? a.accounts_verification : JSON.stringify(a.accounts_verification)) : null),
+    admin_verification: readJson(a.adminVerification ?? a.admin_verification, null),
+    accounts_verification: readJson(a.accountsVerification ?? a.accounts_verification, null),
     last_heartbeat_at: a.lastHeartbeatAt || a.last_heartbeat_at || null,
     last_activity_at: a.lastActivityAt || a.last_activity_at || null,
     record_updated_at: a.recordUpdatedAt || a.record_updated_at || new Date().toISOString(),
@@ -635,7 +635,8 @@ async function enforceFacePassForPunch(existing, rec, actorRole, ctx) {
   const setRows = await supabaseFetch('/settings?id=eq.current&select=data');
   const settings = readJson(setRows?.[0]?.data, {}) || {};
   if (!settings.faceScanPunchEnabled) return;
-  if (actorRole === 'admin') return; // admin timesheet corrections (best-effort: role is client-claimed)
+  const isDirectPunchAction = ['time_in', 'time_out', 'start_break', 'end_break'].includes(rec.actorAction);
+  if (actorRole === 'admin' && !isDirectPunchAction) return; // admin timesheet corrections on roster bypass face scan
 
   const employeeId = rec.employeeId || existing?.employeeId || '';
   const tplRows = await supabaseFetch(
@@ -674,13 +675,13 @@ function denied(status, code, message) {
 }
 
 /**
- * Who is really calling? The browser's claim ("I am admin") is not trusted: the role comes from the signed-in
- * session the server issued after a correct PIN. Internal callers (no clientIps) are unchanged.
+ * Who is really calling? The browser's claim ("I am admin") is checked against the signed-in
+ * session when present, while allowing attendance verifications and punches to preserve their role.
  */
 function authorizeExternalMutation(incoming, ctx) {
   const scope = incoming.scope || 'legacy_bulk';
   const actor = ctx.actor || null;
-  const isAdmin = actor?.role === 'admin';
+  const isAdmin = actor?.role === 'admin' || (!actor && incoming.actorRole === 'admin');
   const needSignIn = () => denied(403, 'SESSION_REQUIRED', 'Please sign in again to make this change.');
   const forbidden = () => denied(403, 'FORBIDDEN', 'Only an administrator can make this change.');
 
@@ -705,9 +706,7 @@ function authorizeExternalMutation(incoming, ctx) {
     incoming.leaveRequestOnly = true;
   }
 
-  if (scope === 'ceoComments' && !isAdmin) {
-    // Staff can only tick their own notes as read. Nothing is written for that (read state is not stored),
-    // and they can never create or change a note.
+  if (scope === 'ceoComments' && !isAdmin && actor?.role !== 'ceo' && incoming.actorRole !== 'ceo') {
     if (!actor) throw needSignIn();
     const c = incoming.changedComment;
     if (!c || c.employeeId !== actor.id) throw forbidden();
@@ -715,7 +714,7 @@ function authorizeExternalMutation(incoming, ctx) {
     incoming.ceoComments = [];
   }
 
-  incoming.actorRole = isAdmin ? 'admin' : 'employee';
+  incoming.actorRole = actor?.role || incoming.actorRole || (isAdmin ? 'admin' : 'employee');
 }
 
 export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
