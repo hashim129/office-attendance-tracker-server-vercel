@@ -72,10 +72,10 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ease-in-out ${isMobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'} md:static md:translate-x-0 md:flex md:flex-col w-64 bg-slate-50/95 md:bg-slate-50/70 dark:bg-slate-900/95 md:dark:bg-slate-900/60 border-r border-slate-200 dark:border-slate-800 shrink-0 select-none`}
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col justify-start transition-transform duration-300 ease-in-out ${isMobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'} md:static md:translate-x-0 md:flex md:flex-col md:justify-start w-64 bg-slate-50/95 md:bg-slate-50/70 dark:bg-slate-900/95 md:dark:bg-slate-900/60 border-r border-slate-200 dark:border-slate-800 shrink-0 select-none`}
       >
       {/* Brand & Office Server Header */}
-      <div className="p-4 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-2">
+      <div className="shrink-0 px-4 py-3 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-xs shrink-0">
             <Building2 className="w-5 h-5" />
@@ -102,7 +102,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       </div>
 
       {/* Nav List */}
-      <div ref={navRef} className="nav-scope relative flex-1 pt-2 pb-4 px-3 overflow-y-auto" onClick={(e) => {
+      <div ref={navRef} className="nav-scope relative flex-1 pt-2 pb-3 px-3 space-y-1 overflow-y-auto" onClick={(e) => {
         const btn = (e.target as HTMLElement).closest('button');
         if (btn && onCloseMobile) onCloseMobile();
       }}>
@@ -118,7 +118,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           <div className="space-y-1">
             <button
               onClick={() => handleTabClick('clock')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                 activeTab === 'clock'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -130,7 +130,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
             <button
               onClick={() => onSelectTab('my-attendance')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                 activeTab === 'my-attendance'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -142,7 +142,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
             <button
               onClick={() => handleTabClick('team-attendance', 'workspace')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                 activeTab === 'team-attendance' && activeTeamSource === 'workspace'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -156,7 +156,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
             <button
               onClick={() => onSelectTab('leaves')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                 activeTab === 'leaves'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -184,7 +184,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             <div className="space-y-1">
               <button
                 onClick={() => onSelectTab('team-attendance')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'team-attendance'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -196,7 +196,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
               <button
                 onClick={() => onSelectTab('insights')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'insights'
                     ? 'bg-emerald-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -214,7 +214,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
               <button
                 onClick={() => onSelectTab('reports')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'reports'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -236,7 +236,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             <div className="space-y-1">
               <button
                 onClick={() => onSelectTab('team-attendance')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'team-attendance'
                     ? 'bg-amber-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -249,7 +249,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
               <button
                 onClick={() => onSelectTab('insights')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'insights'
                     ? 'bg-amber-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -267,7 +267,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
               <button
                 onClick={() => onSelectTab('reports')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'reports'
                     ? 'bg-amber-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -290,7 +290,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             <div className="space-y-1">
               <button
                 onClick={() => handleTabClick('team-attendance', 'admin')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'team-attendance' && activeTeamSource === 'admin'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -303,7 +303,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
               <button
                 onClick={() => onSelectTab('insights')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'insights'
                     ? 'bg-indigo-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -321,7 +321,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
               <button
                 onClick={() => onSelectTab('employees')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'employees'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -336,7 +336,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
               <button
                 onClick={() => onSelectTab('shifts')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'shifts'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -348,7 +348,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
               <button
                 onClick={() => onSelectTab('reports')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'reports'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -360,7 +360,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
               <button
                 onClick={() => onSelectTab('settings')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'settings'
                     ? 'bg-blue-600 text-white shadow-xs'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
@@ -376,7 +376,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       </div>
 
       {/* Footer Status */}
-      <div className="p-3 border-t border-slate-200/80 dark:border-slate-800/80 text-[11px] text-slate-500 dark:text-slate-400">
+      <div className="mt-auto shrink-0 p-3 border-t border-slate-200/80 dark:border-slate-800/80 text-[11px] text-slate-500 dark:text-slate-400">
         <div className="flex items-center justify-between">
           <span className="font-mono text-[10px]">Windows Server v2.4</span>
           <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" title="Server Active" />
