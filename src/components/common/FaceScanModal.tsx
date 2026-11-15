@@ -107,18 +107,18 @@ const [liveTime, setLiveTime] = useState(() => new Date());
       if (signal.cancelled) return;
       setPhase('scanning');
       if (mode === 'verify') {
-        const descriptor = await scanForPunch(video, setMessage, signal, 25000, handleTelemetry);
+        const descriptor = await scanForPunch(video, setMessage, signal, 20000, handleTelemetry);
         setPhase('sending');
         const pass = await verifyFace(employeeId, descriptor);
         setFacePass(employeeId, { token: pass.token, expiresAt: pass.expiresAt });
       } else {
-        const samples = await scanForEnrollment(video, setMessage, signal, 5, 40000, handleTelemetry);
+        const samples = await scanForEnrollment(video, setMessage, signal, 4, 35000, handleTelemetry);
         setPhase('sending');
         await enrollFace(employeeId, samples, adminId || '', adminPin);
       }
       cleanup();
       setPhase('done');
-      setTimeout(onSuccess, 700);
+      setTimeout(onSuccess, 250);
     } catch (e) {
       if (signal.cancelled) return;
       cleanup();

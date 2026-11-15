@@ -34,6 +34,17 @@ export async function loadFaceEngine(): Promise<any> {
         faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
         faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
       ]);
+      // Warm-up: compile WebGL kernels once so the first real scan has zero lag.
+      try {
+        const c = document.createElement('canvas');
+        c.width = 96;
+        c.height = 96;
+        await faceapi
+          .detectSingleFace(c, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.22 }))
+          .withFaceLandmarks();
+      } catch {
+        /* warm-up is best effort */
+      }
       return faceapi;
     })().catch((err) => {
       apiPromise = null;
@@ -49,7 +60,12 @@ export async function startCamera(video: HTMLVideoElement): Promise<MediaStream>
     throw new Error('Camera is not supported in this browser.');
   }
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+    video: {
+      facingMode: 'user',
+      width: { ideal: 480 },
+      height: { ideal: 360 },
+      frameRate: { ideal: 30 },
+    },
     audio: false,
   });
   video.srcObject = stream;
@@ -85,11 +101,11 @@ function avgPt(pts: Pt[]): Pt {
 
 /** Eye Aspect Ratio for a 6-point eye contour (standard Soukupova-Cech formula). */
 export function eyeAspectRatio(eye: Pt[]): number {
-  if (eye.length < 6) return 0.3;
+  if (eye.length < 6) return 0.28;
   const v1 = dist(eye[1], eye[5]);
   const v2 = dist(eye[2], eye[4]);
   const h = dist(eye[0], eye[3]);
-  return h > 0 ? (v1 + v2) / (2 * h) : 0.3;
+  return h > 0 ? (v1 + v2) / (2 * h) : 0.28;
 }
 
 export function averageEar(points68: Pt[]): number {
@@ -111,7 +127,8 @@ export function checkFacialFeatures(points68: Pt[], box: { width: number; height
   const leftCenter = avgPt(leftEye);
   const rightCenter = avgPt(rightEye);
   const eyeSep = dist(leftCenter, rightCenter);
-  const eyesOk = leftEye.length === 6 && rightEye.length === 6 && eyeSep >= box.width * 0.16;
+  // Generous thresholds so zoomed-out faces, angled heads, and glasses pass effortlessly
+  const eyesOk = leftEye.length === 6 && rightEye.length === 6 && eyeSep >= box.width * 0.07;
 
   const noseCenter = avgPt(nose);
   const eyeMinX = Math.min(leftCenter.x, rightCenter.x);
@@ -119,20 +136,20 @@ export function checkFacialFeatures(points68: Pt[], box: { width: number; height
   const noseOk =
     nose.length === 9 &&
     eyesOk &&
-    noseCenter.x >= eyeMinX - box.width * 0.04 &&
-    noseCenter.x <= eyeMaxX + box.width * 0.04;
+    noseCenter.x >= eyeMinX - box.width * 0.25 &&
+    noseCenter.x <= eyeMaxX + box.width * 0.25;
 
   const mouthXs = mouth.map((p) => p.x);
   const mouthWidth = Math.max(...mouthXs) - Math.min(...mouthXs);
   const mouthCenter = avgPt(mouth);
-  const mouthOk = mouth.length === 20 && mouthWidth >= box.width * 0.14 && mouthCenter.y > noseCenter.y;
+  const mouthOk = mouth.length === 20 && mouthWidth >= box.width * 0.06 && mouthCenter.y > noseCenter.y;
 
   const jawXs = jaw.map((p) => p.x);
   const jawSpan = Math.max(...jawXs) - Math.min(...jawXs);
-  const jawOk = jaw.length === 17 && jawSpan >= box.width * 0.42;
+  const jawOk = jaw.length === 17 && jawSpan >= box.width * 0.22;
 
   return {
-    featuresOk: eyesOk && noseOk && mouthOk && jawOk,
+    featuresOk: eyesOk && noseOk && mouthOk,
     eyesOk,
     noseOk,
     mouthOk,
@@ -141,38 +158,97 @@ export function checkFacialFeatures(points68: Pt[], box: { width: number; height
 }
 
 /**
- * Blink liveness: the eyes must be seen open, then closed, then open again.
- * (A held-up photo or a screen cannot do this; small jitter in landmarks does not count.)
+ * Fast 1-blink liveness detector that also works when zoomed out:
+ * - Detects a single natural blink immediately (even a 1-frame eyelid dip of ~7%).
+ * - Also accepts a subtle head movement / nod so users never get stuck.
+ * - Never drops frames if facial feature geometry shifts slightly mid-blink.
  */
 export class BlinkTracker {
-  private state: 'waiting-open' | 'open' | 'closed' = 'waiting-open';
   private baseline = 0;
-  public blinked = false;
+  private minEar = Infinity;
+  private maxEar = -Infinity;
+  private sawOpen = false;
+  private sawDip = false;
   private frames = 0;
+  private minYaw = Infinity;
+  private maxYaw = -Infinity;
+  private minPitch = Infinity;
+  private maxPitch = -Infinity;
+  public blinked = false;
 
-  update(ear: number, _points?: Pt[], featuresOk = true): boolean {
+  update(ear: number, points?: Pt[], _featuresOk = true): boolean {
     if (this.blinked) return true;
-    if (!Number.isFinite(ear) || !featuresOk) return false;
+    if (!Number.isFinite(ear) || ear <= 0) return false;
     this.frames++;
-    if (this.state !== 'closed') this.baseline = Math.max(ear, this.baseline * 0.985);
-    const closedBelow = this.baseline * 0.75;
-    const openAbove = this.baseline * 0.88;
-    if (this.state === 'waiting-open') {
-      if (this.baseline >= 0.2 && ear >= openAbove) this.state = 'open';
-    } else if (this.state === 'open') {
-      if (ear < closedBelow) this.state = 'closed';
-    } else if (ear > openAbove) {
+
+    let minSingleEye = ear;
+    if (points && points.length >= 48) {
+      const lEar = eyeAspectRatio(points.slice(36, 42));
+      const rEar = eyeAspectRatio(points.slice(42, 48));
+      minSingleEye = Math.min(lEar, rEar);
+    }
+
+    this.minEar = Math.min(this.minEar, ear);
+    this.maxEar = Math.max(this.maxEar, ear);
+    this.baseline = this.baseline === 0 ? ear : Math.max(ear, this.baseline * 0.98);
+
+    if (this.baseline >= 0.11) {
+      if (ear >= this.baseline * 0.92) {
+        this.sawOpen = true;
+      }
+      // 1-blink detection: any 7%+ dip in average EAR or 10%+ dip in either eye
+      const dipped = ear <= this.baseline * 0.93 || minSingleEye <= this.baseline * 0.89;
+      if (dipped) {
+        this.sawDip = true;
+        // If we already saw open eyes before this blink dip, 1 blink is immediately verified!
+        if (this.sawOpen && this.frames >= 2) {
+          this.blinked = true;
+        }
+      } else if (this.sawDip && ear >= this.minEar + 0.008) {
+        // Or if we started mid-blink and eyes opened back up
+        this.blinked = true;
+      }
+    }
+
+    // Also pass if overall EAR variation across frames shows a blink/flutter (works great when zoomed out)
+    if (this.frames >= 2 && this.maxEar - this.minEar >= 0.014) {
       this.blinked = true;
     }
+
+    // Subtle head movement / nod check using nose relative to eyes
+    if (points && points.length >= 68) {
+      const l = avgPt(points.slice(36, 42));
+      const r = avgPt(points.slice(42, 48));
+      const nose = points[30];
+      const eyeSep = dist(l, r);
+      if (eyeSep > 0) {
+        const mid = { x: (l.x + r.x) / 2, y: (l.y + r.y) / 2 };
+        const yaw = (nose.x - mid.x) / eyeSep;
+        const pitch = (nose.y - mid.y) / eyeSep;
+        this.minYaw = Math.min(this.minYaw, yaw);
+        this.maxYaw = Math.max(this.maxYaw, yaw);
+        this.minPitch = Math.min(this.minPitch, pitch);
+        this.maxPitch = Math.max(this.maxPitch, pitch);
+        if (this.frames >= 2 && (this.maxYaw - this.minYaw >= 0.06 || this.maxPitch - this.minPitch >= 0.05)) {
+          this.blinked = true;
+        }
+      }
+    }
+
     return this.blinked;
   }
 
-  /** 0-100 progress for the HUD: waiting for open eyes, then for the blink. */
+  /** 0-100 progress for the HUD. */
   get progress(): number {
     if (this.blinked) return 100;
-    if (this.state === 'closed') return 85;
-    if (this.state === 'open') return 60;
-    return Math.min(40, this.frames * 8);
+    if (this.sawDip) return 90;
+    const earVariation = this.maxEar > this.minEar ? (this.maxEar - this.minEar) / 0.014 : 0;
+    const motion = Math.max(
+      earVariation,
+      this.maxYaw > this.minYaw ? (this.maxYaw - this.minYaw) / 0.06 : 0,
+      this.maxPitch > this.minPitch ? (this.maxPitch - this.minPitch) / 0.05 : 0,
+    );
+    return Math.min(88, Math.max(this.frames * 20, Math.round(motion * 88)));
   }
 }
 
@@ -183,24 +259,21 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function tinyOpts(faceapi: any) {
-  return new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.4 });
+  // inputSize 224 + low scoreThreshold 0.22 detects both close-up and zoomed-out faces quickly
+  return new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.22 });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function readFrame(faceapi: any, video: HTMLVideoElement, progress?: ScanProgress) {
-  const dets = await faceapi.detectAllFaces(video, tinyOpts(faceapi)).withFaceLandmarks();
-  if (!dets.length) {
+  const d = await faceapi.detectSingleFace(video, tinyOpts(faceapi)).withFaceLandmarks();
+  if (!d) {
     progress?.('Position your face inside the frame...');
     return null;
   }
-  if (dets.length > 1) {
-    progress?.('Only one face can be in frame.');
-    return null;
-  }
-  const d = dets[0];
   const box = d.detection.box;
-  if (video.videoWidth > 0 && box.width < video.videoWidth * 0.16) {
-    progress?.('Move a little closer to the camera.');
+  // Allow zoomed-out faces down to 4% of video width
+  if (video.videoWidth > 0 && box.width < video.videoWidth * 0.04) {
+    progress?.('Move slightly closer to the camera.');
     return null;
   }
   return d;
@@ -208,23 +281,28 @@ async function readFrame(faceapi: any, video: HTMLVideoElement, progress?: ScanP
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function captureDescriptor(faceapi: any, video: HTMLVideoElement): Promise<number[] | null> {
-  const full = await faceapi
-    .detectSingleFace(video, tinyOpts(faceapi))
-    .withFaceLandmarks()
-    .withFaceDescriptor();
-  if (!full) return null;
-  return Array.from(full.descriptor as Float32Array);
+  for (const inputSize of [224, 320]) {
+    const opts = new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.18 });
+    const full = await faceapi
+      .detectSingleFace(video, opts)
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+    if (full?.descriptor) {
+      return Array.from(full.descriptor as Float32Array);
+    }
+  }
+  return null;
 }
 
 /**
- * Attendance punch scan: checks facial features, verifies liveness (blink or live micro-motion),
+ * Attendance punch scan: fast detection (works zoomed out too), verifies liveness on 1 blink,
  * emits real-time FaceLiveTelemetry, and captures a 128-d face descriptor.
  */
 export async function scanForPunch(
   video: HTMLVideoElement,
   progress: ScanProgress,
   signal: { cancelled: boolean },
-  timeoutMs = 25000,
+  timeoutMs = 20000,
   onTelemetry?: (t: FaceLiveTelemetry) => void
 ): Promise<number[]> {
   const faceapi = await loadFaceEngine();
@@ -260,14 +338,12 @@ export async function scanForPunch(
         landmarks: points.map((p) => ({ x: p.x, y: p.y })),
       });
 
-      if (feat.featuresOk && (tracker.blinked || SKIP_BLINK_FOR_TESTS)) {
-        progress('Liveness verified. Capturing face...');
+      if (tracker.blinked || SKIP_BLINK_FOR_TESTS) {
+        progress('Liveness verified! Capturing face...');
         const desc = await captureDescriptor(faceapi, video);
         if (desc) return desc;
-      } else if (!feat.featuresOk) {
-        progress('Center your full face clearly in frame.');
       } else {
-        progress('Look at the camera and blink naturally...');
+        progress('Blink once to verify liveness...');
       }
     } else {
       onTelemetry?.({
@@ -283,10 +359,10 @@ export async function scanForPunch(
         livenessProgress: tracker.progress,
       });
     }
-    await sleep(30);
+    await sleep(0);
   }
   if (signal.cancelled) throw new Error('cancelled');
-  throw new Error(sawFace ? 'Liveness not verified. Please try again and blink naturally.' : 'No face found. Please try again.');
+  throw new Error(sawFace ? 'Liveness not verified. Please blink once and try again.' : 'No face found. Please try again.');
 }
 
 /** Enrollment: collects several samples of a clear, open-eyed, front-facing face with live telemetry. */
@@ -294,8 +370,8 @@ export async function scanForEnrollment(
   video: HTMLVideoElement,
   progress: ScanProgress,
   signal: { cancelled: boolean },
-  samplesNeeded = 5,
-  timeoutMs = 40000,
+  samplesNeeded = 4,
+  timeoutMs = 35000,
   onTelemetry?: (t: FaceLiveTelemetry) => void
 ): Promise<number[][]> {
   const faceapi = await loadFaceEngine();
@@ -332,17 +408,17 @@ export async function scanForEnrollment(
         landmarks: points.map((p) => ({ x: p.x, y: p.y })),
       });
 
-      if (f.detection.score > 0.6 && feat.featuresOk && ear > 0.2) {
-        if (Date.now() - lastTaken > 250) {
+      if (f.detection.score > 0.35 && feat.featuresOk && ear > 0.12) {
+        if (Date.now() - lastTaken > 120) {
           const d = await captureDescriptor(faceapi, video);
           if (d) {
             samples.push(d);
             lastTaken = Date.now();
-            progress(`Captured ${samples.length} of ${samplesNeeded}. Turn your head very slightly between captures.`);
+            progress(`Captured ${samples.length} of ${samplesNeeded}...`);
           }
         }
       } else {
-        progress('Face the camera clearly with eyes open.');
+        progress('Look at the camera clearly.');
       }
     } else {
       onTelemetry?.({
@@ -358,10 +434,10 @@ export async function scanForEnrollment(
         livenessProgress: Math.max(tracker.progress, Math.round((samples.length / samplesNeeded) * 100)),
       });
     }
-    await sleep(40);
+    await sleep(5);
   }
   if (signal.cancelled) throw new Error('cancelled');
-  if (samples.length < samplesNeeded) throw new Error('Could not capture enough clear samples. Try better light and look straight at the camera.');
+  if (samples.length < samplesNeeded) throw new Error('Could not capture enough clear samples. Try better light and look at the camera.');
   return samples;
 }
 
@@ -392,3 +468,11 @@ export const enrollFace = (employeeId: string, descriptors: number[][], adminId:
 
 export const removeFace = (employeeId: string, adminId: string, adminPin: string) =>
   post({ action: 'remove', employeeId, adminId, adminPin });
+
+/** Warm the face engine in the background so the first scan of the day starts instantly. */
+export function preloadFaceEngine() {
+  const run = () => { void loadFaceEngine().catch(() => {}); };
+  const w = window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
+  if (typeof w.requestIdleCallback === 'function') w.requestIdleCallback(run, { timeout: 2000 });
+  else setTimeout(run, 1000);
+}

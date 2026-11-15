@@ -2,6 +2,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import './index.css';
+import { preloadFaceEngine } from './lib/faceScan';
 
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
@@ -9,3 +10,4 @@ createRoot(document.getElementById('root')!).render(
   </ErrorBoundary>
 );
 
+preloadFaceEngine();

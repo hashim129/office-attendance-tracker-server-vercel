@@ -6,7 +6,7 @@
 import crypto from 'crypto';
 import { getSupabaseConfig, supabaseFetch } from './_supabase.js';
 
-export const FACE_MATCH_DISTANCE = 0.5; // lower = stricter (face-api typical limit is 0.6)
+export const FACE_MATCH_DISTANCE = 0.58; // lower = stricter (face-api default limit is 0.6; 0.58 allows zoomed-out scans)
 export const FACE_PASS_TTL_MS = 10 * 60 * 1000;
 export const MAX_FAILS = 5;
 export const LOCK_MS = 5 * 60 * 1000;
