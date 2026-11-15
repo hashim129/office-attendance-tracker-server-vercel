@@ -1,4 +1,5 @@
 import { checkOfficeNetwork } from './_netmatch.js';
+import { verifyFacePass } from './_face.js';
 /**
  * Supabase (PostgreSQL) REST Adapter
  * Provides zero-dependency, atomic cloud database persistence via Supabase PostgREST API.
@@ -46,7 +47,7 @@ export function isSupabaseConfigured() {
   return getSupabaseConfig().isConfigured;
 }
 
-async function supabaseFetch(endpoint, options = {}) {
+export async function supabaseFetch(endpoint, options = {}) {
   const { url, key } = getSupabaseConfig();
   if (!url || !key) {
     throw new Error('Supabase credentials not configured in environment variables.');
@@ -411,14 +412,12 @@ export async function readSupabaseDb(defaultDb) {
     const settingsData = {
       ...defaultSettings,
       ...rawSettings,
-      allowedOfficeIps:
-        Array.isArray(rawSettings.allowedOfficeIps) && rawSettings.allowedOfficeIps.length > 0
-          ? rawSettings.allowedOfficeIps
-          : defaultSettings.allowedOfficeIps || [],
-      allowedOfficeIsps:
-        Array.isArray(rawSettings.allowedOfficeIsps) && rawSettings.allowedOfficeIsps.length > 0
-          ? rawSettings.allowedOfficeIsps
-          : defaultSettings.allowedOfficeIsps || [],
+      // An empty list is a deliberate choice by the admin; never refill it from defaults.
+      allowedOfficeIps: Array.isArray(rawSettings.allowedOfficeIps)
+        ? rawSettings.allowedOfficeIps
+        : defaultSettings.allowedOfficeIps || [],
+      // An ISP name never grants access.
+      allowedOfficeIsps: [],
       enforceOfficeIpLock: rawSettings.enforceOfficeIpLock ?? true,
       enforceDeviceBinding: false,
     };
@@ -625,6 +624,39 @@ async function enforceOfficeNetworkForPunch(existing, rec, actorRole, clientIps)
 }
 
 /**
+ * High-security face scan: when the admin turned it on, a punch for an employee with an
+ * enrolled face must carry a valid, unexpired "face pass" issued by /api/face for that employee.
+ */
+async function enforceFacePassForPunch(existing, rec, actorRole, ctx) {
+  if (!Array.isArray(ctx.clientIps)) return; // internal callers
+  if (!punchFieldsChanged(existing, rec)) return;
+  const setRows = await supabaseFetch('/settings?id=eq.current&select=data');
+  const settings = readJson(setRows?.[0]?.data, {}) || {};
+  if (!settings.faceScanPunchEnabled) return;
+  if (actorRole === 'admin') return; // admin timesheet corrections (best-effort: role is client-claimed)
+
+  const employeeId = rec.employeeId || existing?.employeeId || '';
+  const tplRows = await supabaseFetch(
+    `/face_templates?employee_id=eq.${encodeURIComponent(employeeId)}&select=employee_id`
+  );
+  const enrolled = Boolean(tplRows?.[0]);
+  if (!enrolled) {
+    if (settings.faceScanAllowUnenrolled ?? true) return;
+    const err = new Error('Face scan is required but your face is not enrolled yet. Ask the administrator to enroll you.');
+    err.status = 403;
+    err.code = 'FACE_NOT_ENROLLED';
+    throw err;
+  }
+  const token = ctx.facePasses && typeof ctx.facePasses === 'object' ? ctx.facePasses[employeeId] : undefined;
+  if (!verifyFacePass(token, employeeId)) {
+    const err = new Error('Face scan required (or it expired). Please scan your face and try again.');
+    err.status = 403;
+    err.code = 'FACE_REQUIRED';
+    throw err;
+  }
+}
+
+/**
  * Applies a mutation payload directly to Supabase with ACID UPSERT / Soft-Delete
  */
 export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
@@ -640,6 +672,7 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
         const existing = existingRows?.[0] ? mapDbAttendance(existingRows[0]) : null;
 
         await enforceOfficeNetworkForPunch(existing, rec, incoming.actorRole, ctx.clientIps);
+        await enforceFacePassForPunch(existing, rec, incoming.actorRole, ctx);
         const mergedRec = mergeSupabaseAttendanceRecord(existing, rec, { actorRole: incoming.actorRole });
         rowsToUpsert.push(mapAppAttendanceToDb(mergedRec));
       }

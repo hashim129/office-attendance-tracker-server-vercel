@@ -33,55 +33,17 @@ export const DEFAULT_DB = {
     serverPort: 3000,
     enforceOfficeIpLock: true,
     allowedOfficeIps: [
-      {
-        ip: '2400:adc5:1b5:9f00:*',
-        label: 'Office Primary ISP IPv6 Subnet (Cybernet /64) — All Mobile & Desktop Wi-Fi',
-        addedAt: '2026-11-13',
-      },
-      {
-        ip: '175.107.239.140',
-        label: 'Office Primary ISP (Cyber Internet Services) — All Extenders & LAN',
-        addedAt: '2026-11-05',
-      },
-      {
-        ip: '175.107.239.*',
-        label: 'Office Primary ISP Subnet — All Extenders & LAN',
-        addedAt: '2026-11-05',
-      },
-      {
-        ip: '127.0.0.1',
-        label: 'Localhost / Internal',
-        addedAt: '2026-11-05',
-      },
-      {
-        ip: '::1',
-        label: 'Localhost IPv6',
-        addedAt: '2026-11-13',
-      },
+      { ip: '175.107.239.140', label: 'Office public IPv4 (exact address)', addedAt: '2026-11-05' },
+      { ip: '175.107.239.*', label: 'Office IP block 175.107.239.x (changes when the router reconnects)', addedAt: '2026-11-15' },
+      { ip: '2400:adc5:1b5:9f00::/64', label: 'Office IPv6 network (/64)', addedAt: '2026-11-13' },
+      { ip: '127.0.0.1', label: 'Local server PC', addedAt: '2026-11-05' },
+      { ip: '::1', label: 'Local server PC (IPv6)', addedAt: '2026-11-13' },
     ],
-    allowedOfficeIsps: [
-      {
-        ispName: 'Cyber Internet Services',
-        label: 'Primary Office ISP',
-        addedAt: '2026-11-05',
-      },
-      {
-        ispName: 'Cybernet',
-        label: 'Cybernet Broadband',
-        addedAt: '2026-11-13',
-      },
-      {
-        ispName: 'Pakistan Telecommunication Company Limited',
-        label: 'PTCL Broadband / Fiber',
-        addedAt: '2026-11-13',
-      },
-      {
-        ispName: 'PTCL',
-        label: 'PTCL Short Name',
-        addedAt: '2026-11-13',
-      },
-    ],
+    // An ISP name never grants access, so this list is intentionally empty.
+    allowedOfficeIsps: [],
     allowAdminBypassIpLock: true,
+    faceScanPunchEnabled: false,
+    faceScanAllowUnenrolled: true,
   },
   shifts: [
     {
@@ -655,7 +617,7 @@ export default async function handler(req, res) {
           .map((x) => String(x || '').trim().replace(/^::ffff:/, ''))
           .filter(Boolean);
         if (seen.length === 0 && req.socket?.remoteAddress) seen.push(String(req.socket.remoteAddress).replace(/^::ffff:/, ''));
-        const result = await mutateSupabaseDb(incoming, DEFAULT_DB, { clientIps: Array.from(new Set(seen)) });
+        const result = await mutateSupabaseDb(incoming, DEFAULT_DB, { clientIps: Array.from(new Set(seen)), facePasses: incoming.facePasses });
         return res.status(200).json({
           ok: true,
           updatedAt: result.db.updatedAt,

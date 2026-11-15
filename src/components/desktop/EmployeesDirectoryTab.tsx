@@ -14,9 +14,11 @@ import {
   Terminal,
   FileText,
   Home,
+  ScanFace,
 } from 'lucide-react';
 import { Employee, Role, ShiftSchedule, AttendanceRecord } from '../../types';
 import { Modal } from '../common/Modal';
+import { FaceScanModal, FaceScanMode } from '../common/FaceScanModal';
 import {
   downloadWindowsBatFile,
   generateEmployeeAutoStartBat,
@@ -34,6 +36,8 @@ interface EmployeesDirectoryTabProps {
   currentUserId: string;
   companyName?: string;
   allowAutoStartPunch?: boolean;
+  faceEnrolledIds?: string[];
+  onFaceChanged?: () => void;
 }
 
 export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
@@ -47,7 +51,10 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
   currentUserId,
   companyName = 'Office Attendance Tracker',
   allowAutoStartPunch = false,
+  faceEnrolledIds = [],
+  onFaceChanged,
 }) => {
+  const [faceModal, setFaceModal] = useState<{ mode: FaceScanMode; emp: Employee } | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedDept, setSelectedDept] = useState<string>('all');
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -304,6 +311,27 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
 
               {/* Action Buttons */}
               <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFaceModal({ mode: 'enroll', emp })}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 dark:text-violet-300 dark:bg-violet-950/50 dark:hover:bg-violet-900/50 border border-violet-200 dark:border-violet-800 transition-colors cursor-pointer"
+                  title={`Enroll or update the face used for face scan punch (${emp.name})`}
+                >
+                  <ScanFace className="w-3 h-3" />
+                  <span>{faceEnrolledIds.includes(emp.id) ? 'Re-enroll face' : 'Enroll face'}</span>
+                </button>
+                {faceEnrolledIds.includes(emp.id) && (
+                  <button
+                    type="button"
+                    onClick={() => setFaceModal({ mode: 'remove', emp })}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-slate-100 dark:text-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition-colors cursor-pointer"
+                    title={`Remove the enrolled face of ${emp.name}`}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Remove face</span>
+                  </button>
+                )}
+
                 {onOpenPrintModal && (
                   <button
                     type="button"
@@ -638,6 +666,21 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
             </div>
           </div>
         </Modal>
+      )}
+
+      {faceModal && (
+        <FaceScanModal
+          isOpen
+          mode={faceModal.mode}
+          employeeId={faceModal.emp.id}
+          employeeName={faceModal.emp.name}
+          adminId={currentUserId}
+          onClose={() => setFaceModal(null)}
+          onSuccess={() => {
+            setFaceModal(null);
+            onFaceChanged?.();
+          }}
+        />
       )}
     </div>
   );

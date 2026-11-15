@@ -26,6 +26,7 @@ import {
   registerCloudSyncListener,
   retryCloudOutboxNow,
   saveAttendanceRecords,
+  fetchFaceEnrolledIds,
   saveCeoComments,
   saveEmployeeDelete,
   saveEmployeeUpsert,
@@ -63,6 +64,7 @@ import { SmartInsightsTab } from './components/desktop/SmartInsightsTab';
 import { OfficeSettingsTab } from './components/desktop/OfficeSettingsTab';
 import { PrintableTimesheetModal } from './components/desktop/PrintableTimesheetModal';
 import { ChangePasswordModal } from './components/common/ChangePasswordModal';
+import { FaceScanModal } from './components/common/FaceScanModal';
 import { KioskMode } from './components/kiosk/KioskMode';
 
 export default function App() {
@@ -89,6 +91,9 @@ export default function App() {
 
   // Current Session & Workspace Navigation
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
+  // High-security face scan punch (admin turns it on in Office Settings; off by default)
+  const [faceEnrolledIds, setFaceEnrolledIds] = useState<string[]>([]);
+  const [faceRequest, setFaceRequest] = useState<{ employeeId: string; run: () => void } | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveDesktopTab>('clock');
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
 
@@ -617,6 +622,40 @@ export default function App() {
   // -------------------------------------------------------------
   // Admin Data Modification Handlers
   // -------------------------------------------------------------
+  // -------------------------------------------------------------
+  // Face scan gate: wraps a punch action so it only runs after a successful face scan
+  // -------------------------------------------------------------
+  const refreshFaceStatus = () => {
+    void fetchFaceEnrolledIds().then(setFaceEnrolledIds);
+  };
+
+  useEffect(() => {
+    if (settings.faceScanPunchEnabled || currentUser?.role === 'admin') refreshFaceStatus();
+  }, [settings.faceScanPunchEnabled, currentUser?.id, currentUser?.role]);
+
+  const gatePunch = (employeeId: string, run: () => void) => {
+    if (!settings.faceScanPunchEnabled) {
+      run();
+      return;
+    }
+    if (faceEnrolledIds.includes(employeeId)) {
+      setFaceRequest({ employeeId, run });
+      return;
+    }
+    const actorRole = appMode === 'kiosk' ? 'employee' : currentUserRef.current?.role || 'employee';
+    if (actorRole !== 'admin' && settings.faceScanAllowUnenrolled === false) {
+      alert('Face scan is required to punch, but your face is not enrolled yet. Please ask the Administrator to enroll you.');
+      return;
+    }
+    run();
+  };
+
+  const handleGatedTimeIn = (id: string, notes?: string) => gatePunch(id, () => handleTimeIn(id, notes));
+  const handleGatedTimeOut = (id: string, notes?: string) => gatePunch(id, () => handleTimeOut(id, notes));
+  const handleGatedStartBreak = (id: string, type: 'lunch' | 'coffee' | 'short_break') =>
+    gatePunch(id, () => handleStartBreak(id, type));
+  const handleGatedEndBreak = (id: string) => gatePunch(id, () => handleEndBreak(id));
+
   const handleAddEmployee = (empData: Omit<Employee, 'id'>) => {
     const nowIso = new Date().toISOString();
     const actorRole = currentUserRef.current?.role || 'admin';
@@ -883,10 +922,10 @@ export default function App() {
           shifts={shifts}
           records={records}
           settings={settings}
-          onTimeIn={handleTimeIn}
-          onTimeOut={handleTimeOut}
-          onStartBreak={handleStartBreak}
-          onEndBreak={handleEndBreak}
+          onTimeIn={handleGatedTimeIn}
+          onTimeOut={handleGatedTimeOut}
+          onStartBreak={handleGatedStartBreak}
+          onEndBreak={handleGatedEndBreak}
           onExitKiosk={() => handleToggleMode('desktop')}
           currentClientIp={currentClientIp}
           currentClientIsp={currentClientIsp}
@@ -937,10 +976,10 @@ export default function App() {
                   allEmployees={employees}
                   shifts={shifts}
                   records={records}
-                  onTimeIn={handleTimeIn}
-                  onTimeOut={handleTimeOut}
-                  onStartBreak={handleStartBreak}
-                  onEndBreak={handleEndBreak}
+                  onTimeIn={handleGatedTimeIn}
+                  onTimeOut={handleGatedTimeOut}
+                  onStartBreak={handleGatedStartBreak}
+                  onEndBreak={handleGatedEndBreak}
                   onUpdatePunchNote={handleUpdatePunchNote}
                   settings={settings}
                   currentClientIp={currentClientIp}
@@ -1007,6 +1046,8 @@ export default function App() {
                   companyName={settings.companyName}
                   allowAutoStartPunch={Boolean(settings.allowAutoStartPunch)}
                   onOpenPrintModal={handleOpenPrintModal}
+                  faceEnrolledIds={faceEnrolledIds}
+                  onFaceChanged={refreshFaceStatus}
                 />
               )}
 
@@ -1082,6 +1123,22 @@ export default function App() {
           shifts={shifts}
           settings={settings}
           currentUser={currentUser}
+        />
+      )}
+
+      {/* Face scan before punching (High security) */}
+      {faceRequest && (
+        <FaceScanModal
+          isOpen
+          mode="verify"
+          employeeId={faceRequest.employeeId}
+          employeeName={employees.find((e) => e.id === faceRequest.employeeId)?.name || ''}
+          onClose={() => setFaceRequest(null)}
+          onSuccess={() => {
+            const { run } = faceRequest;
+            setFaceRequest(null);
+            run();
+          }}
         />
       )}
 
