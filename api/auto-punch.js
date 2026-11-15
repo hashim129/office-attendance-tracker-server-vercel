@@ -70,6 +70,15 @@ export default async function handler(req, res) {
         });
       }
 
+      // High-security face scan: an unattended startup punch cannot show a face, so it is refused.
+      if (settings.faceScanPunchEnabled && emp.role !== 'admin') {
+        return res.status(403).json({
+          ok: false,
+          code: 'FACE_REQUIRED',
+          message: 'Face scan punch is enabled by the Administrator. Please punch from the website and scan your face.',
+        });
+      }
+
       const isWfhBypassIp = Boolean(emp.allowWorkFromHome);
       const isAdminBypassIp = emp.role === 'admin' && (settings.allowAdminBypassIpLock ?? true);
       if (settings.enforceOfficeIpLock && !isAdminBypassIp && !isWfhBypassIp) {

@@ -86,55 +86,17 @@ export const INITIAL_SETTINGS: OfficeSettings = {
   serverPort: 3000,
   enforceOfficeIpLock: true,
   allowedOfficeIps: [
-    {
-      ip: '2400:adc5:1b5:9f00:*',
-      label: 'Office Primary ISP IPv6 Subnet (Cybernet /64) — All Mobile & Desktop Wi-Fi',
-      addedAt: '2026-11-13',
-    },
-    {
-      ip: '175.107.239.140',
-      label: 'Office ISP Provider 1 (Cyber Internet Services) — All Extenders & LAN',
-      addedAt: '2026-11-05',
-    },
-    {
-      ip: '175.107.239.*',
-      label: 'Office ISP Provider 1 Dynamic Subnet — All Extenders & LAN',
-      addedAt: '2026-11-05',
-    },
-    {
-      ip: '127.0.0.1',
-      label: 'Local Server Host PC',
-      addedAt: '2026-11-05',
-    },
-    {
-      ip: '::1',
-      label: 'Localhost IPv6',
-      addedAt: '2026-11-13',
-    },
+    { ip: '175.107.239.140', label: 'Office public IPv4 (exact address)', addedAt: '2026-11-05' },
+    { ip: '175.107.239.*', label: 'Office IP block 175.107.239.x (changes when the router reconnects)', addedAt: '2026-11-15' },
+    { ip: '2400:adc5:1b5:9f00::/64', label: 'Office IPv6 network (/64)', addedAt: '2026-11-13' },
+    { ip: '127.0.0.1', label: 'Local server PC', addedAt: '2026-11-05' },
+    { ip: '::1', label: 'Local server PC (IPv6)', addedAt: '2026-11-13' },
   ],
-  allowedOfficeIsps: [
-    {
-      ispName: 'Cyber Internet Services',
-      label: 'Office Primary ISP',
-      addedAt: '2026-11-05',
-    },
-    {
-      ispName: 'Cybernet',
-      label: 'Cybernet Broadband',
-      addedAt: '2026-11-13',
-    },
-    {
-      ispName: 'Pakistan Telecommunication Company Limited',
-      label: 'PTCL Broadband / Fiber',
-      addedAt: '2026-11-13',
-    },
-    {
-      ispName: 'PTCL',
-      label: 'PTCL Short Name',
-      addedAt: '2026-11-13',
-    },
-  ],
+  // An ISP name never grants access, so this list is intentionally empty.
+  allowedOfficeIsps: [],
   allowAdminBypassIpLock: true,
+  faceScanPunchEnabled: false,
+  faceScanAllowUnenrolled: true,
   enforceDeviceBinding: false,
   allowAdminBypassDeviceBinding: true,
   allowKioskPunchWithoutDevice: true,
@@ -331,6 +293,43 @@ function applyServerDbToLocal(data: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Face scan passes (High-security punch). The server hands out a short-lived signed
+// pass after a face match; it travels with the punch so the server can verify it.
+// ---------------------------------------------------------------------------
+const FACE_PASS_KEY = 'office_attend_face_passes_v1';
+type FacePass = { token: string; expiresAt: number };
+
+function readFacePasses(): Record<string, FacePass> {
+  try {
+    const raw = sessionStorage.getItem(FACE_PASS_KEY);
+    const all = raw ? (JSON.parse(raw) as Record<string, FacePass>) : {};
+    const now = Date.now();
+    return Object.fromEntries(Object.entries(all).filter(([, p]) => p && p.expiresAt > now));
+  } catch {
+    return {};
+  }
+}
+
+export function setFacePass(employeeId: string, pass: FacePass): void {
+  try {
+    sessionStorage.setItem(FACE_PASS_KEY, JSON.stringify({ ...readFacePasses(), [employeeId]: pass }));
+  } catch {
+    /* private mode: pass only lives for this call chain */
+  }
+}
+
+export async function fetchFaceEnrolledIds(): Promise<string[]> {
+  try {
+    const res = await fetch(`/api/face?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json.enrolledIds) ? json.enrolledIds : [];
+  } catch {
+    return [];
+  }
+}
+
 function buildServerPayload(mutation?: DbMutationPayload, queuedAgeMs?: number): Record<string, unknown> {
   const nowIso = new Date().toISOString();
   const scope = mutation?.scope || 'legacy_bulk';
@@ -346,6 +345,10 @@ function buildServerPayload(mutation?: DbMutationPayload, queuedAgeMs?: number):
   };
 
   if (mutation?.scope === 'attendance') {
+    const passes = readFacePasses();
+    if (Object.keys(passes).length > 0) {
+      payload.facePasses = Object.fromEntries(Object.entries(passes).map(([id, p]) => [id, p.token]));
+    }
     if (mutation.changedRecords && mutation.changedRecords.length > 0) {
       payload.changedRecords = mutation.changedRecords;
     } else if (mutation.changedRecord) {
@@ -581,9 +584,11 @@ export function flushPendingCloudWrites(options?: { respectCooldown?: boolean })
     return Promise.resolve(false);
   }
 
-  const run = (async (): Promise<boolean> => {
-    if (readOutbox().length === 0) return true;
+  // Nothing queued: return right away. (Doing this inside the async block below used to leave
+  // activeFlushPromise set forever, so later saves were never sent to the server.)
+  if (readOutbox().length === 0) return Promise.resolve(true);
 
+  const run = (async (): Promise<boolean> => {
     if (retryTimer) {
       clearTimeout(retryTimer);
       retryTimer = null;
@@ -1041,15 +1046,13 @@ export function loadSettings(): OfficeSettings {
       ...INITIAL_SETTINGS,
       ...parsed,
       enforceOfficeIpLock: parsed.enforceOfficeIpLock ?? INITIAL_SETTINGS.enforceOfficeIpLock,
-      allowedOfficeIps:
-        parsed.allowedOfficeIps && parsed.allowedOfficeIps.length > 0
-          ? parsed.allowedOfficeIps
-          : INITIAL_SETTINGS.allowedOfficeIps,
-      allowedOfficeIsps:
-        parsed.allowedOfficeIsps && parsed.allowedOfficeIsps.length > 0
-          ? parsed.allowedOfficeIsps
-          : INITIAL_SETTINGS.allowedOfficeIsps,
+      allowedOfficeIps: Array.isArray(parsed.allowedOfficeIps)
+        ? parsed.allowedOfficeIps
+        : INITIAL_SETTINGS.allowedOfficeIps,
+      allowedOfficeIsps: [],
       allowAdminBypassIpLock: parsed.allowAdminBypassIpLock ?? true,
+      faceScanPunchEnabled: parsed.faceScanPunchEnabled ?? false,
+      faceScanAllowUnenrolled: parsed.faceScanAllowUnenrolled ?? true,
       enforceDeviceBinding: false,
       allowAdminBypassDeviceBinding: parsed.allowAdminBypassDeviceBinding ?? true,
       allowKioskPunchWithoutDevice: parsed.allowKioskPunchWithoutDevice ?? true,

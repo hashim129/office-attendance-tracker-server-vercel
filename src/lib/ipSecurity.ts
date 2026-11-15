@@ -115,19 +115,28 @@ export function doesIpMatchRule(clientIp: string, ruleIp: string): boolean {
 }
 
 /** Describes how wide a rule is, so the admin screen can warn before it lets other customers in. */
-export function describeIpRule(ruleIp: string): { valid: boolean; level: "exact" | "small" | "broad" | "invalid"; family: 4 | 6 | null; bits: number; note: string } {
+export function describeIpRule(ruleIp: string): { valid: boolean; level: "exact" | "small" | "block" | "broad" | "invalid"; family: 4 | 6 | null; bits: number; note: string } {
   const r = parseRule(ruleIp);
   if (!r) return { valid: false, level: 'invalid', family: null, bits: 0, note: 'Not a valid IP address or range' };
   if (r.v === 4) {
     if (r.bits === 32) return { valid: true, level: 'exact', family: 4, bits: r.bits, note: 'Exactly one IPv4 address' };
     const count = Math.pow(2, 32 - r.bits);
     if (r.bits >= 28) return { valid: true, level: 'small', family: 4, bits: r.bits, note: `${count} addresses` };
+    if (r.bits >= 24) {
+      return {
+        valid: true,
+        level: 'block',
+        family: 4,
+        bits: r.bits,
+        note: `${count.toLocaleString('en-US')} addresses in your internet company's block (follows the office when the router reconnects)`,
+      };
+    }
     return {
       valid: true,
       level: 'broad',
       family: 4,
       bits: r.bits,
-      note: `${count.toLocaleString('en-US')} addresses - other customers of your internet company are included`,
+      note: `${count.toLocaleString('en-US')} addresses - many other customers of your internet company are included`,
     };
   }
   if (r.bits >= 64) return { valid: true, level: 'exact', family: 6, bits: r.bits, note: 'Your office IPv6 network (one LAN)' };
@@ -136,13 +145,18 @@ export function describeIpRule(ruleIp: string): { valid: boolean; level: "exact"
 }
 
 
-/** The rule to store for a detected address: IPv4 is exact, IPv6 becomes its /64 office network. */
-export function toNetworkRule(ip: string): string | null {
+/**
+ * The rule to store for a detected address. IPv6 becomes its /64 office network.
+ * IPv4 is the exact address, or (wide = true) the 256-address block it sits in, because the internet
+ * company hands out a different last number each time the office router reconnects.
+ */
+export function toNetworkRule(ip: string, wide = false): string | null {
   const parsed = parseIp(ip);
   if (!parsed) return null;
   if (parsed.v === 4) {
     const n = parsed.n;
-    return [24, 16, 8, 0].map((sh) => Number((n >> BigInt(sh)) & BigInt(255))).join('.');
+    const octets = [24, 16, 8, 0].map((sh) => Number((n >> BigInt(sh)) & BigInt(255)));
+    return wide ? `${octets[0]}.${octets[1]}.${octets[2]}.*` : octets.join('.');
   }
   const groups: string[] = [];
   for (let i = 7; i >= 4; i--) groups.push(((parsed.n >> BigInt(i * 16)) & BigInt(0xffff)).toString(16));

@@ -8,6 +8,7 @@ import {
   Server,
   Building,
   ShieldAlert,
+  ScanFace,
   CheckCircle2,
   Wifi,
   Plus,
@@ -57,6 +58,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
   const [detectedV4, setDetectedV4] = useState<string>('');
   const [detectedV6, setDetectedV6] = useState<string>('');
   const [serverSeen, setServerSeen] = useState<string>('');
+  const [ipChanges, setIpChanges] = useState<boolean>(true); // office IP changes on reconnect (typical in Pakistan)
   const [newIpInput, setNewIpInput] = useState<string>('');
   const [newIpLabelInput, setNewIpLabelInput] = useState<string>('');
 
@@ -96,7 +98,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
   // Adds every address this device is using right now: the exact IPv4 and the IPv6 office network (/64).
   const handleCaptureNetwork = () => {
     const found = Array.from(
-      new Set([detectedV4, detectedV6, serverSeen].map((x) => (x ? toNetworkRule(x) : null)).filter((x): x is string => Boolean(x)))
+      new Set([detectedV4, detectedV6, serverSeen].map((x) => (x ? toNetworkRule(x, ipChanges) : null)).filter((x): x is string => Boolean(x)))
     );
     const existing = formData.allowedOfficeIps || [];
     const fresh = found.filter((rule) => !existing.some((e) => e.ip.toLowerCase() === rule.toLowerCase()));
@@ -111,7 +113,11 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
     const today = new Date().toISOString().split('T')[0];
     const added = fresh.map((rule) => ({
       ip: rule,
-      label: rule.includes(':') ? 'Office IPv6 network' : 'Office public IPv4 (exact address)',
+      label: rule.includes(':')
+        ? 'Office IPv6 network'
+        : rule.endsWith('.*')
+          ? `Office IP block ${rule.replace('*', 'x')} (changes when the router reconnects)`
+          : 'Office public IPv4 (exact address)',
       addedAt: today,
     }));
     const updated: OfficeSettings = { ...formData, allowedOfficeIps: [...existing, ...added] };
@@ -131,7 +137,10 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
       return;
     }
     if (scope.level === 'broad') {
-      alert(`"${cleanIp}" is too wide (${scope.note}). Add the exact office IP instead so people at home on the same internet company cannot punch in.`);
+      alert(`"${cleanIp}" is too wide (${scope.note}). Use a block of 256 addresses (like 175.107.239.*) or an exact IP instead.`);
+      return;
+    }
+    if (scope.level === 'block' && !confirm(`"${cleanIp}" allows ${scope.note}. A few other customers of the same internet company may share this block. Add it?`)) {
       return;
     }
     if (scope.level === 'small' && !confirm(`"${cleanIp}" allows ${scope.note}. Only continue if all of them belong to your office. Add it?`)) {
@@ -384,7 +393,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
               <span>How the office is recognised</span>
             </div>
             <p className="text-[11px] leading-relaxed">
-              Only your office&apos;s own <strong>public IP addresses</strong> are allowed: one IPv4 address and, if your line has it, one IPv6 network. The internet company (ISP) is <strong>never</strong> used, because every customer of that company, including employees at home, shares its name. All Wi-Fi extenders and LAN cables behind the same router share these addresses.
+              Only your office&apos;s own <strong>public IP addresses</strong> are allowed: the small block of IPv4 addresses your router gets (the last number changes whenever it reconnects) and, if your line has it, your IPv6 network. The internet company (ISP) name is <strong>never</strong> used, because every customer of that company, including employees at home, shares it. All Wi-Fi extenders and LAN cables behind the same router share these addresses.
             </p>
             <p className="text-[11px] leading-relaxed font-medium text-emerald-700 dark:text-emerald-400">
               ✓ Connect to the office Wi-Fi, then press <strong>Capture this network</strong>. If you have a second internet line, repeat it while connected to that line. The check runs on the server for every punch.
@@ -445,6 +454,16 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
               <label className="text-xs font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                 <Globe className="w-3.5 h-3.5 text-blue-600" />
                 <span>Register your office network</span>
+              </label>
+
+              <label className="inline-flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={ipChanges}
+                  onChange={(e) => setIpChanges(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded text-emerald-600 cursor-pointer"
+                />
+                <span>My office IP changes when the router reconnects (recommended)</span>
               </label>
 
               <button
@@ -561,6 +580,53 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
                 })}
               </div>
             )}
+          </div>
+        </div>
+
+        {/* High security: Face scan punch (separate from the network lock) */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <ScanFace className="w-4 h-4 text-violet-600" />
+            <span>High Security: Face Scan Punch</span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">Optional</span>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            When on, an employee with an enrolled face must pass a live camera check (blink) before clocking in, out or taking a break. It works on top of the office network lock and can be switched off at any time. Enroll faces from the Employees page.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-violet-50/50 dark:bg-violet-950/20 border border-violet-200/80 dark:border-violet-900/40">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.faceScanPunchEnabled === true}
+                onChange={(e) => {
+                  const updated = { ...formData, faceScanPunchEnabled: e.target.checked };
+                  setFormData(updated);
+                  onUpdateSettings(updated);
+                }}
+                className="mt-0.5 w-4 h-4 rounded text-violet-600 cursor-pointer"
+              />
+              <div className="text-xs">
+                <span className="font-semibold text-slate-900 dark:text-slate-100 block">Require face scan to punch</span>
+                <span className="text-slate-500 dark:text-slate-400 text-[11px]">Off by default. Silent .bat auto check-in is paused for staff while this is on.</span>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.faceScanAllowUnenrolled ?? true}
+                disabled={formData.faceScanPunchEnabled !== true}
+                onChange={(e) => {
+                  const updated = { ...formData, faceScanAllowUnenrolled: e.target.checked };
+                  setFormData(updated);
+                  onUpdateSettings(updated);
+                }}
+                className="mt-0.5 w-4 h-4 rounded text-violet-600 cursor-pointer disabled:opacity-50"
+              />
+              <div className="text-xs">
+                <span className="font-semibold text-slate-900 dark:text-slate-100 block">Let staff without an enrolled face punch normally</span>
+                <span className="text-slate-500 dark:text-slate-400 text-[11px]">Turn this off for strict mode: nobody can punch until their face is enrolled.</span>
+              </div>
+            </label>
           </div>
         </div>
 
