@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { Employee, Role, ShiftSchedule, AttendanceRecord } from '../../types';
 import { Modal } from '../common/Modal';
+import { adminSetPin } from '../../lib/pinAuth';
+import { flushPendingCloudWrites } from '../../lib/storage';
 import { FaceScanModal, FaceScanMode } from '../common/FaceScanModal';
 import {
   downloadWindowsBatFile,
@@ -29,7 +31,7 @@ interface EmployeesDirectoryTabProps {
   employees: Employee[];
   shifts: ShiftSchedule[];
   records?: AttendanceRecord[];
-  onAddEmployee: (emp: Omit<Employee, 'id'>) => void;
+  onAddEmployee: (emp: Omit<Employee, 'id'>) => Employee | void;
   onUpdateEmployee: (emp: Employee) => void;
   onDeleteEmployee: (empId: string) => void;
   onOpenPrintModal?: (employee: Employee | null, filteredRecords: AttendanceRecord[]) => void;
@@ -122,7 +124,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       employeeCode: emp.employeeCode,
       email: emp.email,
       role: emp.role,
-      pin: emp.pin,
+      pin: emp.pin, // cloud setup: empty = keep the current PIN
       department: emp.department,
       designation: emp.designation,
       shiftId: emp.shiftId,
@@ -133,14 +135,27 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     });
   };
 
+  // Cloud setup: PINs live only on the server, so they are saved with a separate, checked request.
+  const cloudPins = employees.some((e) => e.hasPin && !e.pin);
+
+  const savePinOnServer = async (employeeId: string, pin: string) => {
+    await flushPendingCloudWrites(); // make sure the employee row exists first
+    const result = await adminSetPin(employeeId, pin);
+    if (!result.ok) {
+      alert(`The employee was saved, but the PIN was not: ${result.error}\nOpen the employee and set the PIN again.`);
+    }
+  };
+
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim() || !formData.email.trim()) return;
 
-    onAddEmployee({
+    const created = onAddEmployee({
       ...formData,
+      pin: cloudPins ? '' : formData.pin,
       joinedDate: new Date().toISOString().split('T')[0],
     });
+    if (cloudPins && created && formData.pin.trim()) void savePinOnServer(created.id, formData.pin.trim());
     setIsAddModalOpen(false);
   };
 
@@ -151,7 +166,9 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     onUpdateEmployee({
       ...editingEmp,
       ...formData,
+      pin: cloudPins ? '' : formData.pin,
     });
+    if (cloudPins && formData.pin.trim()) void savePinOnServer(editingEmp.id, formData.pin.trim());
     setEditingEmp(null);
   };
 
@@ -303,7 +320,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-500">Portal PIN / Pass:</span>
                     <span className="font-mono font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
-                      {emp.pin}
+                      {emp.pin || (emp.hasPin ? '•••• (hidden)' : 'not set')}
                     </span>
                   </div>
                 </div>
@@ -471,16 +488,16 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
 
               <div>
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Portal Security PIN / Password (4+ chars)
+                  {cloudPins && editingEmp ? 'New PIN / Password (leave empty to keep the current one)' : 'Portal Security PIN / Password (4+ chars)'}
                 </label>
                 <input
                   type="text"
                   value={formData.pin}
                   onChange={(e) => setFormData({ ...formData, pin: e.target.value })}
-                  placeholder="1234"
-                  minLength={4}
+                  placeholder={cloudPins && editingEmp ? 'Unchanged' : '1234'}
+                  minLength={cloudPins && editingEmp && !formData.pin ? undefined : 4}
                   maxLength={32}
-                  required
+                  required={!(cloudPins && editingEmp)}
                   className="w-full text-xs font-mono tracking-widest px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                 />
               </div>

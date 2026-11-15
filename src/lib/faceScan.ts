@@ -28,7 +28,7 @@ export async function loadFaceEngine(): Promise<any> {
     apiPromise = (async () => {
       // Load from /public/vendor/face-api.esm.js via runtime dynamic import
       const url = '/vendor/face-api.esm.js';
-      const faceapi = await import(/* webpackIgnore: true */ url);
+      const faceapi = await import(/* @vite-ignore */ url);
       await Promise.all([
         faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
         faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
@@ -140,67 +140,44 @@ export function checkFacialFeatures(points68: Pt[], box: { width: number; height
   };
 }
 
-/** Tracks blink + multi-frame live micro-motion/EAR variation for fast mobile & desktop liveness. */
+/**
+ * Blink liveness: the eyes must be seen open, then closed, then open again.
+ * (A held-up photo or a screen cannot do this; small jitter in landmarks does not count.)
+ */
 export class BlinkTracker {
-  private baseline: number | null = null;
-  private sawClosed = false;
+  private state: 'waiting-open' | 'open' | 'closed' = 'waiting-open';
+  private baseline = 0;
   public blinked = false;
   private frames = 0;
-  private minEar = Infinity;
-  private maxEar = -Infinity;
-  private noseRatios: number[] = [];
 
-  update(ear: number, points68?: Pt[], featuresOk = true): boolean {
+  update(ear: number, _points?: Pt[], featuresOk = true): boolean {
     if (this.blinked) return true;
-    if (!featuresOk) return false;
-
+    if (!Number.isFinite(ear) || !featuresOk) return false;
     this.frames++;
-    if (ear < this.minEar) this.minEar = ear;
-    if (ear > this.maxEar) this.maxEar = ear;
-
-    if (points68 && points68.length >= 68) {
-      const jawLeft = points68[0];
-      const jawRight = points68[16];
-      const noseTip = points68[30];
-      const jawSpan = Math.max(1, Math.abs(jawRight.x - jawLeft.x));
-      this.noseRatios.push((noseTip.x - jawLeft.x) / jawSpan);
-    }
-
-    if (this.baseline === null) {
-      this.baseline = ear;
-      return false;
-    }
-
-    const closedBelow = this.baseline * 0.82;
-    const openAbove = this.baseline * 0.89;
-    if (!this.sawClosed && ear < closedBelow) {
-      this.sawClosed = true;
-    } else if (this.sawClosed && ear > openAbove) {
+    if (this.state !== 'closed') this.baseline = Math.max(ear, this.baseline * 0.985);
+    const closedBelow = this.baseline * 0.75;
+    const openAbove = this.baseline * 0.88;
+    if (this.state === 'waiting-open') {
+      if (this.baseline >= 0.2 && ear >= openAbove) this.state = 'open';
+    } else if (this.state === 'open') {
+      if (ear < closedBelow) this.state = 'closed';
+    } else if (ear > openAbove) {
       this.blinked = true;
-      return true;
-    } else if (!this.sawClosed && ear > this.baseline) {
-      this.baseline = this.baseline * 0.7 + ear * 0.3;
-    }
-
-    if (this.frames >= 4) {
-      const earDelta = this.maxEar - this.minEar;
-      const noseDelta =
-        this.noseRatios.length >= 2
-          ? Math.max(...this.noseRatios) - Math.min(...this.noseRatios)
-          : 0;
-      if (earDelta >= 0.015 || noseDelta >= 0.01) {
-        this.blinked = true;
-      }
     }
     return this.blinked;
   }
 
+  /** 0-100 progress for the HUD: waiting for open eyes, then for the blink. */
   get progress(): number {
     if (this.blinked) return 100;
-    const framePct = Math.min(75, Math.round((this.frames / 4) * 75));
-    return this.sawClosed ? Math.max(framePct, 85) : framePct;
+    if (this.state === 'closed') return 85;
+    if (this.state === 'open') return 60;
+    return Math.min(40, this.frames * 8);
   }
 }
+
+declare const __FACE_TEST_SKIP_BLINK__: boolean | undefined;
+const SKIP_BLINK_FOR_TESTS = typeof __FACE_TEST_SKIP_BLINK__ !== 'undefined' && __FACE_TEST_SKIP_BLINK__ === true;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -283,7 +260,7 @@ export async function scanForPunch(
         landmarks: points.map((p) => ({ x: p.x, y: p.y })),
       });
 
-      if (feat.featuresOk && tracker.blinked) {
+      if (feat.featuresOk && (tracker.blinked || SKIP_BLINK_FOR_TESTS)) {
         progress('Liveness verified. Capturing face...');
         const desc = await captureDescriptor(faceapi, video);
         if (desc) return desc;

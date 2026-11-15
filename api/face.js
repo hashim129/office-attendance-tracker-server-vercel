@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabaseFetch } from './_supabase.js';
+import { checkAdminPin, migratePlaintextPins } from './_auth.js';
 import {
   FACE_MATCH_DISTANCE, bestDistance, checkLock, clearFailures, getTemplate, isValidDescriptor,
   listEnrolledIds, recordFailure, signFacePass,
@@ -10,17 +11,8 @@ async function getEmployee(id) {
 }
 
 async function requireAdmin(adminId, adminPin) {
-  const key = `lock:admin:${adminId}`;
-  const prev = await checkLock(key);
-  const admin = adminId ? await getEmployee(adminId) : null;
-  if (!admin || admin.role !== 'admin' || String(admin.pin) !== String(adminPin)) {
-    await recordFailure(key, prev);
-    const err = new Error('Administrator PIN is incorrect.');
-    err.status = 403;
-    throw err;
-  }
-  if (prev) await clearFailures(key);
-  return admin;
+  await migratePlaintextPins();
+  return checkAdminPin(String(adminId || ''), String(adminPin ?? '').trim());
 }
 
 export default async function handler(req, res) {

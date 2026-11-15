@@ -1,4 +1,5 @@
 import { Employee, OfficeSettings } from '../types';
+import { getAutoStartToken } from './pinAuth';
 
 /**
  * Compute SHA-256 verification token matching api/auto-punch.js.
@@ -6,6 +7,15 @@ import { Employee, OfficeSettings } from '../types';
  * automatically invalidates if PIN or approved device binding changes.
  */
 export async function computeAutoStartToken(employee: Employee): Promise<string> {
+  if (!employee.pin) {
+    // Cloud setup: the server creates the token after checking the PIN.
+    const { token, error } = await getAutoStartToken(employee.id);
+    if (!token) {
+      if (typeof window !== 'undefined') window.alert(error || 'Could not create the startup file.');
+      throw new Error(error || 'Could not create the startup file.');
+    }
+    return token;
+  }
   const raw = `${employee.id}|${employee.pin}|OFFICE_AUTO_V1`;
   const encoder = new TextEncoder();
   const data = encoder.encode(raw);

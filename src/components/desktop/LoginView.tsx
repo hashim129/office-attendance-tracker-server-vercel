@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Clock, KeyRound, User, ArrowRight, RefreshCw, Terminal, Download } from 'lucide-react';
 import { Employee } from '../../types';
+import { verifyEmployeePin, lookupLogin } from '../../lib/pinAuth';
 import { downloadWindowsBatFile, generatePortalLauncherBat } from '../../lib/autoStartScript';
 
 interface LoginViewProps {
@@ -55,16 +56,22 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
   const selectedEmployee = activeEmployees.find((e) => e.id === selectedEmpId);
 
-  const handlePickerSubmit = (e: React.FormEvent) => {
+  const [isChecking, setIsChecking] = useState(false);
+
+  const handlePickerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEmployee) {
       setErrorMsg('Please select a valid employee account.');
       return;
     }
+    if (isChecking) return;
 
-    // Verify PIN / Password
-    if (selectedEmployee.pin !== pinInput.trim()) {
-      setErrorMsg('Incorrect PIN or password. Please try again.');
+    // The server checks the PIN (browsers no longer receive PINs)
+    setIsChecking(true);
+    const result = await verifyEmployeePin(selectedEmployee, pinInput);
+    setIsChecking(false);
+    if (!result.ok) {
+      setErrorMsg(result.error || 'Incorrect PIN or password. Please try again.');
       return;
     }
 
@@ -72,26 +79,20 @@ export const LoginView: React.FC<LoginViewProps> = ({
     onLogin(selectedEmployee, keepLoggedIn);
   };
 
-  const handleManualSubmit = (e: React.FormEvent) => {
+  const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const emp = activeEmployees.find(
-      (e) =>
-        e.employeeCode.toLowerCase() === manualCode.trim().toLowerCase() ||
-        e.email.toLowerCase() === manualCode.trim().toLowerCase()
-    );
+    if (isChecking) return;
+    setIsChecking(true);
+    const result = await lookupLogin(manualCode, pinInput, activeEmployees);
+    setIsChecking(false);
 
-    if (!emp) {
-      setErrorMsg('No active employee found with this ID or Email.');
-      return;
-    }
-
-    if (emp.pin !== pinInput.trim()) {
-      setErrorMsg('Incorrect PIN or password.');
+    if (!result.ok || !result.employee) {
+      setErrorMsg(result.error || 'Incorrect PIN or password.');
       return;
     }
 
     setErrorMsg('');
-    onLogin(emp, keepLoggedIn);
+    onLogin(result.employee, keepLoggedIn);
   };
 
   return (
@@ -249,6 +250,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
             <button
               type="submit"
+              disabled={isChecking}
               className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-medium text-sm rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
             >
               <span>Sign In to Dashboard</span>
@@ -313,6 +315,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
             <button
               type="submit"
+              disabled={isChecking}
               className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium text-sm rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm cursor-pointer"
             >
               <span>Verify & Sign In</span>

@@ -1,3 +1,5 @@
+import { migratePlaintextPins } from './_auth.js';
+import { getSessionEmployee } from './_session.js';
 import {
   evaluateAttendancePresenceAndAutoClose,
   getCloudToken,
@@ -565,6 +567,7 @@ export default async function handler(req, res) {
   if (isSupabaseConfigured()) {
     try {
       if (req.method === 'GET') {
+        await migratePlaintextPins().catch((e) => console.error('PIN migration failed:', e));
         let currentSupaDb = await readSupabaseDb(DEFAULT_DB);
 
         // If Supabase was just initialized (only 1 default admin employee), auto-migrate all 17 employees and attendance from Gist
@@ -617,7 +620,7 @@ export default async function handler(req, res) {
           .map((x) => String(x || '').trim().replace(/^::ffff:/, ''))
           .filter(Boolean);
         if (seen.length === 0 && req.socket?.remoteAddress) seen.push(String(req.socket.remoteAddress).replace(/^::ffff:/, ''));
-        const result = await mutateSupabaseDb(incoming, DEFAULT_DB, { clientIps: Array.from(new Set(seen)), facePasses: incoming.facePasses });
+        const result = await mutateSupabaseDb(incoming, DEFAULT_DB, { clientIps: Array.from(new Set(seen)), facePasses: incoming.facePasses, actor: await getSessionEmployee(incoming.sessionToken) });
         return res.status(200).json({
           ok: true,
           updatedAt: result.db.updatedAt,

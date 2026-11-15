@@ -1,3 +1,4 @@
+import { changeOwnPin } from '../../lib/pinAuth';
 import React, { useState } from 'react';
 import { KeyRound, Eye, EyeOff, ShieldCheck, AlertCircle } from 'lucide-react';
 import { Employee } from '../../types';
@@ -24,11 +25,14 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    if (currentPin.trim() !== currentUser.pin) {
+    // Cloud setup: the browser never knows the PIN, so the server does the checking.
+    const serverChecked = !currentUser.pin;
+
+    if (!serverChecked && currentPin.trim() !== currentUser.pin) {
       setError('Current password / PIN does not match your account.');
       return;
     }
@@ -39,7 +43,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       return;
     }
 
-    if (trimmedNew === currentUser.pin) {
+    if (trimmedNew === currentPin.trim()) {
       setError('New password / PIN must be different from your current one.');
       return;
     }
@@ -49,7 +53,15 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       return;
     }
 
-    onUpdatePin(currentUser.id, trimmedNew);
+    if (serverChecked) {
+      const result = await changeOwnPin(currentUser, currentPin, trimmedNew);
+      if (!result.ok) {
+        setError(result.error || 'Could not change the PIN.');
+        return;
+      }
+    } else {
+      onUpdatePin(currentUser.id, trimmedNew);
+    }
     setSuccess(true);
     setTimeout(() => {
       setSuccess(false);

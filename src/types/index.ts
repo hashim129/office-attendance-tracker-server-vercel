@@ -117,7 +117,9 @@ export interface Employee {
   name: string;
   email: string;
   role: Role;
-  pin: string; // 4-digit PIN for Kiosk / quick access / password
+  pin: string; // Only present on the old local server. In the cloud setup this is always '' (the server keeps a scrambled copy).
+  hasPin?: boolean; // A PIN is set (cloud setup)
+  pinLength?: number; // Length of the PIN (cloud setup), lets the kiosk know when to check
   department: string;
   designation: string;
   shiftId: string;

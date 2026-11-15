@@ -1,3 +1,4 @@
+import { getEmployeeRow, verifyAutoToken, migratePlaintextPins } from './_auth.js';
 import {
   doesIpMatchRule,
   format12h,
@@ -39,6 +40,7 @@ export default async function handler(req, res) {
 
     // 1. Supabase primary cloud path
     if (isSupabaseConfigured()) {
+      await migratePlaintextPins().catch(() => {});
       const db = await readSupabaseDb(DEFAULT_DB);
       const settings = db.settings || {};
       const shifts = Array.isArray(db.shifts) ? db.shifts : [];
@@ -62,7 +64,8 @@ export default async function handler(req, res) {
         });
       }
 
-      if (!verifyAutoStartToken(emp, authToken)) {
+      const authRow = await getEmployeeRow(employeeId);
+      if (!authRow || !verifyAutoToken(authRow, authToken)) {
         return res.status(401).json({
           ok: false,
           code: 'TOKEN_INVALID',
