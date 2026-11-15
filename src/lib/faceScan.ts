@@ -158,22 +158,13 @@ export function checkFacialFeatures(points68: Pt[], box: { width: number; height
 }
 
 /**
- * Fast 1-blink liveness detector that also works when zoomed out:
- * - Detects a single natural blink immediately (even a 1-frame eyelid dip of ~7%).
- * - Also accepts a subtle head movement / nod so users never get stuck.
- * - Never drops frames if facial feature geometry shifts slightly mid-blink.
+ * Fast blink liveness: eyes seen open, then clearly closed for a moment (one frame is enough).
+ * A held-up photo or screen cannot close its eyes, and small landmark jitter or head movement does not count.
  */
 export class BlinkTracker {
   private baseline = 0;
-  private minEar = Infinity;
-  private maxEar = -Infinity;
   private sawOpen = false;
-  private sawDip = false;
   private frames = 0;
-  private minYaw = Infinity;
-  private maxYaw = -Infinity;
-  private minPitch = Infinity;
-  private maxPitch = -Infinity;
   public blinked = false;
 
   update(ear: number, points?: Pt[], _featuresOk = true): boolean {
@@ -183,72 +174,25 @@ export class BlinkTracker {
 
     let minSingleEye = ear;
     if (points && points.length >= 48) {
-      const lEar = eyeAspectRatio(points.slice(36, 42));
-      const rEar = eyeAspectRatio(points.slice(42, 48));
-      minSingleEye = Math.min(lEar, rEar);
+      minSingleEye = Math.min(eyeAspectRatio(points.slice(36, 42)), eyeAspectRatio(points.slice(42, 48)));
     }
 
-    this.minEar = Math.min(this.minEar, ear);
-    this.maxEar = Math.max(this.maxEar, ear);
     this.baseline = this.baseline === 0 ? ear : Math.max(ear, this.baseline * 0.98);
+    if (this.baseline < 0.15) return false;
 
-    if (this.baseline >= 0.11) {
-      if (ear >= this.baseline * 0.92) {
-        this.sawOpen = true;
-      }
-      // 1-blink detection: any 7%+ dip in average EAR or 10%+ dip in either eye
-      const dipped = ear <= this.baseline * 0.93 || minSingleEye <= this.baseline * 0.89;
-      if (dipped) {
-        this.sawDip = true;
-        // If we already saw open eyes before this blink dip, 1 blink is immediately verified!
-        if (this.sawOpen && this.frames >= 2) {
-          this.blinked = true;
-        }
-      } else if (this.sawDip && ear >= this.minEar + 0.008) {
-        // Or if we started mid-blink and eyes opened back up
-        this.blinked = true;
-      }
-    }
-
-    // Also pass if overall EAR variation across frames shows a blink/flutter (works great when zoomed out)
-    if (this.frames >= 2 && this.maxEar - this.minEar >= 0.014) {
+    if (ear >= this.baseline * 0.92) this.sawOpen = true;
+    const closed = ear <= this.baseline * 0.8 || minSingleEye <= this.baseline * 0.72;
+    if (closed && this.sawOpen && this.frames >= 2) {
       this.blinked = true;
     }
-
-    // Subtle head movement / nod check using nose relative to eyes
-    if (points && points.length >= 68) {
-      const l = avgPt(points.slice(36, 42));
-      const r = avgPt(points.slice(42, 48));
-      const nose = points[30];
-      const eyeSep = dist(l, r);
-      if (eyeSep > 0) {
-        const mid = { x: (l.x + r.x) / 2, y: (l.y + r.y) / 2 };
-        const yaw = (nose.x - mid.x) / eyeSep;
-        const pitch = (nose.y - mid.y) / eyeSep;
-        this.minYaw = Math.min(this.minYaw, yaw);
-        this.maxYaw = Math.max(this.maxYaw, yaw);
-        this.minPitch = Math.min(this.minPitch, pitch);
-        this.maxPitch = Math.max(this.maxPitch, pitch);
-        if (this.frames >= 2 && (this.maxYaw - this.minYaw >= 0.06 || this.maxPitch - this.minPitch >= 0.05)) {
-          this.blinked = true;
-        }
-      }
-    }
-
     return this.blinked;
   }
 
   /** 0-100 progress for the HUD. */
   get progress(): number {
     if (this.blinked) return 100;
-    if (this.sawDip) return 90;
-    const earVariation = this.maxEar > this.minEar ? (this.maxEar - this.minEar) / 0.014 : 0;
-    const motion = Math.max(
-      earVariation,
-      this.maxYaw > this.minYaw ? (this.maxYaw - this.minYaw) / 0.06 : 0,
-      this.maxPitch > this.minPitch ? (this.maxPitch - this.minPitch) / 0.05 : 0,
-    );
-    return Math.min(88, Math.max(this.frames * 20, Math.round(motion * 88)));
+    if (this.sawOpen) return 60;
+    return Math.min(40, this.frames * 20);
   }
 }
 

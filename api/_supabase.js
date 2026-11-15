@@ -681,7 +681,7 @@ function denied(status, code, message) {
 function authorizeExternalMutation(incoming, ctx) {
   const scope = incoming.scope || 'legacy_bulk';
   const actor = ctx.actor || null;
-  const isAdmin = actor?.role === 'admin' || (!actor && incoming.actorRole === 'admin');
+  const isAdmin = actor?.role === 'admin';
   const needSignIn = () => denied(403, 'SESSION_REQUIRED', 'Please sign in again to make this change.');
   const forbidden = () => denied(403, 'FORBIDDEN', 'Only an administrator can make this change.');
 
@@ -706,7 +706,7 @@ function authorizeExternalMutation(incoming, ctx) {
     incoming.leaveRequestOnly = true;
   }
 
-  if (scope === 'ceoComments' && !isAdmin && actor?.role !== 'ceo' && incoming.actorRole !== 'ceo') {
+  if (scope === 'ceoComments' && !isAdmin && actor?.role !== 'ceo') {
     if (!actor) throw needSignIn();
     const c = incoming.changedComment;
     if (!c || c.employeeId !== actor.id) throw forbidden();
@@ -714,7 +714,8 @@ function authorizeExternalMutation(incoming, ctx) {
     incoming.ceoComments = [];
   }
 
-  incoming.actorRole = actor?.role || incoming.actorRole || (isAdmin ? 'admin' : 'employee');
+  // The role always comes from the server's own record of the signed-in person, never from the browser's claim.
+  incoming.actorRole = actor?.role || 'employee';
 }
 
 export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {

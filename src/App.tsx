@@ -976,7 +976,7 @@ export default function App() {
             />
 
             <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-x-hidden overflow-y-auto bg-slate-50/50 dark:bg-slate-950/40">
-              <div key={activeTab} className="animate-page-enter min-w-0">
+              <div key={activeTab} className="page-enter min-w-0">
                 <ErrorBoundary>
                 {activeTab === 'clock' && (
                 <PunchClockTab
