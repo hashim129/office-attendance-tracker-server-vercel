@@ -939,7 +939,7 @@ export default function App() {
           isSyncing={isInitialCloudSyncing}
         />
       ) : (
-        <div className="app-reveal flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] min-w-0 w-full">
+        <div className="app-reveal flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] min-w-0 w-full overflow-x-hidden">
           {/* Header */}
           <DesktopHeader
             currentUser={currentUser}
@@ -956,7 +956,7 @@ export default function App() {
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
-          <div className="flex-1 flex min-w-0 w-full">
+          <div className="flex-1 flex min-w-0 w-full overflow-x-hidden">
             <DesktopSidebar
               currentUser={currentUser}
               activeTab={activeTab}
@@ -967,8 +967,8 @@ export default function App() {
               onCloseMobile={() => setIsMobileNavOpen(false)}
             />
 
-            <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-x-hidden overflow-y-auto b g-slate-50/50 dark:bg-slate-950/40">
-              <div key={activeTab} className="page-enter animate-page-enter min-w-0">
+            <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-x-hidden overflow-y-auto bg-slate-50/50 dark:bg-slate-950/40">
+              <div key={activeTab} className="animate-page-enter min-w-0">
                 <ErrorBoundary>
                 {activeTab === 'clock' && (
                 <PunchClockTab
