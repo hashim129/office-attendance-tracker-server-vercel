@@ -64,6 +64,7 @@ import { SmartInsightsTab } from './components/desktop/SmartInsightsTab';
 import { OfficeSettingsTab } from './components/desktop/OfficeSettingsTab';
 import { PrintableTimesheetModal } from './components/desktop/PrintableTimesheetModal';
 import { ChangePasswordModal } from './components/common/ChangePasswordModal';
+import { verifyAdminPin, rememberSession, takePendingToken } from './lib/pinAuth';
 import { FaceScanModal } from './components/common/FaceScanModal';
 import { KioskMode } from './components/kiosk/KioskMode';
 
@@ -154,7 +155,11 @@ export default function App() {
       const session = loadSession();
       if (session) {
         const matched = loadedEmps.find((e) => e.id === session.userId && e.isActive !== false);
-        if (matched) {
+        if (matched && !session.token && matched.hasPin && !matched.pin) {
+          // Cloud mode: older saved logins have no secure token, so sign in once more.
+          clearSession();
+          setCurrentUser(null);
+        } else if (matched) {
           setCurrentUser(matched);
         } else if (verifySession) {
           clearSession();
@@ -314,7 +319,7 @@ export default function App() {
     setIsDark(!isDark);
   };
 
-  const handleToggleMode = (mode: AppMode) => {
+  const handleToggleMode = async (mode: AppMode) => {
     // Switching INTO Lobby Kiosk Mode from desktop/login requires Admin role or Admin PIN
     // so colleagues on mobile phones cannot enter Kiosk Mode to punch each other's PINs!
     if (mode === 'kiosk' && appMode !== 'kiosk') {
@@ -324,11 +329,9 @@ export default function App() {
           'Administrator Verification Required:\n\nEnter Administrator PIN to launch Lobby Kiosk Terminal mode:'
         );
         if (enteredPin === null) return;
-        const matchedAdmin = employees.find(
-          (e) => e.role === 'admin' && e.isActive !== false && e.pin === enteredPin.trim()
-        );
-        if (!matchedAdmin) {
-          alert('Invalid Administrator PIN. Only an Administrator can activate Lobby Kiosk Mode.');
+        const adminCheck = await verifyAdminPin(enteredPin, employees);
+        if (!adminCheck.ok) {
+          alert(adminCheck.error || 'Invalid Administrator PIN. Only an Administrator can activate Lobby Kiosk Mode.');
           return;
         }
       }
@@ -339,7 +342,7 @@ export default function App() {
 
   const handleLogin = (employee: Employee, keepLoggedIn: boolean) => {
     setCurrentUser(employee);
-    saveSession(employee.id, keepLoggedIn);
+    saveSession(employee.id, keepLoggedIn, takePendingToken(employee.id));
   };
 
   const handleLogout = () => {
@@ -625,6 +628,10 @@ export default function App() {
   // -------------------------------------------------------------
   // Face scan gate: wraps a punch action so it only runs after a successful face scan
   // -------------------------------------------------------------
+  useEffect(() => {
+    rememberSession(currentUser?.id ?? null);
+  }, [currentUser?.id]);
+
   const refreshFaceStatus = () => {
     void fetchFaceEnrolledIds().then(setFaceEnrolledIds);
   };
@@ -668,6 +675,7 @@ export default function App() {
     const nextEmps = [...employees, newEmp];
     setEmployees(nextEmps);
     saveEmployeeUpsert(nextEmps, newEmp, { actorRole });
+    return newEmp;
   };
 
   const handleUpdateEmployee = (updatedEmp: Employee) => {

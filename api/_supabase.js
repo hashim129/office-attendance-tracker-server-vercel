@@ -125,7 +125,10 @@ function mapDbEmployee(r) {
     name: r.name,
     email: r.email || '',
     role: r.role || 'employee',
-    pin: r.pin || '1234',
+    // The PIN is never sent to browsers. It is checked on the server (api/auth.js).
+    pin: '',
+    hasPin: Boolean(r.pin_hash || r.pin),
+    pinLength: Number(r.pin_len) || undefined,
     department: r.department || '',
     designation: r.designation || '',
     shiftId: r.shift_id || 'shift-std',
@@ -163,7 +166,6 @@ function mapAppEmployeeToDb(e) {
     name: e.name,
     email: e.email || '',
     role: e.role || 'employee',
-    pin: e.pin || '1234',
     department: e.department || '',
     designation: e.designation || '',
     shift_id: e.shiftId || 'shift-std',
@@ -659,7 +661,65 @@ async function enforceFacePassForPunch(existing, rec, actorRole, ctx) {
 /**
  * Applies a mutation payload directly to Supabase with ACID UPSERT / Soft-Delete
  */
+const ADMIN_ONLY_SCOPES = new Set([
+  'employee_delete', 'employees', 'shifts', 'settings', 'attendance_delete', 'leave_delete',
+  'legacy_bulk', 'full_restore',
+]);
+
+function denied(status, code, message) {
+  const err = new Error(message);
+  err.status = status;
+  err.code = code;
+  return err;
+}
+
+/**
+ * Who is really calling? The browser's claim ("I am admin") is not trusted: the role comes from the signed-in
+ * session the server issued after a correct PIN. Internal callers (no clientIps) are unchanged.
+ */
+function authorizeExternalMutation(incoming, ctx) {
+  const scope = incoming.scope || 'legacy_bulk';
+  const actor = ctx.actor || null;
+  const isAdmin = actor?.role === 'admin';
+  const needSignIn = () => denied(403, 'SESSION_REQUIRED', 'Please sign in again to make this change.');
+  const forbidden = () => denied(403, 'FORBIDDEN', 'Only an administrator can make this change.');
+
+  if (ADMIN_ONLY_SCOPES.has(scope) && !isAdmin) throw actor ? forbidden() : needSignIn();
+
+  if (scope === 'employee_upsert' && !isAdmin) {
+    if (!actor) throw needSignIn();
+    const emp = incoming.employee || incoming.changedEmployee;
+    if (!emp || emp.id !== actor.id) throw forbidden();
+    // Staff may only file their own device-change request (never role, pay, PIN or status).
+    const safe = {};
+    if (emp.pendingDeviceRequest) safe.pendingDeviceRequest = emp.pendingDeviceRequest;
+    incoming.employee = { id: actor.id, ...safe };
+    delete incoming.changedEmployee;
+    incoming.selfServiceOnly = true;
+  }
+
+  if ((scope === 'leaves') && !isAdmin) {
+    if (!actor) throw needSignIn();
+    const list = incoming.changedLeave ? [incoming.changedLeave] : incoming.leaves || [];
+    if (!incoming.changedLeave || list.some((l) => l?.employeeId !== actor.id)) throw forbidden();
+    incoming.leaveRequestOnly = true;
+  }
+
+  if (scope === 'ceoComments' && !isAdmin) {
+    // Staff can only tick their own notes as read. Nothing is written for that (read state is not stored),
+    // and they can never create or change a note.
+    if (!actor) throw needSignIn();
+    const c = incoming.changedComment;
+    if (!c || c.employeeId !== actor.id) throw forbidden();
+    incoming.changedComment = undefined;
+    incoming.ceoComments = [];
+  }
+
+  incoming.actorRole = isAdmin ? 'admin' : 'employee';
+}
+
 export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
+  if (Array.isArray(ctx.clientIps)) authorizeExternalMutation(incoming, ctx);
   const scope = incoming.scope || 'legacy_bulk';
 
   if (scope === 'attendance') {
@@ -699,6 +759,7 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
       const existingRows = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(targetId)}&select=*`);
       const existing = existingRows?.[0] ? mapDbEmployee(existingRows[0]) : null;
 
+      if (incoming.selfServiceOnly && !existing) throw denied(403, 'FORBIDDEN', 'Employee not found.');
       let mergedEmp = emp;
       if (existing) {
         mergedEmp = {
@@ -776,6 +837,12 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
         ...l,
         recordUpdatedAt: new Date().toISOString(),
       };
+      if (incoming.leaveRequestOnly && !existing) {
+        // A staff member can only ask: approval is an administrator's decision.
+        mergedLeave.status = 'pending';
+        mergedLeave.reviewedBy = undefined;
+        mergedLeave.reviewedAt = undefined;
+      }
       if (incoming.actorRole) {
         mergedLeave.lastEditedByRole = incoming.actorRole;
       }

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { identifyByPin, verifyAdminPin, verifyEmployeePin } from '../../lib/pinAuth';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Clock,
   LogIn,
@@ -101,46 +102,51 @@ export const KioskMode: React.FC<KioskModeProps> = ({
   // Handle PIN input key clicks
   const [selectedStaffToAuth, setSelectedStaffToAuth] = useState<Employee | null>(null);
 
+  const pinCheckBusy = useRef(false);
+
+  const showPinError = (text: string) => {
+    setToastMessage({ text, type: 'info' });
+    setTimeout(() => {
+      setPinInput('');
+      setToastMessage(null);
+    }, 2000);
+  };
+
   const handleKeyClick = (digit: string) => {
+    if (pinCheckBusy.current) return;
     if (pinInput.length < 16) {
       const nextPin = pinInput + digit;
       setPinInput(nextPin);
 
       if (selectedStaffToAuth) {
-        if (selectedStaffToAuth.pin === nextPin) {
-          setMatchedEmployee(selectedStaffToAuth);
-          setSelectedStaffToAuth(null);
-          setPinInput('');
-        } else if (nextPin.length >= selectedStaffToAuth.pin.length) {
-          setToastMessage({
-            text: 'Incorrect PIN for selected employee. Please try again.',
-            type: 'info',
-          });
-          setTimeout(() => {
+        // PIN length known (cloud setup) or taken from the old local PIN
+        const expectedLen = selectedStaffToAuth.pin ? selectedStaffToAuth.pin.length : selectedStaffToAuth.pinLength || 4;
+        if (nextPin.length < expectedLen) return;
+        pinCheckBusy.current = true;
+        void verifyEmployeePin(selectedStaffToAuth, nextPin).then((result) => {
+          pinCheckBusy.current = false;
+          if (result.ok) {
+            setMatchedEmployee(selectedStaffToAuth);
+            setSelectedStaffToAuth(null);
             setPinInput('');
-            setToastMessage(null);
-          }, 2000);
-        }
+          } else {
+            showPinError(result.error || 'Incorrect PIN for selected employee. Please try again.');
+          }
+        });
       } else if (nextPin.length >= 4) {
         const activeEmps = employees.filter((e) => e.isActive !== false);
-        const exact = activeEmps.find((e) => e.pin === nextPin);
-        const hasLongerPrefix = activeEmps.some(
-          (e) => e.pin.startsWith(nextPin) && e.pin.length > nextPin.length
-        );
-
-        if (exact && !hasLongerPrefix) {
-          setMatchedEmployee(exact);
-          setPinInput('');
-        } else if (!exact && !hasLongerPrefix) {
-          setToastMessage({
-            text: 'PIN code not recognized. Please check your credentials.',
-            type: 'info',
-          });
-          setTimeout(() => {
+        // Someone may have a longer PIN that starts with these digits: wait for more digits.
+        const longerPossible = activeEmps.some((e) => (e.pin ? e.pin.length : e.pinLength || 4) > nextPin.length);
+        pinCheckBusy.current = true;
+        void identifyByPin(nextPin, employees).then((result) => {
+          pinCheckBusy.current = false;
+          if (result.ok && result.employee) {
+            setMatchedEmployee(result.employee);
             setPinInput('');
-            setToastMessage(null);
-          }, 2000);
-        }
+          } else if (!longerPossible) {
+            showPinError(result.error || 'PIN code not recognized. Please check your credentials.');
+          }
+        });
       }
     }
   };
@@ -258,14 +264,14 @@ export const KioskMode: React.FC<KioskModeProps> = ({
     }, 4000);
   };
 
-  const handleExitKioskSubmit = (e: React.FormEvent) => {
+  const handleExitKioskSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const admin = employees.find((e) => e.role === 'admin' && e.pin === adminPinInput.trim());
-    if (admin) {
+    const result = await verifyAdminPin(adminPinInput, employees);
+    if (result.ok) {
       setIsExitModalOpen(false);
       onExitKiosk();
     } else {
-      setAdminPinError('Invalid Admin PIN code.');
+      setAdminPinError(result.error || 'Invalid Admin PIN code.');
     }
   };
 

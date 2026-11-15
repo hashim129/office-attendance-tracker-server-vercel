@@ -3,7 +3,7 @@ import { ScanFace, Loader2, CheckCircle2, AlertCircle, Trash2 } from 'lucide-rea
 import { Modal } from './Modal';
 import { setFacePass } from '../../lib/storage';
 import {
-  enrollFace, removeFace, scanForEnrollment, scanForPunch, startCamera, stopCamera, verifyFace, loadFaceEngine, FaceLiveTelemetry,
+  enrollFace, removeFace, scanForEnrollment, scanForPunch, startCamera, stopCamera, verifyFace, loadFaceEngine, type FaceLiveTelemetry,
 } from '../../lib/faceScan';
 
 export type FaceScanMode = 'verify' | 'enroll' | 'remove';

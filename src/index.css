@@ -244,5 +244,29 @@ html.app-revealing body {
   }
 }
 html, body { overflow-x: hidden; }
+
 @keyframes pageEnter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes floatIn { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } } @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } .animate-page-enter { animation: pageEnter 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; } .animate-float-in { animation: floatIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; } .animate-fade-in { animation: fadeIn 0.25s ease-out both; } .floating-card, main .rounded-2xl.border, main .rounded-xl.border.shadow-sm { transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1); } .floating-card:hover, main .rounded-2xl.border:hover, main .rounded-xl.border.shadow-sm:hover { transform: translateY(-4px); box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.12); }
+@keyframes floatIn { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.animate-page-enter { animation: pageEnter 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-float-in { animation: floatIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-fade-in { animation: fadeIn 0.25s ease-out both; }
+
+.floating-card,
+main .rounded-2xl.border,
+main .rounded-xl.border.shadow-sm {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.floating-card:hover,
+main .rounded-2xl.border:hover,
+main .rounded-xl.border.shadow-sm:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px -6px rgba(15, 23, 42, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-page-enter, .animate-float-in, .animate-fade-in { animation: none !important; }
+  .floating-card, main .rounded-2xl.border, main .rounded-xl.border.shadow-sm { transition: none !important; }
+  .floating-card:hover, main .rounded-2xl.border:hover, main .rounded-xl.border.shadow-sm:hover { transform: none; }
+}

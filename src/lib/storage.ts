@@ -1,3 +1,4 @@
+import { onSessionToken } from './pinAuth';
 import {
   AttendanceRecord,
   CeoComment,
@@ -339,6 +340,7 @@ function buildServerPayload(mutation?: DbMutationPayload, queuedAgeMs?: number):
     updatedAt: nowIso,
     scope,
     actorRole: mutation?.actorRole,
+    ...(getSessionToken() ? { sessionToken: getSessionToken() } : {}),
     ...(typeof queuedAgeMs === 'number' && Number.isFinite(queuedAgeMs)
       ? { queuedAgeMs: Math.max(0, Math.round(queuedAgeMs)) }
       : {}),
@@ -619,15 +621,25 @@ export function flushPendingCloudWrites(options?: { respectCooldown?: boolean })
         if (!res.ok) {
           let errMsg = `HTTP ${res.status}`;
           let explicitWaitMs: number | undefined;
+          let errCode = '';
           try {
             const errJson = await res.json();
             if (errJson?.error) errMsg = String(errJson.error);
+            if (errJson?.code) errCode = String(errJson.code);
             if (res.status === 429 && errJson?.retryAfterSeconds) {
               explicitWaitMs = Math.min(300000, Math.max(5000, Number(errJson.retryAfterSeconds) * 1000));
               rateLimitCooldownUntilMs = Date.now() + explicitWaitMs;
             }
           } catch {
             // ignore non-json error
+          }
+
+          // The sign-in token is missing or expired: keep the queued change, ask the person to sign in again.
+          if (res.status === 403 && errCode === 'SESSION_REQUIRED') {
+            emitSyncState({ status: 'error', lastError: errMsg });
+            clearSession();
+            if (typeof window !== 'undefined') window.setTimeout(() => window.location.reload(), 600);
+            return false;
           }
 
           // If the server explicitly rejected the write due to a conflict or validation (400 or 409),
@@ -1091,6 +1103,13 @@ export interface UserSession {
   userId: string;
   keepLoggedIn: boolean;
   loginTimestamp: number;
+  /** Signed token from the server (cloud mode). Sent with every change so the server knows who is asking. */
+  token?: string;
+}
+
+/** Token of the signed-in person, or undefined (e.g. kiosk, or the older local server). */
+export function getSessionToken(): string | undefined {
+  return loadSession()?.token;
 }
 
 export function loadSession(): UserSession | null {
@@ -1109,11 +1128,12 @@ export function loadSession(): UserSession | null {
   }
 }
 
-export function saveSession(userId: string, keepLoggedIn: boolean): void {
+export function saveSession(userId: string, keepLoggedIn: boolean, token?: string): void {
   const session: UserSession = {
     userId,
     keepLoggedIn,
     loginTimestamp: Date.now(),
+    ...(token ? { token } : {}),
   };
 
   if (keepLoggedIn) {
@@ -1124,6 +1144,19 @@ export function saveSession(userId: string, keepLoggedIn: boolean): void {
     localStorage.removeItem(STORAGE_KEY_SESSION);
   }
 }
+
+/** Replace only the token of the current login (used after the person changes their own PIN). */
+export function updateSessionToken(userId: string, token: string): void {
+  const cur = loadSession();
+  if (!cur || cur.userId !== userId) return;
+  const next = JSON.stringify({ ...cur, token });
+  try {
+    if (localStorage.getItem(STORAGE_KEY_SESSION)) localStorage.setItem(STORAGE_KEY_SESSION, next);
+    else sessionStorage.setItem(STORAGE_KEY_SESSION, next);
+  } catch { /* ignore */ }
+}
+
+onSessionToken((id, token) => updateSessionToken(id, token));
 
 export function clearSession(): void {
   localStorage.removeItem(STORAGE_KEY_SESSION);
