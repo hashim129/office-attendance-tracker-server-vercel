@@ -477,7 +477,7 @@ export async function readSupabaseDb(defaultDb) {
  * Intelligent, atomic merge for an individual attendance record against existing Supabase record
  */
 export function mergeSupabaseAttendanceRecord(existing, incomingRec, options = {}) {
-  const actorRole = incomingRec.lastEditedByRole || options.actorRole || 'employee';
+  const actorRole = options.actorRole || incomingRec.lastEditedByRole || 'employee';
   const isAdmin = actorRole === 'admin';
   const nowIso = new Date().toISOString();
 
@@ -533,7 +533,9 @@ export function mergeSupabaseAttendanceRecord(existing, incomingRec, options = {
   if (shouldClearTimeOut) {
     finalTimeOut = null;
   } else if (incomingRec.timeOut !== undefined && incomingRec.timeOut !== null && incomingRec.timeOut !== '') {
-    finalTimeOut = incomingRec.timeOut;
+    // Non-admins can punch out, but cannot rewrite an existing punch-out time.
+    const mayChangeTimeOut = isAdmin || !existing.timeOut || incomingRec.actorAction === 'time_out' || incomingRec.actorAction === 'auto_close';
+    if (mayChangeTimeOut) finalTimeOut = incomingRec.timeOut;
   }
 
   // Determine breaks
@@ -716,6 +718,23 @@ function authorizeExternalMutation(incoming, ctx) {
 
   // The role always comes from the server's own record of the signed-in person, never from the browser's claim.
   incoming.actorRole = actor?.role || 'employee';
+
+  if (scope === 'attendance') {
+    // Every attendance record is stamped with the server-known role (the browser's "lastEditedByRole" is ignored),
+    // and only administrators, accounts and CEO accounts can write verification marks or lock a record.
+    const role = incoming.actorRole;
+    const isVerifier = role === 'admin' || role === 'accounts' || role === 'ceo';
+    const list = incoming.changedRecords || (incoming.changedRecord ? [incoming.changedRecord] : incoming.attendance || []);
+    for (const rec of list) {
+      if (!rec || typeof rec !== 'object') continue;
+      rec.lastEditedByRole = role;
+      if (!isVerifier) {
+        delete rec.adminVerification;
+        delete rec.accountsVerification;
+      }
+      if (role !== 'admin') delete rec.adminOverrideAt;
+    }
+  }
 }
 
 export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
