@@ -371,8 +371,17 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
             <ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-400" />
           </div>
           <div className="space-y-1">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              Portal Credentials &amp; Windows Auto-Start
+            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2 flex-wrap">
+              <span>Portal Credentials &amp; Windows Auto-Start</span>
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-[10px] font-bold text-indigo-700 dark:text-indigo-300" title="Attendance Tracker">
+                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="11" cy="12" r="8" stroke="currentColor" strokeWidth="2" />
+                  <path d="M11 8v4l2.5 1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <circle cx="18" cy="17" r="4.5" className="fill-emerald-500 stroke-white dark:stroke-slate-900" strokeWidth="1.5" />
+                  <path d="M16.2 17l1.2 1.2 2.4-2.4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <span>AT · Attendance Tracker</span>
+              </span>
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Download the Windows Startup (.bat) app or update your portal login PIN. Attendance is secured by Office Wi-Fi / IP Restriction.
@@ -381,6 +390,15 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto justify-end">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-700 dark:text-slate-200" title="Attendance Tracker .bat Launcher">
+            <svg className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="11" cy="12" r="8" stroke="currentColor" strokeWidth="2" />
+              <path d="M11 8v4l2.5 1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="18" cy="17" r="4.5" className="fill-emerald-500 stroke-white dark:stroke-slate-900" strokeWidth="1.5" />
+              <path d="M16.2 17l1.2 1.2 2.4-2.4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>AT .bat</span>
+          </span>
           <button
             type="button"
             onClick={handleDownloadAutoStartBat}
@@ -610,48 +628,57 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
               No daily attendance records in this period to graph.
             </div>
           ) : (
-            <div className="relative pt-6 pb-2">
+            <div className="relative pt-7 pb-2">
+            <div className="relative h-44 ml-8 sm:ml-9 mr-1 border-b border-slate-200 dark:border-slate-800">
               {/* Left Y-Axis Hour Representation */}
-              <div className="absolute left-0 top-6 bottom-7 w-9 flex flex-col justify-between items-end pr-1 pointer-events-none select-none text-[9px] font-mono font-bold text-slate-400 dark:text-slate-500 border-r border-slate-200 dark:border-slate-800">
-                {[12, 8, 4, 0].map((h) => (
-                  <div key={h} className="flex items-center -mr-1">
-                    <span className="pr-1">{h}h</span>
-                    <div className="w-1 h-px bg-slate-300 dark:bg-slate-700" />
-                  </div>
-                ))}
-              </div>
+              {[12, 8, 4, 0].map((h) => (
+                <div
+                  key={h}
+                  className="absolute -left-8 sm:-left-9 translate-y-1/2 w-7 sm:w-8 flex items-center justify-end pr-1 pointer-events-none select-none text-[9px] font-mono text-slate-400"
+                  style={{ bottom: `${(h / 12) * 100}%` }}
+                >
+                  <span className="pr-1">{h}h</span>
+                  <div className="w-1 h-px bg-slate-300 dark:bg-slate-700" />
+                </div>
+              ))}
 
               {/* Horizontal Reference Grid Lines */}
               {[12, 8, 4].map((h) => (
                 <div
                   key={`grid-${h}`}
-                  className="absolute left-9 right-2 border-t border-slate-200/50 dark:border-slate-800/50 pointer-events-none"
-                  style={{ bottom: `${28 + (h / 12) * 148}px` }}
+                  className="absolute inset-x-0 border-t border-slate-200/50 dark:border-slate-800/50 pointer-events-none"
+                  style={{ bottom: `${(h / 12) * 100}%` }}
                 />
               ))}
 
               {/* 8.0h Target Reference Line across chart */}
               <div
-                className="absolute left-9 right-2 border-b-2 border-dashed border-emerald-400/80 dark:border-emerald-600 z-10 pointer-events-none flex items-center justify-end pr-2"
-                style={{ bottom: `${28 + (8 / 12) * 148}px` }}
+                className="absolute inset-x-0 border-b-2 border-dashed border-emerald-400/80 dark:border-emerald-600 z-20 pointer-events-none flex items-center justify-end pr-1"
+                style={{ bottom: `${(8 / 12) * 100}%` }}
                 title="8.0h Standard Target"
               >
-                <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-white/95 dark:bg-slate-900/95 px-1.5 py-0.5 rounded shadow-2xs border border-emerald-300 dark:border-emerald-700">
+                <span className="-translate-y-1/2 text-[9px] sm:text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-white/95 dark:bg-slate-900/95 px-1.5 py-0.5 rounded shadow-2xs border border-emerald-200 dark:border-emerald-800">
                   8.0h Standard Shift
                 </span>
               </div>
 
               {/* Chart Plot Area */}
-              <div className="h-44 flex items-end justify-between gap-2 pl-11 pr-2 border-b border-slate-200 dark:border-slate-800">
+              <div className="relative z-10 h-full flex items-end justify-between gap-1 sm:gap-2 px-1 sm:px-2">
                 {recentDaysForChart.map((d) => {
                   const maxChartHours = 12;
-                  const totalPercent = Math.min(100, Math.max(10, (d.workedHours / maxChartHours) * 100));
-                  const overtimePercent = d.workedHours > 0 ? Math.min(100, (d.overtimeHours / d.workedHours) * 100) : 0;
+                const totalPercent = d.workedHours > 0 ? Math.min(100, Math.max(4, (d.workedHours / maxChartHours) * 100)) : 2;
+                const hasOvertime = d.workedHours > 8 || d.overtimeHours > 0;
+                const regularPercent = d.workedHours > 0
+                  ? (hasOvertime ? (Math.min(8, d.workedHours) / d.workedHours) * 100 : 100)
+                  : 100;
+                const overtimePercent = hasOvertime && d.workedHours > 0
+                  ? (Math.max(0, d.workedHours - 8) / d.workedHours) * 100
+                  : 0;
 
                   return (
                     <div
                       key={d.id}
-                      className="group relative flex-1 flex flex-col items-center h-full justify-end cursor-pointer"
+                      className="group relative min-w-0 flex-1 flex flex-col items-center h-full justify-end cursor-pointer"
                     >
                       {/* Hover Tooltip Card */}
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none absolute -top-16 z-30 bg-slate-900 text-white text-[10px] rounded-lg py-1.5 px-2.5 shadow-xl whitespace-nowrap">
@@ -670,7 +697,7 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                       </div>
 
                       {/* Top Hours Label with visible badge on each bar */}
-                      <span className={`text-[9px] font-mono font-bold px-1 py-0.2 rounded border mb-1 shadow-2xs whitespace-nowrap ${
+                      <span style={{ bottom: `calc(${totalPercent}% + 4px)` }} className={`absolute left-1/2 -translate-x-1/2 z-20 pointer-events-none text-[8px] sm:text-[9px] font-mono font-bold px-1 py-0.2 rounded border shadow-2xs whitespace-nowrap ${
                         d.workedHours > 0
                           ? d.isLate
                             ? 'bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-800'
@@ -682,13 +709,13 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
 
                       {/* Bar Visual (Regular + Overtime stacked) */}
                       <div
-                        className="w-full max-w-[36px] rounded-t-md overflow-hidden flex flex-col justify-end transition-all group-hover:brightness-110 shadow-xs relative"
+                        className="w-full max-w-[36px] shrink-0 rounded-t-md overflow-hidden flex flex-col justify-end transition-all group-hover:brightness-110 shadow-xs relative"
                         style={{ height: `${totalPercent}%` }}
                       >
                         {/* Overtime stack segment */}
-                        {d.overtimeHours > 0 && (
+                        {overtimePercent > 0 && (
                           <div
-                            className="w-full bg-gradient-to-t from-amber-500 to-amber-400 flex items-center justify-center"
+                            className="w-full shrink-0 bg-gradient-to-t from-amber-500 to-amber-400 flex items-center justify-center"
                             style={{ height: `${overtimePercent}%` }}
                             title={`Overtime: ${d.overtimeHours.toFixed(1)}h`}
                           >
@@ -701,12 +728,12 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                         )}
                         {/* Regular stack segment */}
                         <div
-                          className={`w-full flex-1 flex items-center justify-center ${
+                          className={`w-full shrink-0 flex items-center justify-center ${
                             d.isLate
                               ? 'bg-gradient-to-t from-purple-600 to-indigo-500'
                               : 'bg-gradient-to-t from-blue-600 to-emerald-500'
                           }`}
-                          title={`Regular: ${d.regularHours.toFixed(1)}h`}
+                     style={{ height: `${regularPercent}%` }}                     title={`Regular: ${d.regularHours.toFixed(1)}h`}
                         >
                           {totalPercent >= 28 && (
                             <span className="text-[9px] font-mono font-black text-white drop-shadow-xs">
@@ -718,17 +745,18 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
 
                       {/* Late arrival dot indicator */}
                       {d.isLate && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-purple-500 mt-1" />
+                        <span className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-purple-500" />
                       )}
                     </div>
                   );
                 })}
               </div>
-
+              </div>
+              
               {/* X-Axis Labels */}
-              <div className="flex items-center justify-between gap-2 pl-11 pr-2 pt-2 text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+              <div className="flex items-center justify-between gap-2 ml-8 sm:ml-9 mr-1 px-1 sm:px-2 pt-3 text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-mono">
                 {recentDaysForChart.map((d) => (
-                  <div key={d.id} className="flex-1 text-center truncate">
+                  <div key={d.id} className="min-w-0 flex-1 text-center truncate">
                     <span className="font-semibold block">{d.day}</span>
                     <span className="text-[9px] text-slate-400">{d.shortDate}</span>
                   </div>
