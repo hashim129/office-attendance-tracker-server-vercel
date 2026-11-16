@@ -11,8 +11,12 @@ import {
   Building2,
   BarChart3,
   X,
+  Contact,
+  ClipboardList,
+  CalendarClock,
 } from 'lucide-react';
 import { ActiveDesktopTab, Employee, OfficeSettings } from '../../types';
+import { CrmBadges } from '../../crm/crmApi';
 
 interface DesktopSidebarProps {
   currentUser: Employee;
@@ -22,6 +26,8 @@ interface DesktopSidebarProps {
   settings: OfficeSettings;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
+  crmEnabled?: boolean;
+  crmBadges?: CrmBadges;
 }
 
 export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
@@ -32,6 +38,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   settings,
   isMobileOpen = false,
   onCloseMobile,
+  crmEnabled = false,
+  crmBadges,
 }) => {
   const isAdmin = currentUser.role === 'admin';
   const isCeo = currentUser.role === 'ceo';
@@ -55,7 +63,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       window.removeEventListener('resize', measure);
       window.clearTimeout(t);
     };
-  }, [activeTab, currentUser.role, pendingLeavesCount, activeTeamSource]);
+  }, [activeTab, currentUser.role, pendingLeavesCount, activeTeamSource, crmEnabled]);
 
   const handleTabClick = (tab: ActiveDesktopTab, teamSource?: 'workspace' | 'ceo' | 'admin') => {
     if (teamSource) setActiveTeamSource(teamSource);
@@ -174,6 +182,40 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             </button>
           </div>
         </div>
+
+        {/* CRM (travel agency customers, follow-ups and CEO meetings). Hidden when CRM_ENABLED is false. */}
+        {crmEnabled && (
+          <div>
+            <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">
+              CRM
+            </p>
+            <div className="space-y-1">
+              {([
+                { tab: 'crm-customers' as const, label: 'Customers', Icon: Contact, badge: 0, tone: 'bg-amber-500' },
+                { tab: 'crm-tasks' as const, label: 'Follow-ups & Tasks', Icon: ClipboardList, badge: crmBadges?.tasksNew || 0, tone: 'bg-amber-500' },
+                { tab: 'crm-meetings' as const, label: 'Meetings', Icon: CalendarClock, badge: (crmBadges?.meetingsNew || 0) + (crmBadges?.meetingsPending || 0), tone: 'bg-amber-500' },
+              ]).map(({ tab, label, Icon, badge, tone }) => (
+                <button
+                  key={tab}
+                  onClick={() => onSelectTab(tab)}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
+                    activeTab === tab
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span>{label}</span>
+                  </div>
+                  {badge > 0 && (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${tone} text-white`}>{badge}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Accounts Officer Center (Attendance Verification & Reports) */}
         {currentUser.role === 'accounts' && (
