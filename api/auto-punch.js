@@ -73,15 +73,6 @@ export default async function handler(req, res) {
         });
       }
 
-      // High-security face scan: an unattended startup punch cannot show a face, so it is refused.
-      if (settings.faceScanPunchEnabled && emp.role !== 'admin') {
-        return res.status(403).json({
-          ok: false,
-          code: 'FACE_REQUIRED',
-          message: 'Face scan punch is enabled by the Administrator. Please punch from the website and scan your face.',
-        });
-      }
-
       const isWfhBypassIp = Boolean(emp.allowWorkFromHome);
       const isAdminBypassIp = emp.role === 'admin' && (settings.allowAdminBypassIpLock ?? true);
       if (settings.enforceOfficeIpLock && !isAdminBypassIp && !isWfhBypassIp) {
@@ -139,6 +130,16 @@ export default async function handler(req, res) {
         }, DEFAULT_DB);
 
         return res.status(200).json(alreadyResult);
+      }
+
+      // High-security face scan: an unattended startup punch cannot show a face, so it is refused.
+      // (Only a NEW punch-in: heartbeats for someone already punched in must still go through.)
+      if (settings.faceScanPunchEnabled && emp.role !== 'admin') {
+        return res.status(403).json({
+          ok: false,
+          code: 'FACE_REQUIRED',
+          message: 'Face scan punch is enabled by the Administrator. Please punch from the website and scan your face.',
+        });
       }
 
       const shift = shifts.find((s) => s.id === emp.shiftId) || shifts[0];
