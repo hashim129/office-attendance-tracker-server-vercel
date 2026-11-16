@@ -6,10 +6,13 @@
 import crypto from 'crypto';
 import { getSupabaseConfig, supabaseFetch } from './_supabase.js';
 
-export const FACE_MATCH_DISTANCE = 0.42; // strict same-person Euclidean distance threshold
-export const FACE_AVG_DISTANCE = 0.44;   // max average distance across top enrolled samples
-export const FACE_CENTROID_DISTANCE = 0.41; // max distance to the mean enrolled face vector
-export const FACE_MIN_COSINE = 0.905;    // min cosine similarity to the mean enrolled face vector
+// face-api descriptors: the same person scores about 0.25-0.45 on a webcam, different people almost always
+// score 0.6 or more. 0.50 is a safe cut-off for "is this the person they claim to be".
+export const FACE_MATCH_DISTANCE = 0.5;
+export const FACE_AVG_DISTANCE = 0.56;   // average of the two closest enrolled samples (guards against a one-off lucky sample)
+export const FACE_DUPLICATE_DISTANCE = 0.45; // a new enrolment this close to another employee's face is refused
+export const FACE_AMBIGUITY_MARGIN = 0.04;  // the claimed person must be clearly closer than any colleague
+export const FACE_ENROLL_SPREAD = 0.6;      // enrolment samples must all be the same face
 export const FACE_PASS_TTL_MS = 2 * 60 * 1000;
 export const MAX_FAILS = 5;
 export const LOCK_MS = 5 * 60 * 1000;
@@ -66,35 +69,43 @@ export function cosineSimilarity(a, b) {
   return denom > 0 ? dot / denom : 0;
 }
 
+/** Distance to the closest enrolled sample, or a value above the limit when the secondary check fails. */
 export function bestDistance(descriptor, samples) {
   const valid = (samples || []).filter(isValidDescriptor);
   if (valid.length === 0) return Infinity;
-
   const dists = valid.map((s) => distance(descriptor, s)).sort((a, b) => a - b);
   const minDist = dists[0];
-  const topK = dists.slice(0, Math.min(3, dists.length));
-  const avgTopDist = topK.reduce((acc, v) => acc + v, 0) / topK.length;
-
-  // Compute centroid (mean descriptor) of all enrolled samples
-  const centroid = new Array(DESCRIPTOR_LENGTH).fill(0);
-  for (const s of valid) {
-    for (let i = 0; i < DESCRIPTOR_LENGTH; i++) centroid[i] += s[i] / valid.length;
-  }
-  const centroidDist = distance(descriptor, centroid);
-  const cosSim = cosineSimilarity(descriptor, centroid);
-
-  // Must satisfy ALL strict identity criteria so another person's face is never accepted
-  const matched =
-    minDist <= FACE_MATCH_DISTANCE &&
-    avgTopDist <= FACE_AVG_DISTANCE &&
-    centroidDist <= FACE_CENTROID_DISTANCE &&
-    cosSim >= FACE_MIN_COSINE;
-
-  // If any secondary check fails, return a value > FACE_MATCH_DISTANCE so api/face.js rejects it
-  if (!matched) {
-    return Math.max(minDist, FACE_MATCH_DISTANCE + 0.05);
+  const top = dists.slice(0, Math.min(2, dists.length));
+  const avgTop = top.reduce((acc, v) => acc + v, 0) / top.length;
+  if (minDist <= FACE_MATCH_DISTANCE && avgTop > FACE_AVG_DISTANCE) {
+    return Math.max(minDist, FACE_MATCH_DISTANCE + 0.01);
   }
   return minDist;
+}
+
+/** All enrolled templates (without the lock-out rows). */
+export async function listTemplates() {
+  const rows = await supabaseFetch('/face_templates?select=employee_id,descriptors&employee_id=not.like.lock%3A*');
+  return (rows || []).map((r) => ({ employeeId: r.employee_id, descriptors: readJson(r.descriptors, []) }));
+}
+
+/** Closest any OTHER employee's enrolled face gets to this descriptor. */
+export function closestOther(descriptor, templates, employeeId) {
+  let best = { distance: Infinity, employeeId: null };
+  for (const t of templates) {
+    if (t.employeeId === employeeId) continue;
+    const d = Math.min(Infinity, ...t.descriptors.filter(isValidDescriptor).map((x) => distance(descriptor, x)));
+    if (d < best.distance) best = { distance: d, employeeId: t.employeeId };
+  }
+  return best;
+}
+
+/** True when every enrolment sample is plausibly the same face (catches two people / a bad capture). */
+export function samplesAreConsistent(samples) {
+  const n = samples.length;
+  const centroid = new Array(DESCRIPTOR_LENGTH).fill(0);
+  for (const s of samples) for (let i = 0; i < DESCRIPTOR_LENGTH; i++) centroid[i] += s[i] / n;
+  return samples.every((s) => distance(s, centroid) <= FACE_ENROLL_SPREAD / 2);
 }
 
 function readJson(v, fb) {

@@ -1,7 +1,7 @@
 import { isSupabaseConfigured, supabaseFetch } from './_supabase.js';
 import { checkAdminPin, migratePlaintextPins } from './_auth.js';
 import {
-  FACE_MATCH_DISTANCE, bestDistance, checkLock, clearFailures, getTemplate, isValidDescriptor,
+  FACE_MATCH_DISTANCE, FACE_DUPLICATE_DISTANCE, FACE_AMBIGUITY_MARGIN, bestDistance, closestOther, listTemplates, samplesAreConsistent, checkLock, clearFailures, getTemplate, isValidDescriptor,
   listEnrolledIds, recordFailure, signFacePass,
 } from './_face.js';
 
@@ -35,6 +35,18 @@ export default async function handler(req, res) {
       if (samples.length < 3 || samples.length > 10 || !samples.every(isValidDescriptor)) {
         return res.status(400).json({ error: 'Need 3 to 10 valid face samples.' });
       }
+      if (!samplesAreConsistent(samples)) {
+        return res.status(400).json({ error: 'The captured photos do not look like one face. Please try again with only this person in front of the camera.', code: 'FACE_INCONSISTENT' });
+      }
+      // The same face must not be enrolled for two different people (that is how a friend would punch for someone).
+      const templates = await listTemplates();
+      for (const s of samples) {
+        const other = closestOther(s, templates, employeeId);
+        if (other.distance <= FACE_DUPLICATE_DISTANCE) {
+          const o = await getEmployee(other.employeeId);
+          return res.status(409).json({ error: `This face is already enrolled for ${o?.name || 'another employee'}. Each person needs their own face.`, code: 'FACE_DUPLICATE' });
+        }
+      }
       await supabaseFetch('/face_templates', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },
@@ -61,7 +73,11 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'No face is enrolled for this employee.', code: 'FACE_NOT_ENROLLED' });
       }
       const d = bestDistance(body.descriptor, tpl.descriptors);
-      if (d > FACE_MATCH_DISTANCE) {
+      // A colleague's enrolled face must not be as close (or closer) than the claimed person's: stops look-alikes
+      // and anyone scanning for someone else.
+      const other = d <= FACE_MATCH_DISTANCE ? closestOther(body.descriptor, await listTemplates(), employeeId) : { distance: Infinity };
+      const ambiguous = other.distance <= FACE_MATCH_DISTANCE + 0.1 && other.distance < d + FACE_AMBIGUITY_MARGIN;
+      if (d > FACE_MATCH_DISTANCE || ambiguous) {
         await recordFailure(key, prev);
         return res.status(401).json({ error: 'Face did not match.', code: 'FACE_MISMATCH' });
       }

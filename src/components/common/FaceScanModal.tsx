@@ -112,7 +112,7 @@ const [liveTime, setLiveTime] = useState(() => new Date());
         const pass = await verifyFace(employeeId, descriptor);
         setFacePass(employeeId, { token: pass.token, expiresAt: pass.expiresAt });
       } else {
-        const samples = await scanForEnrollment(video, setMessage, signal, 4, 35000, handleTelemetry);
+        const samples = await scanForEnrollment(video, setMessage, signal, 5, 40000, handleTelemetry);
         setPhase('sending');
         await enrollFace(employeeId, samples, adminId || '', adminPin);
       }
