@@ -251,14 +251,16 @@ function descriptorDistance(a: number[], b: number[]): number {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function captureDescriptor(faceapi: any, video: HTMLVideoElement): Promise<number[] | null> {
-  const d1 = await captureSingleDescriptor(faceapi, video);
-  if (!d1) return null;
-  await sleep(25);
-  const d2 = await captureSingleDescriptor(faceapi, video);
-  if (d2 && descriptorDistance(d1, d2) <= 0.36) {
-    return d1.map((v, i) => (v + d2[i]) / 2);
+  // Average a few frames: this cancels out camera noise so the real person matches their own face reliably.
+  const first = await captureSingleDescriptor(faceapi, video);
+  if (!first) return null;
+  const got: number[][] = [first];
+  for (let i = 0; i < 2; i++) {
+    await sleep(40);
+    const next = await captureSingleDescriptor(faceapi, video);
+    if (next && descriptorDistance(first, next) <= 0.4) got.push(next);
   }
-  return d1;
+  return first.map((_, k) => got.reduce((acc, d) => acc + d[k], 0) / got.length);
 }
 
 /**
@@ -377,8 +379,10 @@ export async function scanForEnrollment(
         landmarks: points.map((p) => ({ x: p.x, y: p.y })),
       });
 
-      if (f.detection.score > 0.35 && feat.featuresOk && ear > 0.12) {
-        if (Date.now() - lastTaken > 120) {
+      const closeEnough = !video.videoWidth || box.width >= video.videoWidth * 0.12;
+      if (f.detection.score > 0.5 && feat.featuresOk && ear > 0.17 && closeEnough) {
+        // Samples are spaced out so they capture natural small differences (expression, light) of the same face.
+        if (Date.now() - lastTaken > 650) {
           const d = await captureDescriptor(faceapi, video);
           if (d) {
             samples.push(d);
@@ -387,7 +391,7 @@ export async function scanForEnrollment(
           }
         }
       } else {
-        progress('Look at the camera clearly.');
+        progress(closeEnough ? 'Look straight at the camera, eyes open.' : 'Move a little closer to the camera.');
       }
     } else {
       onTelemetry?.({
