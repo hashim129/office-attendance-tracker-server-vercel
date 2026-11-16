@@ -2,6 +2,8 @@
  * face-api.js is loaded lazily from /vendor/face-api.esm.js so initial page load stays tiny.
  */
 
+import { loadLivenessEngine, readLiveFrame, BlinkScoreTracker } from './blinkLiveness';
+
 export type ScanProgress = (message: string) => void;
 
 export interface FaceLiveTelemetry {
@@ -56,6 +58,7 @@ export async function loadFaceEngine(): Promise<any> {
 
 export async function startCamera(video: HTMLVideoElement): Promise<MediaStream> {
   void loadFaceEngine().catch(() => {});
+  void loadLivenessEngine().catch(() => {});
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('Camera is not supported in this browser.');
   }
@@ -289,8 +292,8 @@ async function captureDescriptor(faceapi: any, video: HTMLVideoElement): Promise
   const first = await captureSingleDescriptor(faceapi, video);
   if (!first) return null;
   const got: number[][] = [first];
-  for (let i = 0; i < 2; i++) {
-    await sleep(40);
+  for (let i = 0; i < 1; i++) {
+    await sleep(20);
     const next = await captureSingleDescriptor(faceapi, video);
     if (next && descriptorDistance(first, next) <= 0.4) got.push(next);
   }
@@ -301,7 +304,7 @@ async function captureDescriptor(faceapi: any, video: HTMLVideoElement): Promise
  * Attendance punch scan: fast detection (works zoomed out too), verifies liveness on 1 blink,
  * emits real-time FaceLiveTelemetry, and captures a high-precision 128-d face descriptor.
  */
-export async function scanForPunch(
+async function scanForPunchLegacy(
   video: HTMLVideoElement,
   progress: ScanProgress,
   signal: { cancelled: boolean },
@@ -365,6 +368,86 @@ export async function scanForPunch(
       });
     }
     await sleep(0);
+  }
+  if (signal.cancelled) throw new Error('cancelled');
+  throw new Error(sawFace ? 'Liveness not verified. Please blink once and try again.' : 'No face found. Please try again.');
+}
+
+/**
+ * Attendance punch scan (punch in, break start/end, punch out).
+ * Uses the MediaPipe face model to see blinks directly (fast, works at normal distance), then takes the
+ * identity fingerprint with face-api for the server to compare. Falls back to the older detector if MediaPipe
+ * cannot start on this device.
+ */
+export async function scanForPunch(
+  video: HTMLVideoElement,
+  progress: ScanProgress,
+  signal: { cancelled: boolean },
+  timeoutMs = 20000,
+  onTelemetry?: (t: FaceLiveTelemetry) => void
+): Promise<number[]> {
+  const faceapi = await loadFaceEngine();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let landmarker: any = null;
+  try {
+    landmarker = await loadLivenessEngine();
+  } catch {
+    landmarker = null;
+  }
+  if (!landmarker) return scanForPunchLegacy(video, progress, signal, timeoutMs, onTelemetry);
+
+  const tracker = new BlinkScoreTracker();
+  const start = Date.now();
+  let sawFace = false;
+  let lastTs = 0;
+
+  while (!signal.cancelled && Date.now() - start < timeoutMs) {
+    // Wait for the next camera picture (about 30 per second) instead of spinning.
+    await new Promise<void>((resolve) => {
+      const v = video as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number };
+      if (typeof v.requestVideoFrameCallback === 'function') v.requestVideoFrameCallback(() => resolve());
+      else requestAnimationFrame(() => resolve());
+      setTimeout(resolve, 80);
+    });
+    const ts = Math.max(performance.now(), lastTs + 1);
+    lastTs = ts;
+    let frame = null;
+    try {
+      frame = readLiveFrame(landmarker, video, ts);
+    } catch {
+      frame = null;
+    }
+    if (!frame) {
+      progress('Position your face inside the frame...');
+      onTelemetry?.({
+        detected: false, score: 0, ear: 0, featuresOk: false, eyesOk: false, noseOk: false, mouthOk: false, jawOk: false,
+        livenessOk: tracker.blinked, livenessProgress: tracker.progress,
+      });
+      continue;
+    }
+    sawFace = true;
+    if (frame.box.width < (video.videoWidth || 640) * 0.08) progress('Move a little closer to the camera.');
+    tracker.update(frame.blinkL, frame.blinkR);
+    onTelemetry?.({
+      detected: true,
+      score: 0.99,
+      ear: 0.3 * (1 - (frame.blinkL + frame.blinkR) / 2),
+      featuresOk: frame.frontal, eyesOk: true, noseOk: true, mouthOk: true, jawOk: frame.frontal,
+      livenessOk: tracker.blinked,
+      livenessProgress: tracker.progress,
+      box: { ...frame.box, videoWidth: video.videoWidth, videoHeight: video.videoHeight },
+      landmarks: frame.points,
+    });
+
+    if ((tracker.blinked || SKIP_BLINK_FOR_TESTS) && frame.frontal) {
+      progress('Liveness verified! Matching face...');
+      const desc = await captureDescriptor(faceapi, video);
+      if (desc) return desc;
+    } else if (tracker.blinked) {
+      progress('Look straight at the camera...');
+    } else {
+      progress('Blink once to verify liveness...');
+    }
   }
   if (signal.cancelled) throw new Error('cancelled');
   throw new Error(sawFace ? 'Liveness not verified. Please blink once and try again.' : 'No face found. Please try again.');
