@@ -62,8 +62,9 @@ export async function startCamera(video: HTMLVideoElement): Promise<MediaStream>
   const stream = await navigator.mediaDevices.getUserMedia({
     video: {
       facingMode: 'user',
-      width: { ideal: 480 },
-      height: { ideal: 360 },
+      // Enough pixels on the face that closed eyes are visible from a normal sitting distance.
+      width: { ideal: 960 },
+      height: { ideal: 720 },
       frameRate: { ideal: 30 },
     },
     audio: false,
@@ -157,42 +158,75 @@ export function checkFacialFeatures(points68: Pt[], box: { width: number; height
   };
 }
 
+function medianOf(v: number[]): number {
+  const s = [...v].sort((x, y) => x - y);
+  return s[Math.floor(s.length / 2)];
+}
+
+/** Typical open-eye value and how much it normally wobbles from frame to frame. */
+function eyeStats(v: number[]): { med: number; noise: number } {
+  const med = medianOf(v);
+  const mad = medianOf(v.map((x) => Math.abs(x - med)));
+  return { med, noise: Math.max(0.01, mad * 1.4826) };
+}
+
 /**
- * Fast blink liveness: eyes seen open, then clearly closed for a moment (one frame is enough).
- * A held-up photo or screen cannot close its eyes, and small landmark jitter or head movement does not count.
+ * Blink liveness. Both eyes must visibly close in the same moment, by clearly more than the normal wobble of
+ * the landmarks (so it works at a normal distance from the camera, and one frame is enough).
+ * A held-up photo or screen cannot close its eyes; landmark jitter or head movement does not hit both eyes at once.
  */
 export class BlinkTracker {
-  private baseline = 0;
-  private sawOpen = false;
+  private left: number[] = [];
+  private right: number[] = [];
+  private lastDipL = -99;
+  private lastDipR = -99;
   private frames = 0;
   public blinked = false;
+
+  private get ready(): boolean {
+    return this.left.length >= 4 && this.right.length >= 4;
+  }
 
   update(ear: number, points?: Pt[], _featuresOk = true): boolean {
     if (this.blinked) return true;
     if (!Number.isFinite(ear) || ear <= 0) return false;
     this.frames++;
 
-    let minSingleEye = ear;
+    let l = ear;
+    let r = ear;
     if (points && points.length >= 48) {
-      minSingleEye = Math.min(eyeAspectRatio(points.slice(36, 42)), eyeAspectRatio(points.slice(42, 48)));
+      l = eyeAspectRatio(points.slice(36, 42));
+      r = eyeAspectRatio(points.slice(42, 48));
     }
 
-    this.baseline = this.baseline === 0 ? ear : Math.max(ear, this.baseline * 0.98);
-    if (this.baseline < 0.15) return false;
-
-    if (ear >= this.baseline * 0.92) this.sawOpen = true;
-    const closed = ear <= this.baseline * 0.8 || minSingleEye <= this.baseline * 0.72;
-    if (closed && this.sawOpen && this.frames >= 2) {
+    let dipL = false;
+    let dipR = false;
+    if (this.ready) {
+      const sl = eyeStats(this.left);
+      const sr = eyeStats(this.right);
+      if (sl.med >= 0.15 && sr.med >= 0.15) {
+        dipL = sl.med - l >= Math.max(0.15 * sl.med, 4 * sl.noise);
+        dipR = sr.med - r >= Math.max(0.15 * sr.med, 4 * sr.noise);
+      }
+    }
+    if (dipL) this.lastDipL = this.frames;
+    if (dipR) this.lastDipR = this.frames;
+    if (Math.abs(this.lastDipL - this.lastDipR) <= 2 && this.lastDipL > 0 && this.lastDipR > 0) {
       this.blinked = true;
+      return true;
     }
-    return this.blinked;
+
+    // Only open-eye readings feed the "normal" values.
+    if (!dipL) { this.left.push(l); if (this.left.length > 15) this.left.shift(); }
+    if (!dipR) { this.right.push(r); if (this.right.length > 15) this.right.shift(); }
+    return false;
   }
 
   /** 0-100 progress for the HUD. */
   get progress(): number {
     if (this.blinked) return 100;
-    if (this.sawOpen) return 60;
-    return Math.min(40, this.frames * 20);
+    if (this.ready) return 60;
+    return Math.min(40, this.frames * 10);
   }
 }
 
