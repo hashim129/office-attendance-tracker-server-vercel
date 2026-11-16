@@ -200,4 +200,7 @@ export type ActiveDesktopTab =
   | 'shifts'
   | 'leaves'
   | 'reports'
-  | 'settings';
+  | 'settings'
+  | 'crm-customers'
+  | 'crm-tasks'
+  | 'crm-meetings';

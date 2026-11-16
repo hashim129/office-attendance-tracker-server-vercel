@@ -78,6 +78,12 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         return 'Smart Attendance Insights & Bar Analytics';
       case 'settings':
         return 'Office & Local Server Configuration';
+      case 'crm-customers':
+        return 'CRM · Customers';
+      case 'crm-tasks':
+        return 'CRM · Follow-ups & Tasks';
+      case 'crm-meetings':
+        return 'CRM · CEO Meetings';
       default:
         return 'Workspace';
     }

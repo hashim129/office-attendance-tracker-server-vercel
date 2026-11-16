@@ -66,6 +66,9 @@ import { PrintableTimesheetModal } from './components/desktop/PrintableTimesheet
 import { ChangePasswordModal } from './components/common/ChangePasswordModal';
 import { verifyAdminPin, rememberSession, takePendingToken } from './lib/pinAuth';
 import { FaceScanModal } from './components/common/FaceScanModal';
+import { CRM_ENABLED } from './crm/config';
+import { useCrm } from './crm/useCrm';
+import { CrmPage } from './crm/CrmPage';
 import { KioskMode } from './components/kiosk/KioskMode';
 
 export default function App() {
@@ -97,6 +100,7 @@ export default function App() {
   const [faceRequest, setFaceRequest] = useState<{ employeeId: string; run: () => void } | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveDesktopTab>('clock');
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
+  const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-'));
 
   // Password Modal
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState<boolean>(false);
@@ -973,6 +977,8 @@ export default function App() {
               settings={settings}
               isMobileOpen={isMobileNavOpen}
               onCloseMobile={() => setIsMobileNavOpen(false)}
+              crmEnabled={CRM_ENABLED}
+              crmBadges={crm.badges}
             />
 
             <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-x-hidden overflow-y-auto bg-slate-50/50 dark:bg-slate-950/40">
@@ -1012,6 +1018,10 @@ export default function App() {
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                   isNetworkOnline={isNetworkOnline}
                 />
+              )}
+
+              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings') && (
+                <CrmPage section={activeTab} crm={crm} employees={employees} currentUser={currentUser} />
               )}
 
               {activeTab === 'leaves' && (
