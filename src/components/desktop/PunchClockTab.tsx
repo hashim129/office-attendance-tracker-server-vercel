@@ -513,8 +513,8 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                 </div>
                 <p className="text-[11px] opacity-90 mt-0.5">
                   {isNoInternet
-                    ? `You remain marked Clocked In while reconnecting. At Shift End + ${settings.autoPunchOutOnInactiveHours ?? 2}h, live connected staff earn overtime while disconnected shifts auto logout.`
-                    : `Live internet connected · After Shift End + ${settings.autoPunchOutOnInactiveHours ?? 2}h, active online work counts as overtime (otherwise auto logout).`}
+                    ? `You remain marked Clocked In while reconnecting. You are automatically logged out ${settings.autoPunchOutOnInactiveHours ?? 2}h after your shift ends.`
+                    : `Live internet connected · You are automatically logged out ${settings.autoPunchOutOnInactiveHours ?? 2}h after your shift ends.`}
                 </p>
               </div>
             </div>

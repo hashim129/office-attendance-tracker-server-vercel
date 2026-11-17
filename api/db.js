@@ -13,6 +13,7 @@ import {
   getSupabaseConfig,
   readSupabaseDb,
   mutateSupabaseDb,
+  persistAutoClosures,
 } from './_supabase.js';
 
 export const DEFAULT_DB = {
@@ -601,6 +602,7 @@ export default async function handler(req, res) {
             currentSupaDb.employees,
             currentSupaDb.shifts
           );
+          await persistAutoClosures(currentSupaDb.attendance, displayRecs);
           return res.status(200).json({
             ...currentSupaDb,
             attendance: displayRecs,

@@ -712,6 +712,38 @@ export function evaluateAttendancePresenceAndAutoClose(
       adminOverrideMs >= checkAtMs &&
       (rec.adminKeepOpen === true || nowMs - adminOverrideMs < Math.max(overtimeGraceMs, effectiveDisconnectMs));
 
+    // Auto logout: once Shift End + the configured window (default 2h) has passed, an open punch is closed
+    // at exactly that moment (breaks still open are ended too). An administrator's "keep open" is respected.
+    if (
+      overtimeGraceMs > 0 &&
+      !Number.isNaN(inMs) &&
+      !Number.isNaN(checkAtMs) &&
+      inMs < checkAtMs &&
+      nowMs >= checkAtMs &&
+      rec.adminKeepOpen !== true &&
+      !adminReopenedAfterCheck
+    ) {
+      let outMs = checkAtMs;
+      const capMs = rec.date ? Date.parse(`${rec.date}T23:59:00+05:00`) : NaN;
+      if (!isOvernightShift && !Number.isNaN(capMs) && outMs > capMs) outMs = capMs;
+      const outTime = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Karachi',
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }).format(new Date(outMs));
+      changed = true;
+      closedChanged = true;
+      return finalizeClosedRecord(
+        rec,
+        outTime,
+        `Auto Punched Out (Shift Ended + ${overtimeWindowHoursRaw}h)`,
+        'shift_end_2h',
+        expectedHours
+      );
+    }
+
     // Calculate worked minutes and overtime for open shifts without closing them for device inactivity
     const breakMins = computeBreakMins(rec.breaks || []);
     const elapsedMins = Math.max(0, Math.floor((nowMs - inMs) / 60000));
