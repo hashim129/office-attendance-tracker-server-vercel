@@ -145,10 +145,13 @@ export function describeIpRule(ruleIp) {
 export function checkOfficeNetwork({ settings, employee, ips }) {
   const s = settings || {};
   if (!s.enforceOfficeIpLock) return { allowed: true, matchedLabel: 'IP lock is off' };
-  if (employee && employee.allowWorkFromHome) return { allowed: true, matchedLabel: 'Work from home allowed' };
-
   const rules = Array.isArray(s.allowedOfficeIps) ? s.allowedOfficeIps : [];
   const candidates = Array.from(new Set((ips || []).filter((x) => parseIp(x))));
+  if (employee && employee.allowWorkFromHome) {
+    // Allowed from anywhere, but a punch that is NOT on the office network is a "work from home" shift.
+    const onOffice = rules.some((rule) => candidates.some((ip) => doesIpMatchRule(ip, rule.ip)));
+    return { allowed: true, remote: !onOffice, matchedLabel: onOffice ? 'Office network' : 'Work from home' };
+  }
 
   if (rules.length === 0) {
     return {

@@ -1,5 +1,6 @@
 import { format12h, getOfficeDateTimeParts, setNoCacheHeaders } from './_cloud.js';
-import { isSupabaseConfigured, supabaseFetch } from './_supabase.js';
+import { isSupabaseConfigured, supabaseFetch, sweepAutoClose } from './_supabase.js';
+import { evaluateAttendancePresenceAndAutoClose } from './_cloud.js';
 import { getEmployeeRow, verifyAutoToken } from './_auth.js';
 
 /**
@@ -36,6 +37,9 @@ export default async function handler(req, res) {
     if (!verifyAutoToken(e, authToken)) {
       return res.status(401).json({ ok: false, code: 'TOKEN_INVALID', message: 'Auto-start credentials have expired. Please re-download your .bat file from the portal.' });
     }
+
+    // Close anyone whose Shift End + auto-logout window has passed (runs at most once a minute).
+    await sweepAutoClose(evaluateAttendancePresenceAndAutoClose);
 
     const { todayStr } = getOfficeDateTimeParts();
     const rows = await supabaseFetch(

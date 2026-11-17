@@ -222,6 +222,9 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   // Office Wi-Fi IP Security Check
   const ipCheck = verifyOfficeIpAccess(currentClientIp, settings, currentUser, currentClientIsp, alternateIp);
   const isPunchBlockedByIp = !ipCheck.allowed;
+  // Allowed only because of the Work From Home permission: this punch becomes a separate "Work From Home" shift.
+  const isRemoteWfhPunch = Boolean(ipCheck.remote) && !todayRecord?.timeIn;
+  const wfhReasonMissing = isRemoteWfhPunch && actionNotes.trim().length < 3;
   const isPunchBlocked = isPunchBlockedByIp;
 
   // Calculate live elapsed seconds for work and break
@@ -242,6 +245,11 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     }
     if (todayRecord?.timeIn) {
       alert(`Daily Limit: You have already punched Time In for today at ${formatTime12h(todayRecord.timeIn)}. Employees are permitted only ONE clock-in per day.`);
+      return;
+    }
+
+    if (wfhReasonMissing) {
+      alert('Work From Home: please write the Reason for Working from Home in the Note box before you punch in.');
       return;
     }
 
@@ -379,7 +387,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
           {currentUser.allowWorkFromHome && (
             <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700/70 text-emerald-800 dark:text-emerald-200 text-xs font-semibold shadow-2xs">
               <Home className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Work From Home Active · Remote Punch Enabled (IP Lock Bypassed)</span>
+              <span>{isRemoteWfhPunch ? 'Work From Home shift · Reason note required' : 'Work From Home allowed · counted separately when you are off the office network'}</span>
             </div>
           )}
         </div>
@@ -663,7 +671,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
                   <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Punch Note / Daily Remark</span>
+                  <span>{isRemoteWfhPunch ? 'Note: Reason for Working from Home (required)' : 'Punch Note / Daily Remark'}</span>
                 </div>
                 {noteSavedFeedback && (
                   <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 animate-in fade-in">
@@ -678,8 +686,8 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                   type="text"
                   value={actionNotes}
                   onChange={(e) => setActionNotes(e.target.value)}
-                  placeholder="e.g. Working from client branch in morning / Doctor appointment"
-                  className="flex-1 text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  placeholder={isRemoteWfhPunch ? 'Why are you working from home today? (required before Time In)' : 'e.g. Working from client branch in morning / Doctor appointment'}
+                  className={`flex-1 text-xs px-3 py-2 bg-white dark:bg-slate-900 border rounded-lg ${wfhReasonMissing ? 'border-amber-500 ring-1 ring-amber-400' : 'border-slate-300 dark:border-slate-700'} text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500`}
                 />
 
                 {todayRecord ? (
