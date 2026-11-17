@@ -142,6 +142,19 @@ export default async function handler(req, res) {
         });
       }
 
+      // Work from home needs a written reason, which the automatic start-up punch cannot ask for.
+      if (settings.enforceOfficeIpLock && isWfhBypassIp) {
+        const allowedList = Array.isArray(settings.allowedOfficeIps) ? settings.allowedOfficeIps : [];
+        const onOffice = allowedList.some((rule) => doesIpMatchRule(clientIp, rule.ip));
+        if (!onOffice) {
+          return res.status(403).json({
+            ok: false,
+            code: 'WFH_REASON_REQUIRED',
+            message: 'You are not on the office network. For Work From Home please punch in from the website and write the reason in the Note.',
+          });
+        }
+      }
+
       const shift = shifts.find((s) => s.id === emp.shiftId) || shifts[0];
       const isLate = shift
         ? parseMinutes(nowTime) > parseMinutes(shift.startTime) + (shift.graceMinutes || 0)

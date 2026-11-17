@@ -14,6 +14,7 @@ import {
   readSupabaseDb,
   mutateSupabaseDb,
   persistAutoClosures,
+  sweepAutoClose,
 } from './_supabase.js';
 
 export const DEFAULT_DB = {
@@ -622,6 +623,8 @@ export default async function handler(req, res) {
           .map((x) => String(x || '').trim().replace(/^::ffff:/, ''))
           .filter(Boolean);
         if (seen.length === 0 && req.socket?.remoteAddress) seen.push(String(req.socket.remoteAddress).replace(/^::ffff:/, ''));
+        // First close anything past Shift End + window, so a late punch-out cannot stretch an expired shift.
+        await sweepAutoClose(evaluateAttendancePresenceAndAutoClose);
         const result = await mutateSupabaseDb(incoming, DEFAULT_DB, { clientIps: Array.from(new Set(seen)), facePasses: incoming.facePasses, actor: await getSessionEmployee(incoming.sessionToken) });
         return res.status(200).json({
           ok: true,

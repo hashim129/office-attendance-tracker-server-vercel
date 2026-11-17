@@ -313,17 +313,11 @@ export function verifyOfficeIpAccess(
   allowed: boolean;
   reason?: string;
   matchedLabel?: string;
+  /** true = allowed only because of the Work From Home permission (not on the office network). */
+  remote?: boolean;
 } {
   if (!settings.enforceOfficeIpLock) {
     return { allowed: true, matchedLabel: 'IP Lock Disabled' };
-  }
-
-  if (user?.allowWorkFromHome) {
-    return { allowed: true, matchedLabel: 'Work From Home (WFH Remote Allowed)' };
-  }
-
-  if (user?.role === 'admin' && (settings.allowAdminBypassIpLock ?? true)) {
-    return { allowed: true, matchedLabel: 'Admin Remote Bypass' };
   }
 
   const rules = settings.allowedOfficeIps || [];
@@ -334,6 +328,17 @@ export function verifyOfficeIpAccess(
       )
     )
   );
+
+  if (user?.allowWorkFromHome) {
+    const onOffice = rules.some((rule) => candidates.some((ip) => doesIpMatchRule(ip, rule.ip)));
+    return onOffice
+      ? { allowed: true, matchedLabel: 'Office network' }
+      : { allowed: true, remote: true, matchedLabel: 'Work From Home (not on office network)' };
+  }
+
+  if (user?.role === 'admin' && (settings.allowAdminBypassIpLock ?? true)) {
+    return { allowed: true, matchedLabel: 'Admin Remote Bypass' };
+  }
 
   if (rules.length === 0) {
     return {

@@ -145,6 +145,8 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
     let totalOvertimeMins = 0;
     let presentCount = 0;
     let lateCount = 0;
+    let wfhMins = 0;
+    let wfhDays = 0;
     const todayStrNow = getTodayDateString();
 
     filteredRecords.forEach((r) => {
@@ -157,6 +159,10 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
       });
       const worked = getLiveWorkedStats({ record: r, shift: userShift, settings, liveState });
       totalWorkedMins += worked.totalWorkedMinutes;
+      if (r.workMode === 'wfh') {
+        wfhMins += worked.totalWorkedMinutes;
+        wfhDays++;
+      }
       totalRegularMins += worked.regularMinutes;
       totalOvertimeMins += worked.overtimeMinutes;
       if (r.status === 'present') presentCount++;
@@ -170,6 +176,8 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
 
     return {
       totalWorkedMins,
+      wfhMins,
+      wfhDays,
       totalRegularMins,
       totalOvertimeMins,
       presentCount,
@@ -534,6 +542,10 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
           </div>
           <p className="text-[11px] text-slate-400 mt-1">
             {formatMinutesToDecimal(stats.totalWorkedMins)} total decimal hours
+          </p>
+          <p className="text-[11px] mt-1 flex flex-wrap gap-x-3 text-slate-500">
+            <span>Office: <strong className="font-mono text-slate-700 dark:text-slate-300">{formatMinutesToHoursMinutes(stats.totalWorkedMins - stats.wfhMins)}</strong></span>
+            <span className="text-emerald-700 dark:text-emerald-400">Work From Home: <strong className="font-mono">{formatMinutesToHoursMinutes(stats.wfhMins)}</strong> ({stats.wfhDays} {stats.wfhDays === 1 ? 'day' : 'days'})</span>
           </p>
         </div>
 
@@ -1053,6 +1065,9 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
 
                       <td className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-slate-100 text-right tabular-nums">
                         {formatMinutesToHoursMinutes(worked.totalWorkedMinutes)}
+                        {r.workMode === 'wfh' && (
+                          <span title={r.wfhReason ? `Reason: ${r.wfhReason}` : 'Work From Home'} className="ml-1.5 align-middle inline-block px-1.5 py-0.5 rounded text-[9px] font-sans font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">WFH</span>
+                        )}
                       </td>
 
                       <td className="py-3 px-4 font-mono text-right tabular-nums">

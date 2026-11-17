@@ -71,6 +71,9 @@ export interface AttendanceRecord {
   actorAction?: 'time_in' | 'time_out' | 'start_break' | 'end_break' | 'update_note' | 'verify' | 'admin_edit' | 'auto_close';
   adminOverrideAt?: string;
   adminKeepOpen?: boolean;
+  /** 'wfh' = punched in away from the office network (counted separately). Missing = office. */
+  workMode?: 'office' | 'wfh';
+  wfhReason?: string;
 }
 
 export interface ShiftSchedule {

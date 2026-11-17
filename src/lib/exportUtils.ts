@@ -95,6 +95,8 @@ export function exportAttendanceToCsv({
     'Admin Verification',
     'Accounts Verification',
     'Auto Closed',
+    'Work Mode',
+    'Work From Home Reason',
     'Notes / Remarks',
   ];
 
@@ -143,6 +145,8 @@ export function exportAttendanceToCsv({
       escapeCsvCell(adminVer),
       escapeCsvCell(accountsVer),
       escapeCsvCell(autoOut),
+      escapeCsvCell(rec.workMode === 'wfh' ? 'Work From Home' : 'Office'),
+      escapeCsvCell(rec.workMode === 'wfh' ? rec.wfhReason || '' : ''),
       escapeCsvCell(rec.notes || (rec.isManuallyAdjusted ? `Adjusted: ${rec.adjustmentNote}` : '')),
     ].join(',');
   });

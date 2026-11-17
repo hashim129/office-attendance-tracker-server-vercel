@@ -257,6 +257,8 @@ function mapDbAttendance(r) {
     lastEditedByRole: r.last_edited_by_role || undefined,
     adminOverrideAt: r.admin_override_at || undefined,
     adminKeepOpen: Boolean(r.admin_keep_open),
+    workMode: r.work_mode === 'wfh' ? 'wfh' : 'office',
+    wfhReason: r.wfh_reason || '',
   };
   if (r.time_out) out.timeOut = r.time_out;
   if (r.auto_punch_out_reason) out.autoPunchOutReason = r.auto_punch_out_reason;
@@ -289,6 +291,8 @@ function mapAppAttendanceToDb(a) {
     last_edited_by_role: a.lastEditedByRole || a.last_edited_by_role || 'employee',
     admin_override_at: a.adminOverrideAt || a.admin_override_at || null,
     admin_keep_open: Boolean(a.adminKeepOpen ?? a.admin_keep_open),
+    work_mode: (a.workMode ?? a.work_mode) === 'wfh' ? 'wfh' : 'office',
+    wfh_reason: (a.workMode ?? a.work_mode) === 'wfh' ? String(a.wfhReason ?? a.wfh_reason ?? '').slice(0, 300) : '',
   };
 }
 
@@ -473,6 +477,38 @@ export async function readSupabaseDb(defaultDb) {
   }
 }
 
+let lastAutoCloseSweepAt = 0;
+
+/**
+ * Closes every punch that has passed "Shift End + auto-logout window", even if nobody has the portal open.
+ * Called (at most once a minute per server instance) from the 45-second agent heartbeat and from portal requests.
+ * `evaluate` is evaluateAttendancePresenceAndAutoClose (passed in to avoid a circular import).
+ */
+export async function sweepAutoClose(evaluate) {
+  const nowMs = Date.now();
+  if (nowMs - lastAutoCloseSweepAt < 60000) return 0;
+  lastAutoCloseSweepAt = nowMs;
+  try {
+    const since = new Date(nowMs - 3 * 86400000).toISOString().slice(0, 10);
+    const openRows = await supabaseFetch(`/attendance?time_out=is.null&time_in=not.is.null&date=gte.${since}&select=*`);
+    if (!Array.isArray(openRows) || openRows.length === 0) return 0;
+    const [settingsRows, shiftsRows, empRows] = await Promise.all([
+      supabaseFetch('/settings?id=eq.current&select=*'),
+      supabaseFetch('/shifts?select=*&order=id.asc'),
+      supabaseFetch('/employees?deleted_at=is.null&select=*'),
+    ]);
+    const settings = { ...(settingsRows?.[0]?.data || {}) };
+    const shifts = Array.isArray(shiftsRows) ? shiftsRows.map(mapDbShift) : [];
+    const employees = Array.isArray(empRows) ? empRows.map(mapDbEmployee) : [];
+    const original = openRows.map(mapDbAttendance);
+    const { records } = evaluate(original, settings, employees, shifts);
+    return await persistAutoClosures(original, records);
+  } catch (e) {
+    console.error('Auto-logout sweep failed:', e);
+    return 0;
+  }
+}
+
 /**
  * Intelligent, atomic merge for an individual attendance record against existing Supabase record
  */
@@ -606,6 +642,8 @@ export function mergeSupabaseAttendanceRecord(existing, incomingRec, options = {
     adminKeepOpen: shouldClearTimeOut
       ? Boolean(!shouldClearTimeIn && finalTimeIn)
       : (incomingRec.adminKeepOpen !== undefined ? Boolean(incomingRec.adminKeepOpen) : Boolean(existing.adminKeepOpen)),
+    workMode: (isAdmin || isFreshPunchIn) && (incomingRec.workMode === 'wfh' || incomingRec.workMode === 'office') ? incomingRec.workMode : (existing.workMode || 'office'),
+    wfhReason: (isAdmin || isFreshPunchIn) && incomingRec.workMode ? (incomingRec.workMode === 'wfh' ? String(incomingRec.wfhReason || '') : '') : (existing.wfhReason || ''),
     lastEditedByRole: actorRole,
     recordUpdatedAt: nowIso,
   };
@@ -638,13 +676,13 @@ function punchFieldsChanged(existing, rec) {
 }
 
 async function enforceOfficeNetworkForPunch(existing, rec, actorRole, clientIps) {
-  if (!Array.isArray(clientIps)) return; // internal callers (auto-punch checks its own IP)
-  if (!punchFieldsChanged(existing, rec)) return;
+  if (!Array.isArray(clientIps)) return null; // internal callers (auto-punch checks its own IP)
+  if (!punchFieldsChanged(existing, rec)) return null;
 
   const setRows = await supabaseFetch('/settings?id=eq.current&select=data');
   const settings = readJson(setRows?.[0]?.data, {}) || {};
-  if (!settings.enforceOfficeIpLock) return;
-  if (actorRole === 'admin' && (settings.allowAdminBypassIpLock ?? true)) return;
+  if (!settings.enforceOfficeIpLock) return null;
+  if (actorRole === 'admin' && (settings.allowAdminBypassIpLock ?? true)) return null;
 
   const empRows = await supabaseFetch(
     `/employees?id=eq.${encodeURIComponent(rec.employeeId || existing?.employeeId || '')}&select=role,pending_device_request`
@@ -656,6 +694,34 @@ async function enforceOfficeNetworkForPunch(existing, rec, actorRole, clientIps)
     err.status = 403;
     err.code = verdict.code || 'OUTSIDE_OFFICE_NETWORK';
     throw err;
+  }
+  return { remote: Boolean(verdict.remote) };
+}
+
+/**
+ * Work-from-home marking. A punch-in made by a work-from-home employee OFF the office network is a
+ * "wfh" shift: it must carry a written reason (the punch Note), and is stored and counted separately.
+ * Clients can never choose the mode themselves; only the server (or an admin correcting a record) does.
+ */
+function stampWorkMode(existing, rec, net, actorRole, external) {
+  const isFreshPunchIn = rec.actorAction === 'time_in' && Boolean(rec.timeIn) && !(existing && existing.timeIn);
+  const adminChoice = actorRole === 'admin' && (rec.workMode === 'wfh' || rec.workMode === 'office') ? rec.workMode : null;
+  const reasonSent = String(rec.wfhReason || '').trim() || String(rec.notes || '').trim();
+  if (external && actorRole !== 'admin') { delete rec.workMode; delete rec.wfhReason; }
+  if (adminChoice) { rec.workMode = adminChoice; rec.wfhReason = adminChoice === 'wfh' ? reasonSent.slice(0, 300) : ''; return; }
+  if (!isFreshPunchIn) return;
+  if (net && net.remote) {
+    if (reasonSent.length < 3) {
+      const err = new Error('Work from home: please write the reason in the Note before you punch in.');
+      err.status = 400;
+      err.code = 'WFH_REASON_REQUIRED';
+      throw err;
+    }
+    rec.workMode = 'wfh';
+    rec.wfhReason = reasonSent.slice(0, 300);
+  } else {
+    rec.workMode = rec.workMode === 'wfh' && !external ? 'wfh' : 'office';
+    rec.wfhReason = rec.workMode === 'wfh' ? reasonSent.slice(0, 300) : '';
   }
 }
 
@@ -782,7 +848,8 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
         const existingRows = await supabaseFetch(`/attendance?id=eq.${encodeURIComponent(rec.id)}&select=*`);
         const existing = existingRows?.[0] ? mapDbAttendance(existingRows[0]) : null;
 
-        await enforceOfficeNetworkForPunch(existing, rec, incoming.actorRole, ctx.clientIps);
+        const net = await enforceOfficeNetworkForPunch(existing, rec, incoming.actorRole, ctx.clientIps);
+        stampWorkMode(existing, rec, net, incoming.actorRole, Array.isArray(ctx.clientIps));
         await enforceFacePassForPunch(existing, rec, incoming.actorRole, ctx);
         const mergedRec = mergeSupabaseAttendanceRecord(existing, rec, { actorRole: incoming.actorRole });
         rowsToUpsert.push(mapAppAttendanceToDb(mergedRec));
