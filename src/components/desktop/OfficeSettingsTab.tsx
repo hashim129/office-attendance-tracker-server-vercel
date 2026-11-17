@@ -689,10 +689,10 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
             <div className="flex items-center justify-between gap-3">
               <div className="text-xs">
                 <span className="font-semibold text-slate-900 dark:text-slate-100 block">
-                  Post-Shift Overtime Check &amp; Auto Logout Window
+                  Auto Logout After Shift End
                 </span>
                 <span className="text-slate-500 dark:text-slate-400 text-[11px]">
-                  No idle timeout during shift. After Shift End + window, checks internet live status: live workers earn overtime, offline/forgotten shifts auto logout.
+                  No idle timeout during the shift. Once Shift End + this window has passed, every open punch is logged out automatically (an Admin can keep a punch open). Overtime up to that moment is counted.
                 </span>
               </div>
               <select

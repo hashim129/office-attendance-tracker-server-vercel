@@ -476,6 +476,38 @@ export async function readSupabaseDb(defaultDb) {
 /**
  * Intelligent, atomic merge for an individual attendance record against existing Supabase record
  */
+/**
+ * Saves punches that the auto-logout / end-of-day rules have just closed, so the closure is permanent
+ * (not only shown on screen). Only rows that are still open in the database are touched.
+ */
+export async function persistAutoClosures(originalRecords, evaluatedRecords) {
+  if (!Array.isArray(originalRecords) || !Array.isArray(evaluatedRecords)) return 0;
+  let saved = 0;
+  for (let i = 0; i < originalRecords.length; i++) {
+    const orig = originalRecords[i];
+    const ev = evaluatedRecords[i];
+    if (!orig || !ev || orig.timeOut || !ev.timeOut || !orig.id) continue;
+    try {
+      await supabaseFetch(`/attendance?id=eq.${encodeURIComponent(orig.id)}&time_out=is.null`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          time_out: ev.timeOut,
+          breaks: ev.breaks || [],
+          notes: ev.notes || '',
+          is_auto_punched_out: true,
+          auto_punch_out_reason: ev.autoPunchOutReason || null,
+          admin_keep_open: false,
+          record_updated_at: new Date().toISOString(),
+        }),
+      });
+      saved++;
+    } catch (e) {
+      console.error('Could not save auto-closed punch', orig.id, e);
+    }
+  }
+  return saved;
+}
+
 export function mergeSupabaseAttendanceRecord(existing, incomingRec, options = {}) {
   const actorRole = options.actorRole || incomingRec.lastEditedByRole || 'employee';
   const isAdmin = actorRole === 'admin';
