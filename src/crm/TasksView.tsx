@@ -5,7 +5,7 @@ import { Modal } from '../components/common/Modal';
 import { CrmFollowup, FollowupStatus, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { FollowupModal } from './FollowupModal';
-import { ErrorNote, Field, KIND_LABEL, Pill, STATUS_LABEL, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { AddToCalendar, ErrorNote, Field, KIND_LABEL, Pill, STATUS_LABEL, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
 
 interface Props {
   crm: CrmState;
@@ -48,7 +48,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
 
   const rows = useMemo(() => {
     return followups
-      .filter((f) => (scope === 'mine' ? f.assignedTo === currentUser.id : scope === 'created' ? f.createdBy === currentUser.id : true))
+      .filter((f) => (scope === 'mine' ? f.assignedTo === currentUser.id || f.participantIds.includes(currentUser.id) : scope === 'created' ? f.createdBy === currentUser.id : true))
       .filter((f) => (statusFilter === 'all' ? true : statusFilter === 'open' ? f.status === 'pending' || f.status === 'rescheduled' : f.status === statusFilter))
       .sort((a, b) => (a.dueAt || a.createdAt).localeCompare(b.dueAt || b.createdAt));
   }, [followups, scope, statusFilter, currentUser.id]);
@@ -89,7 +89,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   };
 
   const scopes: { id: Scope; label: string }[] = [
-    { id: 'mine', label: 'Assigned to me' },
+    { id: 'mine', label: 'My follow-ups' },
     { id: 'created', label: 'Created by me' },
     ...(isAdmin ? [{ id: 'all' as Scope, label: 'Everyone' }] : []),
   ];
@@ -126,7 +126,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
       ) : (
         <div className="space-y-3">
           {rows.map((f) => {
-            const c = customerOf.get(f.customerId);
+            const c = f.customerId ? customerOf.get(f.customerId) : undefined;
             const isOpen = f.status === 'pending' || f.status === 'rescheduled';
             const canAct = f.assignedTo === currentUser.id || isAdmin;
             const canManage = f.createdBy === currentUser.id || isAdmin;
@@ -136,9 +136,10 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
                   <div className="min-w-0 space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">{c?.customerName || 'Deleted customer'}</h3>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">{c?.customerName || (f.customerId ? 'Deleted customer' : 'General follow-up')}</h3>
                       {c?.companyName && <span className="text-xs text-slate-500">{c.companyName}</span>}
                       {newIds.has(f.id) && <Pill tone="blue">New</Pill>}
+                      {f.assignedTo !== currentUser.id && f.participantIds.includes(currentUser.id) && <Pill tone="violet">Added to this follow-up</Pill>}
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Pill tone="slate">{KIND_LABEL[f.kind] || f.kind}</Pill>
@@ -148,6 +149,9 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
                       For <b className="text-slate-700 dark:text-slate-200">{empName.get(f.assignedTo) || 'Former employee'}</b> · created by {empName.get(f.createdBy) || 'Former employee'} · due {fmtDateTime(f.dueAt)}
                     </p>
+                    {f.participantIds.length > 0 && (
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">Also on this follow-up: {f.participantIds.map((id) => empName.get(id) || 'Former employee').join(', ')}</p>
+                    )}
                     {f.remarks && <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">{f.remarks}</p>}
                     {f.outcomeRemarks && (
                       <p className="text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap break-words border-l-2 border-slate-300 dark:border-slate-700 pl-2">
@@ -156,6 +160,9 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                     )}
                   </div>
                   <div className="flex flex-wrap md:flex-col lg:flex-row gap-1.5 shrink-0">
+                    {f.dueAt && isOpen && (
+                      <AddToCalendar event={{ title: `${KIND_LABEL[f.kind] || 'Follow-up'}${c ? `: ${c.customerName}` : ''}`, startIso: f.dueAt, description: [f.remarks, `Assigned to: ${empName.get(f.assignedTo) || ''}`].filter(Boolean).join('\n') }} />
+                    )}
                     {canAct && isOpen && <button className={btnPrimary} onClick={() => openOutcome(f)}>Update status</button>}
                     {canManage && isOpen && <button className={btnGhost} onClick={() => { setEditing(f); setFormOpen(true); }} aria-label="Edit follow-up"><Pencil className="w-3.5 h-3.5" /></button>}
                     {canManage && <button className={btnDanger} onClick={() => remove(f)} aria-label="Delete follow-up"><Trash2 className="w-3.5 h-3.5" /></button>}
@@ -187,7 +194,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
 
       <FollowupModal open={formOpen} onClose={() => setFormOpen(false)} crm={crm} employees={employees} currentUser={currentUser} customers={customers} editing={editing} />
 
-      <Modal isOpen={Boolean(outcomeFor)} onClose={() => setOutcomeFor(null)} title="Update follow-up" subtitle={outcomeFor ? customerOf.get(outcomeFor.customerId)?.customerName : undefined} maxWidth="md">
+      <Modal isOpen={Boolean(outcomeFor)} onClose={() => setOutcomeFor(null)} title="Update follow-up" subtitle={outcomeFor?.customerId ? customerOf.get(outcomeFor.customerId)?.customerName : undefined} maxWidth="md">
         <form onSubmit={saveOutcome} className="space-y-4">
           <div className="grid grid-cols-3 gap-2">
             {([['completed', 'Completed'], ['not_completed', 'Not completed'], ['rescheduled', 'Rescheduled']] as const).map(([id, label]) => (

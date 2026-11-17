@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CRM_ENABLED } from './config';
 import { CrmData, CrmBadges, EMPTY_BADGES, crmCall } from './crmApi';
 
-const EMPTY: CrmData = { customers: [], followups: [], meetings: [], unread: [], badges: EMPTY_BADGES };
+const EMPTY: CrmData = { customers: [], followups: [], meetings: [], unread: [], inventory: [], inventoryItems: [], badges: EMPTY_BADGES };
 
 export interface CrmState {
   data: CrmData;
@@ -10,7 +10,7 @@ export interface CrmState {
   loading: boolean;
   error: string;
   refresh: () => Promise<void>;
-  markRead: (category: 'followup' | 'meeting') => Promise<void>;
+  markRead: (category: 'followup' | 'meeting' | 'inventory') => Promise<void>;
 }
 
 /**
@@ -30,7 +30,7 @@ export function useCrm(signedIn: boolean, onCrmPage: boolean): CrmState {
     if (!loaded.current) setLoading(true);
     try {
       const r = await crmCall<CrmData & { ok: boolean }>('list');
-      setData({ customers: r.customers, followups: r.followups, meetings: r.meetings, unread: r.unread, badges: r.badges });
+      setData({ customers: r.customers, followups: r.followups, meetings: r.meetings, unread: r.unread, inventory: r.inventory || [], inventoryItems: r.inventoryItems || [], badges: r.badges });
       loaded.current = true;
       setError('');
     } catch (e: any) {
@@ -67,13 +67,13 @@ export function useCrm(signedIn: boolean, onCrmPage: boolean): CrmState {
     };
   }, [signedIn, onCrmPage, refresh, refreshBadges]);
 
-  const markRead = useCallback(async (category: 'followup' | 'meeting') => {
+  const markRead = useCallback(async (category: 'followup' | 'meeting' | 'inventory') => {
     try {
       await crmCall('notifications_read', { category });
       setData((d) => ({
         ...d,
         unread: d.unread.filter((u) => u.category !== category),
-        badges: { ...d.badges, ...(category === 'followup' ? { tasksNew: 0 } : { meetingsNew: 0 }) },
+        badges: { ...d.badges, ...(category === 'followup' ? { tasksNew: 0 } : category === 'meeting' ? { meetingsNew: 0 } : { inventoryNew: 0 }) },
       }));
     } catch {
       // ignore

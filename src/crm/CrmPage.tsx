@@ -5,8 +5,9 @@ import { getSessionToken } from '../lib/storage';
 import { CustomersView } from './CustomersView';
 import { TasksView } from './TasksView';
 import { MeetingsView } from './MeetingsView';
+import { InventoryView } from './InventoryView';
 
-export type CrmSection = 'crm-customers' | 'crm-tasks' | 'crm-meetings';
+export type CrmSection = 'crm-customers' | 'crm-tasks' | 'crm-meetings' | 'crm-inventory';
 
 interface Props {
   section: CrmSection;
@@ -27,6 +28,7 @@ export const CrmPage: React.FC<Props> = ({ section, crm, employees, currentUser 
     <div className="space-y-4">
       {section === 'crm-customers' && <CustomersView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-tasks' && <TasksView crm={crm} employees={employees} currentUser={currentUser} />}
+      {section === 'crm-inventory' && <InventoryView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-meetings' && <MeetingsView crm={crm} employees={employees} currentUser={currentUser} />}
     </div>
   );

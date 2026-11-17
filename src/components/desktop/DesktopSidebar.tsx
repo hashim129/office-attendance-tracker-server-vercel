@@ -14,6 +14,7 @@ import {
   Contact,
   ClipboardList,
   CalendarClock,
+  Package,
 } from 'lucide-react';
 import { ActiveDesktopTab, Employee, OfficeSettings } from '../../types';
 import { CrmBadges } from '../../crm/crmApi';
@@ -214,6 +215,31 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Inventory requests: every employee can request items from the fixed list. */}
+        {crmEnabled && (
+          <div>
+            <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">
+              Office
+            </p>
+            <button
+              onClick={() => onSelectTab('crm-inventory')}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
+                activeTab === 'crm-inventory'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Package className="w-4 h-4 shrink-0" />
+                <span>Inventory</span>
+              </div>
+              {(crmBadges?.inventoryNew || 0) > 0 && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">{crmBadges?.inventoryNew}</span>
+              )}
+            </button>
           </div>
         )}
 

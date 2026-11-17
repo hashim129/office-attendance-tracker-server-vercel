@@ -4,7 +4,7 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmMeeting, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
-import { ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { AddToCalendar, ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, fromLocalInput, inputCls, toLocalInput } from './ui';
 
 interface Props {
   crm: CrmState;
@@ -173,6 +173,9 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
             {m.decisionNote && <p className="text-xs text-slate-600 dark:text-slate-400 border-l-2 border-slate-300 dark:border-slate-700 pl-2">Admin note: {m.decisionNote}</p>}
           </div>
           <div className="flex flex-wrap gap-1.5 shrink-0">
+            {m.status === 'scheduled' && Date.parse(m.endAt) >= now && (
+              <AddToCalendar event={{ title: `CEO meeting: ${m.title}`, startIso: m.startAt, endIso: m.endAt, location: m.location, description: [m.notes, who.length ? `With: ${who.join(', ')}` : ''].filter(Boolean).join('\n') }} />
+            )}
             {isAdmin && m.status === 'pending_approval' && (
               <>
                 <button className={btnPrimary} onClick={() => { setDeciding({ m, approve: true }); setDecisionNote(''); setError(''); }}><Check className="w-3.5 h-3.5" /> Approve</button>

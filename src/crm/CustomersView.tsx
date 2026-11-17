@@ -25,6 +25,9 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
 
   const [name, setName] = useState('');
   const [company, setCompany] = useState('');
+  const [number, setNumber] = useState('');
+  const [through, setThrough] = useState('');
+  const [by, setBy] = useState('');
   const [dest, setDest] = useState('');
   const [dests, setDests] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -34,6 +37,9 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
     setEditing(c || null);
     setName(c?.customerName || '');
     setCompany(c?.companyName || '');
+    setNumber(c?.customerNumber || '');
+    setThrough(c?.acquiredThrough || '');
+    setBy(c?.acquiredBy || '');
     setDests(c?.destinations || []);
     setDest('');
     setError('');
@@ -56,7 +62,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
     const pending = dest.split(';').map((d) => d.trim()).filter(Boolean);
     const destinations = [...dests, ...pending.filter((p) => !dests.some((c) => c.toLowerCase() === p.toLowerCase()))];
     try {
-      await crmCall('customer_save', { customer: { id: editing?.id, customerName: name, companyName: company, destinations } });
+      await crmCall('customer_save', { customer: { id: editing?.id, customerName: name, companyName: company, customerNumber: number, acquiredThrough: through, acquiredBy: by, destinations } });
       await crm.refresh();
       setFormOpen(false);
     } catch (err: any) {
@@ -80,9 +86,9 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
   const rows = useMemo(
     () =>
       customers
-        .filter((c) => !q || [c.customerName, c.companyName, ...c.destinations].join(' ').toLowerCase().includes(q))
+        .filter((c) => !q || [c.customerName, c.companyName, c.customerNumber, c.acquiredThrough, empName.get(c.acquiredBy) || c.acquiredBy, ...c.destinations].join(' ').toLowerCase().includes(q))
         .sort((a, b) => a.customerName.localeCompare(b.customerName)),
-    [customers, q]
+    [customers, q, empName]
   );
   const openCount = (id: string) => followups.filter((f) => f.customerId === id && (f.status === 'pending' || f.status === 'rescheduled')).length;
 
@@ -110,7 +116,9 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
                 <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50">
                   <th className="px-4 py-2.5 font-bold">Customer</th>
                   <th className="px-4 py-2.5 font-bold">Company</th>
+                  <th className="px-4 py-2.5 font-bold">Number</th>
                   <th className="px-4 py-2.5 font-bold">Desired destinations</th>
+                  <th className="px-4 py-2.5 font-bold">Acquired through / by</th>
                   <th className="px-4 py-2.5 font-bold">Added by</th>
                   <th className="px-4 py-2.5 font-bold">Open follow-ups</th>
                   <th className="px-4 py-2.5 font-bold text-right">Actions</th>
@@ -121,10 +129,19 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
                   <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                     <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">{c.customerName}</td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{c.companyName || '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{c.customerNumber || '—'}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1 max-w-xs">
                         {c.destinations.length ? c.destinations.map((d) => <Pill key={d} tone="blue">{d}</Pill>) : <span className="text-slate-400">—</span>}
                       </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                      {c.acquiredThrough || c.acquiredBy ? (
+                        <>
+                          {c.acquiredThrough || '—'}
+                          <span className="block text-[10px] text-slate-400">{c.acquiredBy ? `by ${empName.get(c.acquiredBy) || c.acquiredBy}` : ''}</span>
+                        </>
+                      ) : '—'}
                     </td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
                       {empName.get(c.createdBy) || 'Former employee'}
@@ -151,6 +168,17 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Customer name"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoFocus /></Field>
             <Field label="Company name"><input className={inputCls} value={company} onChange={(e) => setCompany(e.target.value)} maxLength={160} /></Field>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Field label="Customer number (optional)"><input className={inputCls} value={number} onChange={(e) => setNumber(e.target.value)} maxLength={60} inputMode="tel" /></Field>
+            <Field label="Customer acquired through (optional)"><input className={inputCls} value={through} onChange={(e) => setThrough(e.target.value)} maxLength={120} placeholder="e.g. Facebook, referral" /></Field>
+            <Field label="Customer acquired by (optional)">
+              <select className={inputCls} value={by} onChange={(e) => setBy(e.target.value)}>
+                <option value="">Not set</option>
+                {by && !employees.some((x) => x.id === by) && <option value={by}>{by}</option>}
+                {employees.filter((x) => x.isActive !== false || x.id === by).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+            </Field>
           </div>
           <Field label="Desired countries / cities" hint="Type a city and/or country (for example Istanbul, Turkey) and press Enter to add it. Add as many as needed.">
             <div className="flex gap-2">

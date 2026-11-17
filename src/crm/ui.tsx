@@ -59,5 +59,88 @@ export const fromLocalInput = (v: string): string | null => {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 };
 
-export const KIND_LABEL: Record<string, string> = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up' };
+export const KIND_LABEL: Record<string, string> = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up', regular: 'Regular customers follow-up' };
 export const STATUS_LABEL: Record<string, string> = { pending: 'Pending', completed: 'Completed', not_completed: 'Not completed', rescheduled: 'Rescheduled' };
+
+// ---------------------------------------------------------------- Add to calendar
+export interface CalEvent {
+  title: string;
+  startIso: string;
+  endIso?: string; // defaults to 30 minutes after the start
+  location?: string;
+  description?: string;
+}
+
+const utcStamp = (iso: string): string => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+const endOf = (ev: CalEvent): string => ev.endIso || new Date(Date.parse(ev.startIso) + 30 * 60000).toISOString();
+const icsEscape = (v: string): string => v.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+
+export const googleCalendarUrl = (ev: CalEvent): string => {
+  const q = new URLSearchParams({ action: 'TEMPLATE', text: ev.title, dates: `${utcStamp(ev.startIso)}/${utcStamp(endOf(ev))}` });
+  if (ev.location) q.set('location', ev.location);
+  if (ev.description) q.set('details', ev.description);
+  return `https://calendar.google.com/calendar/render?${q.toString()}`;
+};
+
+/** Standard calendar file: opens in Outlook, Apple Calendar and most phone calendars. */
+export const downloadIcs = (ev: CalEvent): void => {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Office Attendance Tracker//CRM//EN',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    `UID:${Date.parse(ev.startIso)}-${Math.random().toString(36).slice(2, 10)}@office-attendance`,
+    `DTSTAMP:${utcStamp(new Date().toISOString())}`,
+    `DTSTART:${utcStamp(ev.startIso)}`,
+    `DTEND:${utcStamp(endOf(ev))}`,
+    `SUMMARY:${icsEscape(ev.title)}`,
+    ...(ev.description ? [`DESCRIPTION:${icsEscape(ev.description)}`] : []),
+    ...(ev.location ? [`LOCATION:${icsEscape(ev.location)}`] : []),
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ];
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${ev.title.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 40) || 'event'}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+/** "Add to calendar" button for anyone: the date and time are already set by whoever created the item. */
+export const AddToCalendar: React.FC<{ event: CalEvent }> = ({ event }) => {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div className="relative inline-block" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false); }}>
+      <button type="button" className={btnGhost} onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="menu">
+        Add to calendar
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg p-1">
+          <a
+            role="menuitem"
+            href={googleCalendarUrl(event)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setOpen(false)}
+            className="block px-3 py-2 rounded-md text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            Google Calendar
+          </a>
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => { downloadIcs(event); setOpen(false); }}
+            className="w-full text-left px-3 py-2 rounded-md text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+          >
+            Outlook / Apple / phone (.ics file)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};

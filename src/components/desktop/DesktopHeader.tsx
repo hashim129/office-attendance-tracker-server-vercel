@@ -84,6 +84,8 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         return 'CRM · Follow-ups & Tasks';
       case 'crm-meetings':
         return 'CRM · CEO Meetings';
+      case 'crm-inventory':
+        return 'Inventory Requests';
       default:
         return 'Workspace';
     }
