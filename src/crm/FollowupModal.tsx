@@ -20,12 +20,21 @@ const KINDS: { id: FollowupKind; label: string; hint: string }[] = [
   { id: 'meeting', label: 'Meeting follow-up', hint: 'A meeting is supposed to be held' },
   { id: 'corporate', label: 'Corporate follow-up', hint: 'Follow-up with the customer’s company' },
   { id: 'internal', label: 'Internal follow-up', hint: 'Work to be done inside the office' },
+  { id: 'regular', label: 'Regular customers follow-up', hint: 'Routine contact with existing customers' },
 ];
 
+type CustomerMode = 'none' | 'existing' | 'new';
+
 export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, currentUser, customers, presetCustomerId, editing }) => {
+  const [mode, setMode] = useState<CustomerMode>('existing');
   const [customerId, setCustomerId] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newCompany, setNewCompany] = useState('');
+  const [newNumber, setNewNumber] = useState('');
+  const [newDest, setNewDest] = useState('');
   const [kind, setKind] = useState<FollowupKind>('meeting');
   const [assignedTo, setAssignedTo] = useState('');
+  const [participants, setParticipants] = useState<string[]>([]);
   const [dueAt, setDueAt] = useState('');
   const [remarks, setRemarks] = useState('');
   const [busy, setBusy] = useState(false);
@@ -37,32 +46,57 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
     if (!open) return;
     setError('');
     setBusy(false);
+    setNewName(''); setNewCompany(''); setNewNumber(''); setNewDest('');
     if (editing) {
-      setCustomerId(editing.customerId);
+      setMode(editing.customerId ? 'existing' : 'none');
+      setCustomerId(editing.customerId || '');
       setKind(editing.kind);
       setAssignedTo(editing.assignedTo);
+      setParticipants(editing.participantIds || []);
       setDueAt(editing.dueAt ? toLocalInput(editing.dueAt) : '');
       setRemarks(editing.remarks);
     } else {
+      setMode(presetCustomerId ? 'existing' : 'none');
       setCustomerId(presetCustomerId || '');
       setKind('meeting');
       setAssignedTo(currentUser.id);
+      setParticipants([]);
       setDueAt('');
       setRemarks('');
     }
   }, [open, editing, presetCustomerId, currentUser.id]);
 
+  // A message about a missing field goes away as soon as the person changes something.
+  useEffect(() => { setError(''); }, [mode, remarks, customerId, newName, assignedTo]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
-    if (!customerId) return setError('Choose a customer.');
     if (!assignedTo) return setError('Choose who will take this follow-up.');
+    if (mode === 'existing' && !customerId) return setError('Choose a customer, or switch to “No customer”.');
+    if (mode === 'new' && !newName.trim()) return setError('Type the new customer’s name, or switch to “No customer”.');
+    if (mode === 'none' && !remarks.trim()) return setError('Without a customer, please type the follow-up remarks.');
     setBusy(true);
     setError('');
     try {
-      await crmCall('followup_save', {
-        followup: { id: editing?.id, customerId, kind, assignedTo, remarks, dueAt: fromLocalInput(dueAt) },
-      });
+      const followup: Record<string, unknown> = {
+        id: editing?.id,
+        kind,
+        assignedTo,
+        participantIds: participants.filter((p) => p !== assignedTo),
+        remarks,
+        dueAt: fromLocalInput(dueAt),
+        customerId: mode === 'existing' ? customerId : null,
+      };
+      if (mode === 'new') {
+        followup.newCustomer = {
+          customerName: newName,
+          companyName: newCompany,
+          customerNumber: newNumber,
+          destinations: newDest.split(';').map((d) => d.trim()).filter(Boolean),
+        };
+      }
+      await crmCall('followup_save', { followup });
       await crm.refresh();
       onClose();
     } catch (err: any) {
@@ -72,23 +106,41 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
     }
   };
 
+  const chip = (active: boolean) =>
+    `px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 active:scale-[0.97] cursor-pointer ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`;
+
   return (
-    <Modal isOpen={open} onClose={onClose} title={editing ? 'Edit follow-up' : 'New follow-up'} subtitle="The chosen employee is notified and sees it under Follow-ups & Tasks." maxWidth="lg">
+    <Modal isOpen={open} onClose={onClose} title={editing ? 'Edit follow-up' : 'New follow-up'} subtitle="Chosen employees are notified." maxWidth="lg">
       <form onSubmit={submit} className="space-y-4">
-        <Field label="Customer">
-          <select className={inputCls} value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={Boolean(editing)}>
-            <option value="">Select a customer…</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.customerName}{c.companyName ? ` — ${c.companyName}` : ''}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <div>
+          <span className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Customer (optional)</span>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            <button type="button" className={chip(mode === 'none')} onClick={() => setMode('none')}>No customer</button>
+            <button type="button" className={chip(mode === 'existing')} onClick={() => setMode('existing')} disabled={Boolean(editing) && !editing?.customerId}>Existing customer</button>
+            {!editing && <button type="button" className={chip(mode === 'new')} onClick={() => setMode('new')}>＋ Add new customer</button>}
+          </div>
+          {mode === 'existing' && (
+            <select className={inputCls} value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={Boolean(editing)} aria-label="Customer">
+              <option value="">Select a customer…</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>{c.customerName}{c.companyName ? ` — ${c.companyName}` : ''}</option>
+              ))}
+            </select>
+          )}
+          {mode === 'new' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-lg border border-dashed border-slate-300 dark:border-slate-700">
+              <Field label="Customer name"><input className={inputCls} value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={120} /></Field>
+              <Field label="Company name (optional)"><input className={inputCls} value={newCompany} onChange={(e) => setNewCompany(e.target.value)} maxLength={160} /></Field>
+              <Field label="Customer number (optional)"><input className={inputCls} value={newNumber} onChange={(e) => setNewNumber(e.target.value)} maxLength={60} /></Field>
+              <Field label="Desired countries / cities (optional)" hint="Separate several with a semicolon ( ; )"><input className={inputCls} value={newDest} onChange={(e) => setNewDest(e.target.value)} placeholder="Istanbul, Turkey; Dubai, UAE" /></Field>
+            </div>
+          )}
+          {mode === 'none' && <p className="text-[11px] text-slate-400">This follow-up is not linked to a customer.</p>}
+        </div>
 
         <div>
           <span className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Follow-up type</span>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {KINDS.map((k) => (
               <button
                 key={k.id}
@@ -121,8 +173,20 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
           </Field>
         </div>
 
+        <div>
+          <span className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Add more employees to this follow-up (optional)</span>
+          <div className="max-h-32 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 p-2 rounded-lg border border-slate-300 dark:border-slate-700">
+            {staff.filter((e) => e.id !== assignedTo).map((e) => (
+              <label key={e.id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                <input type="checkbox" checked={participants.includes(e.id)} onChange={(ev) => setParticipants((cur) => (ev.target.checked ? [...cur, e.id] : cur.filter((x) => x !== e.id)))} />
+                {e.name}
+              </label>
+            ))}
+          </div>
+        </div>
+
         <Field label="Follow-up remarks">
-          <textarea className={`${inputCls} min-h-[96px]`} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Type the details of what has to be followed up…" maxLength={4000} />
+          <textarea className={`${inputCls} min-h-[90px]`} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Type the details of what has to be followed up…" maxLength={4000} />
         </Field>
 
         <ErrorNote message={error} />

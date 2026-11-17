@@ -1,6 +1,7 @@
 import { getSessionToken } from '../lib/storage';
 
-export type FollowupKind = 'meeting' | 'corporate' | 'internal';
+export type FollowupKind = 'meeting' | 'corporate' | 'internal' | 'regular';
+export type InventoryStatus = 'pending' | 'approved' | 'rejected' | 'delivered';
 export type FollowupStatus = 'pending' | 'completed' | 'not_completed' | 'rescheduled';
 export type MeetingStatus = 'scheduled' | 'pending_approval' | 'rejected' | 'cancelled' | 'completed';
 
@@ -9,6 +10,9 @@ export interface CrmCustomer {
   customerName: string;
   companyName: string;
   destinations: string[];
+  customerNumber: string;
+  acquiredThrough: string;
+  acquiredBy: string; // employee id (or a typed name)
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -24,7 +28,8 @@ export interface CrmHistoryEntry {
 
 export interface CrmFollowup {
   id: string;
-  customerId: string;
+  customerId: string | null;
+  participantIds: string[];
   kind: FollowupKind;
   assignedTo: string;
   remarks: string;
@@ -57,16 +62,36 @@ export interface CrmMeeting {
   updatedAt: string;
 }
 
+export interface CrmInventoryLine {
+  item: string;
+  qty: number;
+}
+
+export interface CrmInventoryRequest {
+  id: string;
+  requestedBy: string;
+  assignedTo: string;
+  items: CrmInventoryLine[];
+  note: string;
+  status: InventoryStatus;
+  decisionRemarks: string;
+  decidedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CrmBadges {
   tasksOpen: number;
   tasksNew: number;
   meetingsNew: number;
   meetingsPending: number;
+  inventoryNew: number;
+  inventoryPending: number;
 }
 
 export interface CrmUnread {
   id: string;
-  category: 'followup' | 'meeting';
+  category: 'followup' | 'meeting' | 'inventory';
   refId: string;
   message: string;
   createdAt: string;
@@ -77,10 +102,12 @@ export interface CrmData {
   followups: CrmFollowup[];
   meetings: CrmMeeting[];
   unread: CrmUnread[];
+  inventory: CrmInventoryRequest[];
+  inventoryItems: string[];
   badges: CrmBadges;
 }
 
-export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0 };
+export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0 };
 
 export class CrmError extends Error {
   code?: string;

@@ -1020,7 +1020,7 @@ export default function App() {
                 />
               )}
 
-              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings') && (
+              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory') && (
                 <CrmPage section={activeTab} crm={crm} employees={employees} currentUser={currentUser} />
               )}
 

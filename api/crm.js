@@ -5,7 +5,11 @@ import crypto from 'node:crypto';
 import { isSupabaseConfigured, supabaseFetch } from './_supabase.js';
 import { getSessionEmployee } from './_session.js';
 
-const KINDS = ['meeting', 'corporate', 'internal'];
+const KINDS = ['meeting', 'corporate', 'internal', 'regular'];
+const KIND_LABEL = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up', regular: 'Regular customers follow-up' };
+// Fixed inventory list: requests can only use these items (typing other items is not allowed).
+const INVENTORY_ITEMS = ['Laptop', 'Keyboard', 'Mouse', 'Mouse Pad', 'Pen', 'Headphones', 'Writing Pads'];
+const INVENTORY_STATUSES = ['approved', 'rejected', 'delivered'];
 const OUTCOMES = ['completed', 'not_completed', 'rescheduled'];
 const OPEN = ['pending', 'rescheduled'];
 const LIMIT = 5000;
@@ -38,12 +42,17 @@ const asArray = (v) => (Array.isArray(v) ? v : typeof v === 'string' ? (() => { 
 
 const mapCustomer = (r) => ({
   id: r.id, customerName: r.customer_name, companyName: r.company_name || '', destinations: asArray(r.destinations),
+  customerNumber: r.customer_number || '', acquiredThrough: r.acquired_through || '', acquiredBy: r.acquired_by || '',
   createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const mapFollowup = (r) => ({
-  id: r.id, customerId: r.customer_id, kind: r.kind, assignedTo: r.assigned_to, remarks: r.remarks || '', dueAt: r.due_at,
+  id: r.id, customerId: r.customer_id || null, participantIds: asArray(r.participant_ids), kind: r.kind, assignedTo: r.assigned_to, remarks: r.remarks || '', dueAt: r.due_at,
   status: r.status, outcomeRemarks: r.outcome_remarks || '', history: asArray(r.history), createdBy: r.created_by,
   createdAt: r.created_at, updatedAt: r.updated_at, completedAt: r.completed_at,
+});
+const mapInventory = (r) => ({
+  id: r.id, requestedBy: r.requested_by, assignedTo: r.assigned_to, items: asArray(r.items), note: r.note || '', status: r.status,
+  decisionRemarks: r.decision_remarks || '', decidedBy: r.decided_by || null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const mapMeeting = (r) => ({
   id: r.id, title: r.title, customerId: r.customer_id || null, externalName: r.external_name || '', attendeeIds: asArray(r.attendee_ids),
@@ -115,7 +124,7 @@ export default async function handler(req, res) {
 
     // ------------------------------------------------------------------ reading
     if (action === 'list' || action === 'badges') {
-      const [followups, meetings, notifs] = await Promise.all([getAll('crm_followups'), getAll('crm_meetings'), getAll('crm_notifications')]);
+      const [followups, meetings, notifs, inventory] = await Promise.all([getAll('crm_followups'), getAll('crm_meetings'), getAll('crm_notifications'), getAll('crm_inventory_requests')]);
       const mine = notifs.filter((n) => n.employee_id === me.id && !n.read_at);
       const myOpen = followups.filter((f) => f.assigned_to === me.id && OPEN.includes(f.status));
       const pendingApprovals = meetings.filter((m) => m.status === 'pending_approval').length;
@@ -124,24 +133,27 @@ export default async function handler(req, res) {
         tasksNew: mine.filter((n) => n.category === 'followup').length,
         meetingsNew: mine.filter((n) => n.category === 'meeting').length,
         meetingsPending: isAdmin ? pendingApprovals : 0,
+        inventoryNew: mine.filter((n) => n.category === 'inventory').length,
+        inventoryPending: inventory.filter((r) => r.assigned_to === me.id && r.status === 'pending').length,
       };
       if (action === 'badges') return res.status(200).json({ ok: true, badges });
 
       const customers = (await getAll('crm_customers')).filter((c) => !c.deleted_at).map(mapCustomer);
-      const visibleFollowups = followups.filter((f) => isAdmin || f.assigned_to === me.id || f.created_by === me.id).map(mapFollowup);
+      const visibleFollowups = followups.filter((f) => isAdmin || f.assigned_to === me.id || f.created_by === me.id || asArray(f.participant_ids).includes(me.id)).map(mapFollowup);
+      const visibleInventory = inventory.filter((r) => isAdmin || r.requested_by === me.id || r.assigned_to === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapInventory);
       const since = Date.now() - 45 * 24 * 3600 * 1000;
       const visibleMeetings = meetings
         .filter((m) => Date.parse(m.end_at) >= since)
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role }, customers, followups: visibleFollowups, meetings: visibleMeetings,
+        ok: true, me: { id: me.id, role: me.role }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
     }
 
     if (action === 'notifications_read') {
-      const cat = body.category === 'followup' || body.category === 'meeting' ? body.category : null;
+      const cat = ['followup', 'meeting', 'inventory'].includes(body.category) ? body.category : null;
       const rows = (await getAll('crm_notifications')).filter((n) => n.employee_id === me.id && !n.read_at && (!cat || n.category === cat));
       if (rows.length) await upsert('crm_notifications', rows.map((n) => ({ ...n, read_at: nowIso() })));
       return res.status(200).json({ ok: true, marked: rows.length });
@@ -156,6 +168,9 @@ export default async function handler(req, res) {
         customer_name: str(c.customerName, 120, { required: true, name: 'Customer name' }),
         company_name: str(c.companyName, 160, { name: 'Company name' }),
         destinations,
+        customer_number: str(c.customerNumber, 60, { name: 'Customer number' }),
+        acquired_through: str(c.acquiredThrough, 120, { name: 'Acquired through' }),
+        acquired_by: str(c.acquiredBy, 80, { name: 'Acquired by' }),
         updated_at: nowIso(),
       };
       if (c.id) {
@@ -182,14 +197,36 @@ export default async function handler(req, res) {
       const f = body.followup || {};
       const kind = String(f.kind || '');
       if (!KINDS.includes(kind)) throw bad('Choose a follow-up type.');
-      const customer = await getOne('crm_customers', f.customerId);
-      if (!customer || customer.deleted_at) throw bad('Choose a customer for this follow-up.');
       await assertEmployee(String(f.assignedTo || ''), 'The employee for this follow-up');
+      // The customer is optional. It can be an existing one, or a new one typed in right here.
+      let customer = null;
+      let newCustomerRow = null;
+      if (f.customerId) {
+        customer = await getOne('crm_customers', f.customerId);
+        if (!customer || customer.deleted_at) throw bad('The selected customer was not found.');
+      } else if (f.newCustomer && String(f.newCustomer.customerName || '').trim()) {
+        const c = f.newCustomer;
+        const destinations = asArray(c.destinations).map((d) => str(d, 100)).filter(Boolean).slice(0, 30);
+        newCustomerRow = {
+          id: id('cus'), customer_name: str(c.customerName, 120, { required: true, name: 'Customer name' }), company_name: str(c.companyName, 160, { name: 'Company name' }),
+          destinations, customer_number: str(c.customerNumber, 60, { name: 'Customer number' }), acquired_through: str(c.acquiredThrough, 120, { name: 'Acquired through' }),
+          acquired_by: str(c.acquiredBy, 80, { name: 'Acquired by' }), created_by: me.id, created_at: nowIso(), updated_at: nowIso(), deleted_at: null,
+        };
+        customer = newCustomerRow;
+      }
+      // Optional extra employees who also see this follow-up and are notified.
+      const staff = await activeEmployees();
+      const participantIds = [...new Set(asArray(f.participantIds).map(String))].filter((p) => p !== String(f.assignedTo));
+      if (participantIds.length > 30) throw bad('Too many extra employees (max 30).');
+      for (const p of participantIds) if (!staff.some((e) => e.id === p)) throw bad('One of the extra employees was not found or is no longer active.');
       const fields = {
-        customer_id: customer.id, kind, assigned_to: String(f.assignedTo),
+        customer_id: customer ? customer.id : null, kind, assigned_to: String(f.assignedTo), participant_ids: participantIds,
         remarks: str(f.remarks, 4000, { name: 'Remarks' }), due_at: isoOrNull(f.dueAt, 'Due date'), updated_at: nowIso(),
       };
-      const label = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up' }[kind];
+      if (!customer && !fields.remarks) throw bad('Without a customer, please type the follow-up remarks so it can be identified.');
+      const label = KIND_LABEL[kind];
+      const forWhom = customer ? ` for ${customer.customer_name}` : '';
+      if (newCustomerRow) await upsert('crm_customers', newCustomerRow);
       if (f.id) {
         const existing = await getOne('crm_followups', f.id);
         if (!existing) throw notFound('Follow-up not found.');
@@ -197,13 +234,16 @@ export default async function handler(req, res) {
         if (!OPEN.includes(existing.status)) throw bad('This follow-up is already closed.');
         const row = { ...existing, ...fields };
         await upsert('crm_followups', row);
-        if (existing.assigned_to !== fields.assigned_to) await notify([fields.assigned_to], 'followup', row.id, `${label} for ${customer.customer_name} was assigned to you.`, me.id);
-        return res.status(200).json({ ok: true, followup: mapFollowup(row) });
+        if (existing.assigned_to !== fields.assigned_to) await notify([fields.assigned_to], 'followup', row.id, `${label}${forWhom} was assigned to you.`, me.id);
+        const addedPeople = participantIds.filter((p) => !asArray(existing.participant_ids).includes(p));
+        await notify(addedPeople, 'followup', row.id, `You were added to a ${label.toLowerCase()}${forWhom}.`, me.id);
+        return res.status(200).json({ ok: true, followup: mapFollowup(row), customer: newCustomerRow ? mapCustomer(newCustomerRow) : undefined });
       }
       const row = { id: id('fup'), ...fields, status: 'pending', outcome_remarks: '', history: [], created_by: me.id, created_at: nowIso(), completed_at: null };
       await upsert('crm_followups', row);
-      await notify([fields.assigned_to], 'followup', row.id, `${label} for ${customer.customer_name} was assigned to you.`, me.id);
-      return res.status(200).json({ ok: true, followup: mapFollowup(row) });
+      await notify([fields.assigned_to], 'followup', row.id, `${label}${forWhom} was assigned to you.`, me.id);
+      await notify(participantIds, 'followup', row.id, `You were added to a ${label.toLowerCase()}${forWhom}.`, me.id);
+      return res.status(200).json({ ok: true, followup: mapFollowup(row), customer: newCustomerRow ? mapCustomer(newCustomerRow) : undefined });
     }
 
     if (action === 'followup_outcome') {
@@ -221,9 +261,9 @@ export default async function handler(req, res) {
         completed_at: outcome === 'rescheduled' ? null : at,
       };
       await upsert('crm_followups', row);
-      const customer = await getOne('crm_customers', existing.customer_id);
+      const customer = existing.customer_id ? await getOne('crm_customers', existing.customer_id) : null;
       const words = { completed: 'completed', not_completed: 'could not be completed', rescheduled: 'was rescheduled' }[outcome];
-      await notify([existing.created_by], 'followup', row.id, `Follow-up for ${customer?.customer_name || 'a customer'} ${words}.`, me.id);
+      await notify([existing.created_by], 'followup', row.id, `Follow-up${customer ? ` for ${customer.customer_name}` : ''} ${words}.`, me.id);
       return res.status(200).json({ ok: true, followup: mapFollowup(row) });
     }
 
@@ -300,6 +340,53 @@ export default async function handler(req, res) {
       await upsert('crm_meetings', row);
       if (status === 'cancelled') await notify(asArray(existing.attendee_ids), 'meeting', row.id, `CEO meeting cancelled: ${row.title}.`, me.id);
       return res.status(200).json({ ok: true, meeting: mapMeeting(row) });
+    }
+
+    // ---------------------------------------------------------------- inventory requests
+    // Any employee requests items from the fixed list (with quantities) and assigns it to an Accounts or Admin employee.
+    if (action === 'inventory_save') {
+      const r = body.request || {};
+      const merged = new Map();
+      for (const line of asArray(r.items)) {
+        const item = String(line?.item || '');
+        if (!INVENTORY_ITEMS.includes(item)) throw bad('Only items from the inventory list can be requested.');
+        const qty = Number(line?.qty);
+        if (!Number.isInteger(qty) || qty < 1 || qty > 999) throw bad('Each quantity must be a whole number from 1 to 999.');
+        merged.set(item, (merged.get(item) || 0) + qty);
+      }
+      if (!merged.size) throw bad('Add at least one item.');
+      const items = [...merged].map(([item, qty]) => ({ item, qty: Math.min(999, qty) }));
+      const staff = await activeEmployees();
+      const assignee = staff.find((e) => e.id === String(r.assignedTo || ''));
+      if (!assignee || !['accounts', 'admin'].includes(assignee.role)) throw bad('Assign the request to an Accounts or Admin employee.');
+      const at = nowIso();
+      const row = { id: id('inv'), requested_by: me.id, assigned_to: assignee.id, items, note: str(r.note, 1000, { name: 'Note' }), status: 'pending', decision_remarks: '', decided_by: null, created_at: at, updated_at: at };
+      await upsert('crm_inventory_requests', row);
+      const summary = items.map((i) => `${i.qty} x ${i.item}`).join(', ');
+      await notify([assignee.id], 'inventory', row.id, `${me.name || 'An employee'} requested inventory: ${summary}.`, me.id);
+      return res.status(200).json({ ok: true, request: mapInventory(row) });
+    }
+
+    if (action === 'inventory_decide') {
+      const existing = await getOne('crm_inventory_requests', body.id);
+      if (!existing) throw notFound('Request not found.');
+      if (existing.assigned_to !== me.id && !isAdmin) throw forbidden('Only the person this request is assigned to (or an administrator) can update it.');
+      const status = String(body.status || '');
+      if (!INVENTORY_STATUSES.includes(status)) throw bad('Choose Approved, Rejected or Delivered.');
+      if (['rejected', 'delivered'].includes(existing.status)) throw bad('This request is already closed.');
+      const row = { ...existing, status, decision_remarks: str(body.remarks, 1000, { name: 'Remarks' }), decided_by: me.id, updated_at: nowIso() };
+      await upsert('crm_inventory_requests', row);
+      const words = { approved: 'was approved', rejected: 'was rejected', delivered: 'was delivered' }[status];
+      await notify([existing.requested_by], 'inventory', row.id, `Your inventory request ${words}.`, me.id);
+      return res.status(200).json({ ok: true, request: mapInventory(row) });
+    }
+
+    if (action === 'inventory_delete') {
+      const existing = await getOne('crm_inventory_requests', body.id);
+      if (!existing) throw notFound('Request not found.');
+      if (!isAdmin && !(existing.requested_by === me.id && existing.status === 'pending')) throw forbidden('You can only withdraw your own request while it is still pending.');
+      await supabaseFetch(`/crm_inventory_requests?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
+      return res.status(200).json({ ok: true });
     }
 
     return res.status(400).json({ error: 'Unknown action', code: 'BAD_REQUEST' });

@@ -203,4 +203,5 @@ export type ActiveDesktopTab =
   | 'settings'
   | 'crm-customers'
   | 'crm-tasks'
-  | 'crm-meetings';
+  | 'crm-meetings'
+  | 'crm-inventory';
