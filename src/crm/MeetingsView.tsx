@@ -4,7 +4,7 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmMeeting, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
-import { AddToCalendar, ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { AddToCalendar, Countdown, ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, fromLocalInput, inputCls, toLocalInput } from './ui';
 
 interface Props {
   crm: CrmState;
@@ -163,6 +163,7 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{m.title}</h3>
               <Pill tone={tone}>{label}</Pill>
+              {m.status === 'scheduled' && <Countdown atIso={m.startAt} endIso={m.endAt} kind="start" />}
               {mine && <Pill tone="violet">Mine</Pill>}
               {newIds.has(m.id) && <Pill tone="blue">New</Pill>}
             </div>
@@ -173,7 +174,7 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
             {m.decisionNote && <p className="text-xs text-slate-600 dark:text-slate-400 border-l-2 border-slate-300 dark:border-slate-700 pl-2">Admin note: {m.decisionNote}</p>}
           </div>
           <div className="flex flex-wrap gap-1.5 shrink-0">
-            {m.status === 'scheduled' && Date.parse(m.endAt) >= now && (
+            {(m.status === 'scheduled' || m.status === 'pending_approval' || m.status === 'completed') && (
               <AddToCalendar event={{ title: `CEO meeting: ${m.title}`, startIso: m.startAt, endIso: m.endAt, location: m.location, description: [m.notes, who.length ? `With: ${who.join(', ')}` : ''].filter(Boolean).join('\n') }} />
             )}
             {isAdmin && m.status === 'pending_approval' && (

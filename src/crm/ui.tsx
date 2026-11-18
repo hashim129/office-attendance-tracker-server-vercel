@@ -144,3 +144,53 @@ export const AddToCalendar: React.FC<{ event: CalEvent }> = ({ event }) => {
     </div>
   );
 };
+
+/** Re-renders every second (or the given interval) so countdowns stay live. */
+export function useNow(intervalMs = 1000): number {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(t);
+  }, [intervalMs]);
+  return now;
+}
+
+/** "2d 3h", "1h 05m 12s", "4m 09s" — always the two or three most useful units. */
+export function formatRemaining(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(total / 86400);
+  const h = Math.floor((total % 86400) / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  if (d > 0) return `${d}d ${h}h ${pad(m)}m`;
+  if (h > 0) return `${h}h ${pad(m)}m ${pad(s)}s`;
+  return `${m}m ${pad(s)}s`;
+}
+
+/**
+ * Live remaining time. For a meeting pass endIso too: it then says "Starts in…", "In progress" and "Ended".
+ * For a follow-up/task it says "Due in…" and "Overdue by…".
+ */
+export const Countdown: React.FC<{ atIso: string | null | undefined; endIso?: string | null; kind: 'due' | 'start' }> = ({ atIso, endIso, kind }) => {
+  const now = useNow(1000);
+  if (!atIso) return null;
+  const at = Date.parse(atIso);
+  if (!Number.isFinite(at)) return null;
+  const diff = at - now;
+  let text: string;
+  let cls: string;
+  if (kind === 'start' && endIso && now >= at && now < Date.parse(endIso)) {
+    text = `In progress · ends in ${formatRemaining(Date.parse(endIso) - now)}`;
+    cls = 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-900';
+  } else if (diff <= 0) {
+    text = kind === 'start' ? `Started ${formatRemaining(-diff)} ago` : `Overdue by ${formatRemaining(-diff)}`;
+    cls = 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/50 dark:text-red-300 dark:border-red-900';
+  } else {
+    text = `${kind === 'start' ? 'Starts in' : 'Due in'} ${formatRemaining(diff)}`;
+    cls = diff < 3600000
+      ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-900'
+      : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-900';
+  }
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold font-mono tabular-nums border whitespace-nowrap ${cls}`} title="Live remaining time">{text}</span>;
+};

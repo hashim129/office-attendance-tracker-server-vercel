@@ -10,6 +10,8 @@ const KIND_LABEL = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-
 // Fixed inventory list: requests can only use these items (typing other items is not allowed).
 const INVENTORY_ITEMS = ['Laptop', 'Keyboard', 'Mouse', 'Mouse Pad', 'Pen', 'Headphones', 'Writing Pads'];
 const INVENTORY_STATUSES = ['approved', 'rejected', 'delivered'];
+const SALE_TYPES = { visa: 'Visa', ticket: 'Ticket', hotel: 'Hotel', transfers: 'Transfers', insurance: 'Insurance', others: 'Others' };
+const CURRENCIES = ['PKR', 'USD', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'KWD', 'OMR', 'BHD', 'TRY', 'INR', 'BDT', 'LKR', 'NPR', 'AFN', 'CAD', 'AUD', 'NZD', 'CNY', 'JPY', 'KRW', 'HKD', 'SGD', 'MYR', 'THB', 'IDR', 'PHP', 'VND', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'RUB', 'UAH', 'GEL', 'AZN', 'AMD', 'KZT', 'UZS', 'EGP', 'JOD', 'LBP', 'IQD', 'IRR', 'MAD', 'TND', 'DZD', 'ZAR', 'KES', 'NGN', 'GHS', 'ETB', 'TZS', 'MXN', 'BRL', 'ARS'];
 const OUTCOMES = ['completed', 'not_completed', 'rescheduled'];
 const OPEN = ['pending', 'rescheduled'];
 const LIMIT = 5000;
@@ -54,6 +56,14 @@ const mapInventory = (r) => ({
   id: r.id, requestedBy: r.requested_by, assignedTo: r.assigned_to, items: asArray(r.items), note: r.note || '', status: r.status,
   decisionRemarks: r.decision_remarks || '', decidedBy: r.decided_by || null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
+const num = (v) => Number(v) || 0;
+const mapSale = (r) => ({
+  id: r.id, couponNo: r.coupon_no, createdBy: r.created_by, saleType: r.sale_type, otherType: r.other_type || '',
+  customerName: r.customer_name, vendorName: r.vendor_name, packageDetails: r.package_details, paxName: r.pax_name,
+  currency: r.currency, costAmount: num(r.cost_amount), saleAmount: num(r.sale_amount), queryCode: r.query_code, psfProfit: num(r.psf_profit),
+  status: r.status, paymentStatus: r.payment_status, reviewRemarks: r.review_remarks || '', reviewedBy: r.reviewed_by || null,
+  reviewedAt: r.reviewed_at || null, createdAt: r.created_at, updatedAt: r.updated_at,
+});
 const mapMeeting = (r) => ({
   id: r.id, title: r.title, customerId: r.customer_id || null, externalName: r.external_name || '', attendeeIds: asArray(r.attendee_ids),
   startAt: r.start_at, endAt: r.end_at, location: r.location || '', notes: r.notes || '', status: r.status,
@@ -77,6 +87,7 @@ async function notify(employeeIds, category, refId, message, exceptId) {
   const at = nowIso();
   await upsert('crm_notifications', ids.map((e) => ({ id: id('ntf'), employee_id: e, category, ref_id: refId, message, created_at: at, read_at: null })));
 }
+const salesStaffIds = async () => (await activeEmployees()).filter((e) => e.role === 'admin' || e.role === 'accounts').map((e) => e.id);
 const adminIds = async () => (await activeEmployees()).filter((e) => e.role === 'admin').map((e) => e.id);
 
 async function assertEmployee(empId, label = 'Employee') {
@@ -124,8 +135,26 @@ export default async function handler(req, res) {
 
     // ------------------------------------------------------------------ reading
     if (action === 'list' || action === 'badges') {
-      const [followups, meetings, notifs, inventory] = await Promise.all([getAll('crm_followups'), getAll('crm_meetings'), getAll('crm_notifications'), getAll('crm_inventory_requests')]);
+      const [followups, meetings, notifs, inventory, salesRows] = await Promise.all([getAll('crm_followups'), getAll('crm_meetings'), getAll('crm_notifications'), getAll('crm_inventory_requests'), getAll('crm_sales')]);
       const mine = notifs.filter((n) => n.employee_id === me.id && !n.read_at);
+      const salesViewer = isAdmin || me.role === 'accounts' || me.role === 'ceo';
+      // Deadlines coming up (or just missed) for this person: drives the live countdown alerts on every page.
+      const nowMs = Date.now();
+      const upcoming = [];
+      for (const f of followups) {
+        if (!OPEN.includes(f.status) || !f.due_at) continue;
+        if (f.assigned_to !== me.id && !asArray(f.participant_ids).includes(me.id)) continue;
+        const t = Date.parse(f.due_at);
+        if (t > nowMs + 3 * 86400000 || t < nowMs - 86400000) continue;
+        upcoming.push({ kind: 'followup', id: f.id, title: `${KIND_LABEL[f.kind] || 'Follow-up'}${f.remarks ? `: ${String(f.remarks).slice(0, 50)}` : ''}`, at: f.due_at });
+      }
+      for (const m of meetings) {
+        if (m.status !== 'scheduled') continue;
+        if (!isAdmin && !asArray(m.attendee_ids).includes(me.id) && m.requested_by !== me.id) continue;
+        const t = Date.parse(m.start_at);
+        if (t > nowMs + 3 * 86400000 || t < nowMs - 3600000) continue;
+        upcoming.push({ kind: 'meeting', id: m.id, title: `Meeting: ${m.title}`, at: m.start_at });
+      }
       const myOpen = followups.filter((f) => f.assigned_to === me.id && OPEN.includes(f.status));
       const pendingApprovals = meetings.filter((m) => m.status === 'pending_approval').length;
       const badges = {
@@ -135,25 +164,33 @@ export default async function handler(req, res) {
         meetingsPending: isAdmin ? pendingApprovals : 0,
         inventoryNew: mine.filter((n) => n.category === 'inventory').length,
         inventoryPending: inventory.filter((r) => r.assigned_to === me.id && r.status === 'pending').length,
+        salesNew: mine.filter((n) => n.category === 'sale').length,
+        salesPending: (isAdmin || me.role === 'accounts') ? salesRows.filter((x) => x.status === 'pending').length : 0,
+        unreadTotal: mine.length,
+        unreadLatest: [...mine].sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))).slice(0, 5).map((n) => ({ id: n.id, category: n.category, message: n.message })),
+        upcoming,
       };
       if (action === 'badges') return res.status(200).json({ ok: true, badges });
 
       const customers = (await getAll('crm_customers')).filter((c) => !c.deleted_at).map(mapCustomer);
       const visibleFollowups = followups.filter((f) => isAdmin || f.assigned_to === me.id || f.created_by === me.id || asArray(f.participant_ids).includes(me.id)).map(mapFollowup);
       const visibleInventory = inventory.filter((r) => isAdmin || r.requested_by === me.id || r.assigned_to === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapInventory);
+      const sales = salesRows.filter((x) => salesViewer || x.created_by === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapSale);
+      const history = notifs.filter((n) => n.employee_id === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 200)
+        .map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at, read: Boolean(n.read_at) }));
       const since = Date.now() - 45 * 24 * 3600 * 1000;
       const visibleMeetings = meetings
         .filter((m) => Date.parse(m.end_at) >= since)
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS,
+        ok: true, me: { id: me.id, role: me.role }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS, sales, history, saleTypes: SALE_TYPES, currencies: CURRENCIES,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
     }
 
     if (action === 'notifications_read') {
-      const cat = ['followup', 'meeting', 'inventory'].includes(body.category) ? body.category : null;
+      const cat = ['followup', 'meeting', 'inventory', 'sale'].includes(body.category) ? body.category : null;
       const rows = (await getAll('crm_notifications')).filter((n) => n.employee_id === me.id && !n.read_at && (!cat || n.category === cat));
       if (rows.length) await upsert('crm_notifications', rows.map((n) => ({ ...n, read_at: nowIso() })));
       return res.status(200).json({ ok: true, marked: rows.length });
@@ -263,7 +300,7 @@ export default async function handler(req, res) {
       await upsert('crm_followups', row);
       const customer = existing.customer_id ? await getOne('crm_customers', existing.customer_id) : null;
       const words = { completed: 'completed', not_completed: 'could not be completed', rescheduled: 'was rescheduled' }[outcome];
-      await notify([existing.created_by], 'followup', row.id, `Follow-up${customer ? ` for ${customer.customer_name}` : ''} ${words}.`, me.id);
+      await notify([existing.created_by, ...(await adminIds())], 'followup', row.id, `Follow-up${customer ? ` for ${customer.customer_name}` : ''} ${words}.`, me.id);
       return res.status(200).json({ ok: true, followup: mapFollowup(row) });
     }
 
@@ -363,7 +400,7 @@ export default async function handler(req, res) {
       const row = { id: id('inv'), requested_by: me.id, assigned_to: assignee.id, items, note: str(r.note, 1000, { name: 'Note' }), status: 'pending', decision_remarks: '', decided_by: null, created_at: at, updated_at: at };
       await upsert('crm_inventory_requests', row);
       const summary = items.map((i) => `${i.qty} x ${i.item}`).join(', ');
-      await notify([assignee.id], 'inventory', row.id, `${me.name || 'An employee'} requested inventory: ${summary}.`, me.id);
+      await notify([assignee.id, ...(await adminIds())], 'inventory', row.id, `${me.name || 'An employee'} requested inventory: ${summary}.`, me.id);
       return res.status(200).json({ ok: true, request: mapInventory(row) });
     }
 
@@ -378,6 +415,7 @@ export default async function handler(req, res) {
       await upsert('crm_inventory_requests', row);
       const words = { approved: 'was approved', rejected: 'was rejected', delivered: 'was delivered' }[status];
       await notify([existing.requested_by], 'inventory', row.id, `Your inventory request ${words}.`, me.id);
+      await notify(await adminIds(), 'inventory', row.id, `${me.name || 'Someone'} marked an inventory request as ${status}.`, me.id);
       return res.status(200).json({ ok: true, request: mapInventory(row) });
     }
 
@@ -386,6 +424,75 @@ export default async function handler(req, res) {
       if (!existing) throw notFound('Request not found.');
       if (!isAdmin && !(existing.requested_by === me.id && existing.status === 'pending')) throw forbidden('You can only withdraw your own request while it is still pending.');
       await supabaseFetch(`/crm_inventory_requests?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ---------------------------------------------------------------- sales coupons
+    // Any employee generates a coupon; Accounts / Admin review it (approve or decline) and mark it paid or unpaid.
+    if (action === 'sale_save') {
+      const x = body.sale || {};
+      const saleType = String(x.saleType || '');
+      if (!SALE_TYPES[saleType]) throw bad('Choose a sale type.');
+      const otherType = saleType === 'others' ? str(x.otherType, 80, { required: true, name: 'Sale type (Others)' }) : '';
+      const money = (v, label) => {
+        const n = Number(v);
+        if (v === '' || v === null || v === undefined || !Number.isFinite(n)) throw bad(`${label} is required (numbers only).`);
+        if (Math.abs(n) > 9999999999) throw bad(`${label} is too large.`);
+        return Math.round(n * 100) / 100;
+      };
+      const currency = String(x.currency || '').toUpperCase();
+      if (!CURRENCIES.includes(currency)) throw bad('Choose a currency from the list.');
+      const costAmount = money(x.costAmount, 'Cost amount');
+      const saleAmount = money(x.saleAmount, 'Sale amount');
+      const psfProfit = money(x.psfProfit, 'PSF / Profit');
+      if (costAmount < 0 || saleAmount < 0) throw bad('Cost and sale amounts cannot be negative.');
+      const couponNo = await supabaseFetch('/rpc/crm_next_sale_no', { method: 'POST', body: '{}' });
+      const at = nowIso();
+      const row = {
+        id: id('sale'), coupon_no: String(couponNo), created_by: me.id, sale_type: saleType, other_type: otherType,
+        customer_name: str(x.customerName, 160, { required: true, name: 'Customer name' }),
+        vendor_name: str(x.vendorName, 160, { required: true, name: 'Vendor name' }),
+        package_details: str(x.packageDetails, 2000, { required: true, name: 'Package details' }),
+        pax_name: str(x.paxName, 400, { required: true, name: 'PAX name' }),
+        currency, cost_amount: costAmount, sale_amount: saleAmount,
+        query_code: str(x.queryCode, 80, { required: true, name: 'Query code' }), psf_profit: psfProfit,
+        status: 'pending', payment_status: 'unpaid', review_remarks: '', reviewed_by: null, reviewed_at: null, created_at: at, updated_at: at,
+      };
+      await upsert('crm_sales', row);
+      const kind = saleType === 'others' ? otherType : SALE_TYPES[saleType];
+      await notify(await salesStaffIds(), 'sale', row.id, `${me.name || 'An employee'} generated sales coupon ${row.coupon_no} (${kind}, ${currency} ${saleAmount}).`, me.id);
+      return res.status(200).json({ ok: true, sale: mapSale(row) });
+    }
+
+    if (action === 'sale_decide' || action === 'sale_payment') {
+      if (!isAdmin && me.role !== 'accounts') throw forbidden('Only the Accounts Officer (or an administrator) can review sales coupons.');
+      const existing = await getOne('crm_sales', body.id);
+      if (!existing) throw notFound('Coupon not found.');
+      const at = nowIso();
+      let row; let message;
+      if (action === 'sale_decide') {
+        const status = String(body.status || '');
+        if (!['approved', 'declined', 'pending'].includes(status)) throw bad('Choose Approve or Decline.');
+        row = { ...existing, status, review_remarks: str(body.remarks, 1000, { name: 'Remarks' }), reviewed_by: me.id, reviewed_at: at, updated_at: at };
+        if (status === 'declined') row.payment_status = 'unpaid';
+        message = status === 'approved' ? `Your sales coupon ${existing.coupon_no} was approved.` : status === 'declined' ? `Your sales coupon ${existing.coupon_no} was declined.` : `Your sales coupon ${existing.coupon_no} was sent back to pending.`;
+      } else {
+        const pay = String(body.paymentStatus || '');
+        if (!['paid', 'unpaid'].includes(pay)) throw bad('Choose Paid or Not paid.');
+        if (existing.status !== 'approved') throw bad('Approve the coupon before marking it paid.');
+        row = { ...existing, payment_status: pay, reviewed_by: me.id, reviewed_at: at, updated_at: at };
+        message = `Your sales coupon ${existing.coupon_no} was marked ${pay === 'paid' ? 'PAID' : 'NOT PAID'}.`;
+      }
+      await upsert('crm_sales', row);
+      await notify([existing.created_by], 'sale', row.id, message, me.id);
+      return res.status(200).json({ ok: true, sale: mapSale(row) });
+    }
+
+    if (action === 'sale_delete') {
+      const existing = await getOne('crm_sales', body.id);
+      if (!existing) throw notFound('Coupon not found.');
+      if (!isAdmin && !(existing.created_by === me.id && existing.status === 'pending')) throw forbidden('You can only withdraw your own coupon while it is still pending.');
+      await supabaseFetch(`/crm_sales?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
       return res.status(200).json({ ok: true });
     }
 

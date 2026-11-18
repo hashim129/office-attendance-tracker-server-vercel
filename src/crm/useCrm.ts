@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CRM_ENABLED } from './config';
-import { CrmData, CrmBadges, EMPTY_BADGES, crmCall } from './crmApi';
+import { CrmData, CrmBadges, CrmCategory, EMPTY_BADGES, crmCall } from './crmApi';
 
-const EMPTY: CrmData = { customers: [], followups: [], meetings: [], unread: [], inventory: [], inventoryItems: [], badges: EMPTY_BADGES };
+const EMPTY: CrmData = { customers: [], followups: [], meetings: [], unread: [], inventory: [], inventoryItems: [], sales: [], history: [], saleTypes: {}, currencies: [], badges: EMPTY_BADGES };
 
 export interface CrmState {
   data: CrmData;
@@ -10,12 +10,12 @@ export interface CrmState {
   loading: boolean;
   error: string;
   refresh: () => Promise<void>;
-  markRead: (category: 'followup' | 'meeting' | 'inventory') => Promise<void>;
+  markRead: (category: CrmCategory | 'all') => Promise<void>;
 }
 
 /**
  * Keeps CRM data fresh. On a CRM page it reloads everything every 30 seconds; elsewhere it only
- * checks the small badge counts every 90 seconds. Nothing runs while the browser tab is hidden or the CRM is off.
+ * checks the small badge counts (and upcoming deadlines) every 30 seconds. Nothing runs while the browser tab is hidden or the CRM is off.
  */
 export function useCrm(signedIn: boolean, onCrmPage: boolean): CrmState {
   const [data, setData] = useState<CrmData>(EMPTY);
@@ -30,7 +30,7 @@ export function useCrm(signedIn: boolean, onCrmPage: boolean): CrmState {
     if (!loaded.current) setLoading(true);
     try {
       const r = await crmCall<CrmData & { ok: boolean }>('list');
-      setData({ customers: r.customers, followups: r.followups, meetings: r.meetings, unread: r.unread, inventory: r.inventory || [], inventoryItems: r.inventoryItems || [], badges: r.badges });
+      setData({ customers: r.customers, followups: r.followups, meetings: r.meetings, unread: r.unread, inventory: r.inventory || [], inventoryItems: r.inventoryItems || [], sales: r.sales || [], history: r.history || [], saleTypes: r.saleTypes || {}, currencies: r.currencies || [], badges: r.badges });
       loaded.current = true;
       setError('');
     } catch (e: any) {
@@ -58,7 +58,7 @@ export function useCrm(signedIn: boolean, onCrmPage: boolean): CrmState {
       void (onCrmPage ? refresh() : refreshBadges());
     };
     run();
-    const t = window.setInterval(run, onCrmPage ? 30000 : 90000);
+    const t = window.setInterval(run, 30000);
     const vis = () => { if (!document.hidden) run(); };
     document.addEventListener('visibilitychange', vis);
     return () => {
@@ -67,14 +67,24 @@ export function useCrm(signedIn: boolean, onCrmPage: boolean): CrmState {
     };
   }, [signedIn, onCrmPage, refresh, refreshBadges]);
 
-  const markRead = useCallback(async (category: 'followup' | 'meeting' | 'inventory') => {
+  const markRead = useCallback(async (category: CrmCategory | 'all') => {
     try {
-      await crmCall('notifications_read', { category });
-      setData((d) => ({
-        ...d,
-        unread: d.unread.filter((u) => u.category !== category),
-        badges: { ...d.badges, ...(category === 'followup' ? { tasksNew: 0 } : category === 'meeting' ? { meetingsNew: 0 } : { inventoryNew: 0 }) },
-      }));
+      await crmCall('notifications_read', category === 'all' ? {} : { category });
+      setData((d) => {
+        const all = category === 'all';
+        const gone = d.unread.filter((u) => all || u.category === category).length;
+        const b = { ...d.badges, unreadTotal: Math.max(0, d.badges.unreadTotal - gone) };
+        if (all || category === 'followup') b.tasksNew = 0;
+        if (all || category === 'meeting') b.meetingsNew = 0;
+        if (all || category === 'inventory') b.inventoryNew = 0;
+        if (all || category === 'sale') b.salesNew = 0;
+        return {
+          ...d,
+          unread: d.unread.filter((u) => !all && u.category !== category),
+          history: d.history.map((h) => (all || h.category === category ? { ...h, read: true } : h)),
+          badges: b,
+        };
+      });
     } catch {
       // ignore
     }

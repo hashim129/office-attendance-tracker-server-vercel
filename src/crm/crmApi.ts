@@ -87,11 +87,61 @@ export interface CrmBadges {
   meetingsPending: number;
   inventoryNew: number;
   inventoryPending: number;
+  salesNew: number;
+  salesPending: number;
+  unreadTotal: number;
+  /** My open deadlines (follow-ups / meetings) within the next 3 days, plus just-missed ones. */
+  upcoming: CrmUpcoming[];
+  unreadLatest: { id: string; category: CrmCategory; message: string }[];
+}
+
+export type CrmCategory = 'followup' | 'meeting' | 'inventory' | 'sale';
+
+export interface CrmUpcoming {
+  kind: 'followup' | 'meeting';
+  id: string;
+  title: string;
+  at: string;
+}
+
+export type SaleType = 'visa' | 'ticket' | 'hotel' | 'transfers' | 'insurance' | 'others';
+
+export interface CrmSale {
+  id: string;
+  couponNo: string;
+  createdBy: string;
+  saleType: SaleType;
+  otherType: string;
+  customerName: string;
+  vendorName: string;
+  packageDetails: string;
+  paxName: string;
+  currency: string;
+  costAmount: number;
+  saleAmount: number;
+  queryCode: string;
+  psfProfit: number;
+  status: 'pending' | 'approved' | 'declined';
+  paymentStatus: 'unpaid' | 'paid';
+  reviewRemarks: string;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CrmHistoryItem {
+  id: string;
+  category: CrmCategory;
+  refId: string;
+  message: string;
+  createdAt: string;
+  read: boolean;
 }
 
 export interface CrmUnread {
   id: string;
-  category: 'followup' | 'meeting' | 'inventory';
+  category: CrmCategory;
   refId: string;
   message: string;
   createdAt: string;
@@ -104,10 +154,14 @@ export interface CrmData {
   unread: CrmUnread[];
   inventory: CrmInventoryRequest[];
   inventoryItems: string[];
+  sales: CrmSale[];
+  history: CrmHistoryItem[];
+  saleTypes: Record<string, string>;
+  currencies: string[];
   badges: CrmBadges;
 }
 
-export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0 };
+export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0, salesNew: 0, salesPending: 0, unreadTotal: 0, upcoming: [], unreadLatest: [] };
 
 export class CrmError extends Error {
   code?: string;

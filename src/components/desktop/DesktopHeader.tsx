@@ -5,6 +5,7 @@ import {
   User,
   Monitor,
   Bell,
+  BellRing,
   Crown,
   Check,
   MessageSquare,
@@ -31,6 +32,9 @@ interface DesktopHeaderProps {
   cloudSyncState?: CloudSyncState;
   onRetrySync?: () => void;
   onOpenMobileNav?: () => void;
+  /** CRM notification history: unread count and a way to open the page. */
+  crmUnread?: number;
+  onOpenCrmNotifications?: () => void;
 }
 
 export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
@@ -45,6 +49,8 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   cloudSyncState,
   onRetrySync,
   onOpenMobileNav,
+  crmUnread = 0,
+  onOpenCrmNotifications,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -86,6 +92,10 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         return 'CRM · CEO Meetings';
       case 'crm-inventory':
         return 'Inventory Requests';
+      case 'crm-sales':
+        return 'Sales Coupons';
+      case 'crm-notifications':
+        return 'Notifications & History';
       default:
         return 'Workspace';
     }
@@ -153,6 +163,21 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             <WifiOff className="w-3 h-3" />
             <span>Offline</span>
           </span>
+        )}
+        {onOpenCrmNotifications && (
+          <button
+            onClick={onOpenCrmNotifications}
+            className="p-2 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative cursor-pointer"
+            title="Notifications & history"
+            aria-label={`Notifications${crmUnread > 0 ? `, ${crmUnread} unread` : ''}`}
+          >
+            <BellRing className="w-4 h-4" />
+            {crmUnread > 0 && (
+              <span className="absolute top-1 right-1 min-w-4 h-4 px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
+                {crmUnread > 99 ? '99+' : crmUnread}
+              </span>
+            )}
+          </button>
         )}
         {/* CEO / Executive Notifications Bell */}
         <div className="relative">
