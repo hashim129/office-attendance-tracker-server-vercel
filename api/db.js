@@ -2,7 +2,9 @@ import { migratePlaintextPins } from './_auth.js';
 import { getSessionEmployee } from './_session.js';
 import {
   evaluateAttendancePresenceAndAutoClose,
+  format12h,
   getCloudToken,
+  getShiftEndWindowMs,
   mutateCloudDb,
   readFromGist,
   setNoCacheHeaders,
@@ -15,6 +17,7 @@ import {
   mutateSupabaseDb,
   persistAutoClosures,
   sweepAutoClose,
+  sweepShiftReminders,
 } from './_supabase.js';
 
 export const DEFAULT_DB = {
@@ -625,6 +628,7 @@ export default async function handler(req, res) {
         if (seen.length === 0 && req.socket?.remoteAddress) seen.push(String(req.socket.remoteAddress).replace(/^::ffff:/, ''));
         // First close anything past Shift End + window, so a late punch-out cannot stretch an expired shift.
         await sweepAutoClose(evaluateAttendancePresenceAndAutoClose);
+        await sweepShiftReminders({ getShiftEndWindowMs, format12h });
         const result = await mutateSupabaseDb(incoming, DEFAULT_DB, { clientIps: Array.from(new Set(seen)), facePasses: incoming.facePasses, actor: await getSessionEmployee(incoming.sessionToken) });
         return res.status(200).json({
           ok: true,

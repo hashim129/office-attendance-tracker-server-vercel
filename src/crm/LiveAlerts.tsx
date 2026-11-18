@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bell, Clock, X } from 'lucide-react';
+import { installSoundUnlock, playAlertSound } from './sound';
 import { ActiveDesktopTab } from '../types';
 import { CrmUpcoming } from './crmApi';
 import { CrmState } from './useCrm';
@@ -7,7 +8,7 @@ import { formatRemaining } from './ui';
 
 interface Toast {
   key: string;
-  kind: 'deadline' | 'notice';
+  kind: 'deadline' | 'notice' | 'reminder';
   text: string;
   tab: ActiveDesktopTab;
   urgent?: boolean;
@@ -38,6 +39,7 @@ const WARN_MS = 15 * 60 * 1000;
 export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTab) => void }> = ({ crm, onOpen }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const seen = useRef<Set<string>>(loadSeen());
+  useEffect(() => { installSoundUnlock(); }, []);
   const primed = useRef(false);
   const upcoming = crm.badges.upcoming;
   const latest = crm.badges.unreadLatest;
@@ -47,7 +49,13 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
     seen.current.add(t.key);
     saveSeen(seen.current);
     setToasts((list) => [...list.filter((x) => x.key !== t.key), t].slice(-4));
-    if (t.kind === 'notice') window.setTimeout(() => setToasts((list) => list.filter((x) => x.key !== t.key)), 20000);
+    playAlertSound(t.kind === 'notice' ? 'notice' : 'warning');
+    try {
+      if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification(t.kind === 'deadline' ? 'Deadline' : t.kind === 'reminder' ? 'Reminder' : 'New notification', { body: t.text, tag: t.key });
+    } catch {
+      // desktop alerts are optional
+    }
+    if (t.kind !== 'deadline') window.setTimeout(() => setToasts((list) => list.filter((x) => x.key !== t.key)), 20000);
   };
 
   // New notifications. The first load only records what is already waiting, so signing in does not flood the screen.
@@ -55,11 +63,17 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
     if (!primed.current) {
       if (latest.length === 0 && crm.badges.unreadTotal === 0 && upcoming.length === 0 && !crm.data.history.length && crm.loading) return;
       primed.current = true;
-      latest.forEach((n) => seen.current.add(`n:${n.id}`));
+      // Things already waiting at sign-in are not announced, except punch-out reminders (they are time-sensitive).
+      latest.filter((n) => n.category !== 'reminder').forEach((n) => seen.current.add(`n:${n.id}`));
       saveSeen(seen.current);
-      return;
     }
-    latest.forEach((n) => push({ key: `n:${n.id}`, kind: 'notice', text: n.message, tab: n.category === 'followup' ? 'crm-tasks' : n.category === 'meeting' ? 'crm-meetings' : n.category === 'sale' ? 'crm-sales' : 'crm-inventory' }));
+    latest.forEach((n) => push({
+      key: `n:${n.id}`,
+      kind: n.category === 'reminder' ? 'reminder' : 'notice',
+      urgent: n.category === 'reminder',
+      text: n.message,
+      tab: n.category === 'followup' ? 'crm-tasks' : n.category === 'meeting' ? 'crm-meetings' : n.category === 'sale' ? 'crm-sales' : n.category === 'invoice' ? 'crm-invoices' : n.category === 'reminder' ? 'clock' : 'crm-inventory',
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest]);
 
@@ -87,9 +101,9 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
     <div className="fixed bottom-4 right-4 z-[80] w-[min(92vw,22rem)] space-y-2" role="region" aria-label="Live alerts" aria-live="polite">
       {toasts.map((t) => (
         <div key={t.key} className={`rounded-xl border shadow-lg p-3 flex items-start gap-2.5 bg-white dark:bg-slate-900 ${t.urgent ? 'border-red-400 dark:border-red-700' : t.kind === 'deadline' ? 'border-amber-400 dark:border-amber-700' : 'border-blue-300 dark:border-blue-800'}`}>
-          {t.kind === 'deadline' ? <Clock className={`w-4 h-4 mt-0.5 shrink-0 ${t.urgent ? 'text-red-600' : 'text-amber-600'}`} /> : <Bell className="w-4 h-4 mt-0.5 shrink-0 text-blue-600" />}
+          {t.kind !== 'notice' ? <Clock className={`w-4 h-4 mt-0.5 shrink-0 ${t.urgent ? 'text-red-600' : 'text-amber-600'}`} /> : <Bell className="w-4 h-4 mt-0.5 shrink-0 text-blue-600" />}
           <button className="flex-1 text-left text-xs text-slate-800 dark:text-slate-100 cursor-pointer" onClick={() => { onOpen(t.tab); setToasts((l) => l.filter((x) => x.key !== t.key)); }}>
-            <span className="block font-bold text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">{t.kind === 'deadline' ? (t.urgent ? 'Deadline now' : 'Deadline soon') : 'New notification'}</span>
+            <span className="block font-bold text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">{t.kind === 'reminder' ? 'Punch-out reminder' : t.kind === 'deadline' ? (t.urgent ? 'Deadline now' : 'Deadline soon') : 'New notification'}</span>
             {t.text}
           </button>
           <button aria-label="Dismiss" className="text-slate-400 hover:text-slate-700 cursor-pointer" onClick={() => setToasts((l) => l.filter((x) => x.key !== t.key))}><X className="w-3.5 h-3.5" /></button>

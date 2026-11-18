@@ -1,12 +1,13 @@
-import React, { useEffect } from 'react';
-import { Bell, CheckCheck } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Bell, CheckCheck, Volume2, VolumeX } from 'lucide-react';
+import { isSoundOn, playAlertSound, setSoundOn } from './sound';
 import { ActiveDesktopTab } from '../types';
 import { CrmCategory } from './crmApi';
 import { CrmState } from './useCrm';
 import { Pill, btnGhost, cardCls, fmtDateTime } from './ui';
 
-const LABEL: Record<CrmCategory, string> = { followup: 'Follow-up / Task', meeting: 'Meeting', inventory: 'Inventory', sale: 'Sales' };
-const TARGET: Record<CrmCategory, ActiveDesktopTab> = { followup: 'crm-tasks', meeting: 'crm-meetings', inventory: 'crm-inventory', sale: 'crm-sales' };
+const LABEL: Record<CrmCategory, string> = { followup: 'Follow-up / Task', meeting: 'Meeting', inventory: 'Inventory', sale: 'Sales', reminder: 'Reminder', invoice: 'Invoice' };
+const TARGET: Record<CrmCategory, ActiveDesktopTab> = { followup: 'crm-tasks', meeting: 'crm-meetings', inventory: 'crm-inventory', sale: 'crm-sales', reminder: 'clock', invoice: 'crm-invoices' };
 
 interface Props {
   crm: CrmState;
@@ -19,6 +20,21 @@ export const NotificationsView: React.FC<Props> = ({ crm, onOpen }) => {
   useEffect(() => { void crm.refresh(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const unread = history.filter((h) => !h.read).length;
+  const [sound, setSound] = useState(isSoundOn());
+  const [perm, setPerm] = useState<string>(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
+  const toggleSound = () => {
+    const next = !sound;
+    setSoundOn(next);
+    setSound(next);
+    if (next) playAlertSound('notice');
+  };
+  const askDesktop = async () => {
+    try {
+      setPerm(await Notification.requestPermission());
+    } catch {
+      // not supported in this browser
+    }
+  };
   return (
     <div className="space-y-3">
       <div className={`${cardCls} p-4 flex items-center justify-between gap-3`}>
@@ -26,7 +42,11 @@ export const NotificationsView: React.FC<Props> = ({ crm, onOpen }) => {
           <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 inline-flex items-center gap-2"><Bell className="w-4 h-4 text-blue-600" /> Notifications</h2>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Everything that happened to you — kept as history. {unread > 0 ? `${unread} unread.` : 'You are all caught up.'}</p>
         </div>
-        {unread > 0 && <button className={btnGhost} onClick={() => void crm.markRead('all')}><CheckCheck className="w-3.5 h-3.5" /> Mark all as read</button>}
+        <div className="flex flex-wrap gap-2 justify-end">
+          <button className={btnGhost} onClick={toggleSound} aria-pressed={sound}>{sound ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />} Sound {sound ? 'on' : 'off'}</button>
+          {perm === 'default' && <button className={btnGhost} onClick={() => void askDesktop()}><Bell className="w-3.5 h-3.5" /> Alerts when this tab is in the background</button>}
+          {unread > 0 && <button className={btnGhost} onClick={() => void crm.markRead('all')}><CheckCheck className="w-3.5 h-3.5" /> Mark all as read</button>}
+        </div>
       </div>
       {history.length === 0 ? (
         <div className={`${cardCls} p-8 text-center text-xs text-slate-500`}>No notifications yet.</div>

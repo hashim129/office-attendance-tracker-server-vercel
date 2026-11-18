@@ -2,7 +2,8 @@
 // Self-contained: only reads the employees table and its own crm_* tables.
 // Every call needs the signed-in person's token; what they may do is decided here from the database, never from the browser.
 import crypto from 'node:crypto';
-import { isSupabaseConfigured, supabaseFetch } from './_supabase.js';
+import { isSupabaseConfigured, supabaseFetch, sweepShiftReminders } from './_supabase.js';
+import { format12h, getShiftEndWindowMs } from './_cloud.js';
 import { getSessionEmployee } from './_session.js';
 
 const KINDS = ['meeting', 'corporate', 'internal', 'regular'];
@@ -57,6 +58,19 @@ const mapInventory = (r) => ({
   decisionRemarks: r.decision_remarks || '', decidedBy: r.decided_by || null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const num = (v) => Number(v) || 0;
+const DEFAULT_COMPANY = {
+  name: 'Bahaar Journeys (Pvt) Ltd', payTo: 'BAHAAR JOURNEYS (PVT) LTD', ntn: '6988772-2',
+  address: '', phone: '', email: '', website: '', bankDetails: '', terms: '', footer: 'Thanking you',
+};
+const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+const mapInvoice = (r) => ({
+  id: r.id, invoiceNo: r.invoice_no, createdBy: r.created_by, customerName: r.customer_name, customerPhone: r.customer_phone || '',
+  customerAddress: r.customer_address || '', customerNtn: r.customer_ntn || '', reference: r.reference || '',
+  invoiceDate: r.invoice_date, dueDate: r.due_date || null, currency: r.currency, sections: Array.isArray(r.sections) ? r.sections : [],
+  taxLabel: r.tax_label || 'Tax', taxRate: num(r.tax_rate), discount: num(r.discount), advancePaid: num(r.advance_paid),
+  subtotal: num(r.subtotal), taxAmount: num(r.tax_amount), total: num(r.total), balance: num(r.balance), notes: r.notes || '',
+  status: r.status, createdAt: r.created_at, updatedAt: r.updated_at,
+});
 const mapSale = (r) => ({
   id: r.id, couponNo: r.coupon_no, createdBy: r.created_by, saleType: r.sale_type, otherType: r.other_type || '',
   customerName: r.customer_name, vendorName: r.vendor_name, packageDetails: r.package_details, paxName: r.pax_name,
@@ -75,6 +89,7 @@ const upsert = (table, rows) => supabaseFetch(`/${table}`, {
   method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify(Array.isArray(rows) ? rows : [rows]),
 });
 const getAll = async (table) => (await supabaseFetch(`/${table}?select=*&limit=${LIMIT}`)) || [];
+const myNotifications = async (empId) => (await supabaseFetch(`/crm_notifications?employee_id=eq.${encodeURIComponent(empId)}&order=created_at.desc&limit=300&select=*`)) || [];
 const getOne = async (table, rowId) => (await supabaseFetch(`/${table}?id=eq.${encodeURIComponent(rowId)}&select=*`))?.[0] || null;
 
 async function activeEmployees() {
@@ -135,8 +150,10 @@ export default async function handler(req, res) {
 
     // ------------------------------------------------------------------ reading
     if (action === 'list' || action === 'badges') {
-      const [followups, meetings, notifs, inventory, salesRows] = await Promise.all([getAll('crm_followups'), getAll('crm_meetings'), getAll('crm_notifications'), getAll('crm_inventory_requests'), getAll('crm_sales')]);
-      const mine = notifs.filter((n) => n.employee_id === me.id && !n.read_at);
+      // Punch-out reminders are created here too, so they reach people who have the portal open.
+      await sweepShiftReminders({ getShiftEndWindowMs, format12h });
+      const [followups, meetings, notifs, inventory, salesRows] = await Promise.all([getAll('crm_followups'), getAll('crm_meetings'), myNotifications(me.id), getAll('crm_inventory_requests'), getAll('crm_sales')]);
+      const mine = notifs.filter((n) => !n.read_at);
       const salesViewer = isAdmin || me.role === 'accounts' || me.role === 'ceo';
       // Deadlines coming up (or just missed) for this person: drives the live countdown alerts on every page.
       const nowMs = Date.now();
@@ -165,6 +182,7 @@ export default async function handler(req, res) {
         inventoryNew: mine.filter((n) => n.category === 'inventory').length,
         inventoryPending: inventory.filter((r) => r.assigned_to === me.id && r.status === 'pending').length,
         salesNew: mine.filter((n) => n.category === 'sale').length,
+        invoiceNew: mine.filter((n) => n.category === 'invoice').length,
         salesPending: (isAdmin || me.role === 'accounts') ? salesRows.filter((x) => x.status === 'pending').length : 0,
         unreadTotal: mine.length,
         unreadLatest: [...mine].sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))).slice(0, 5).map((n) => ({ id: n.id, category: n.category, message: n.message })),
@@ -176,22 +194,29 @@ export default async function handler(req, res) {
       const visibleFollowups = followups.filter((f) => isAdmin || f.assigned_to === me.id || f.created_by === me.id || asArray(f.participant_ids).includes(me.id)).map(mapFollowup);
       const visibleInventory = inventory.filter((r) => isAdmin || r.requested_by === me.id || r.assigned_to === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapInventory);
       const sales = salesRows.filter((x) => salesViewer || x.created_by === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapSale);
-      const history = notifs.filter((n) => n.employee_id === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 200)
+      const history = notifs.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 200)
         .map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at, read: Boolean(n.read_at) }));
+      let invoices = [];
+      let company = DEFAULT_COMPANY;
+      if (action === 'list') {
+        const [invRows, companyRow] = await Promise.all([getAll('crm_invoices'), getOne('crm_company', 'main')]);
+        invoices = invRows.filter((x) => salesViewer || x.created_by === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapInvoice);
+        company = { ...DEFAULT_COMPANY, ...(companyRow?.data || {}) };
+      }
       const since = Date.now() - 45 * 24 * 3600 * 1000;
       const visibleMeetings = meetings
         .filter((m) => Date.parse(m.end_at) >= since)
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS, sales, history, saleTypes: SALE_TYPES, currencies: CURRENCIES,
+        ok: true, me: { id: me.id, role: me.role }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS, sales, history, invoices, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
     }
 
     if (action === 'notifications_read') {
-      const cat = ['followup', 'meeting', 'inventory', 'sale'].includes(body.category) ? body.category : null;
-      const rows = (await getAll('crm_notifications')).filter((n) => n.employee_id === me.id && !n.read_at && (!cat || n.category === cat));
+      const cat = ['followup', 'meeting', 'inventory', 'sale', 'reminder', 'invoice'].includes(body.category) ? body.category : null;
+      const rows = (await myNotifications(me.id)).filter((n) => !n.read_at && (!cat || n.category === cat));
       if (rows.length) await upsert('crm_notifications', rows.map((n) => ({ ...n, read_at: nowIso() })));
       return res.status(200).json({ ok: true, marked: rows.length });
     }
@@ -493,6 +518,112 @@ export default async function handler(req, res) {
       if (!existing) throw notFound('Coupon not found.');
       if (!isAdmin && !(existing.created_by === me.id && existing.status === 'pending')) throw forbidden('You can only withdraw your own coupon while it is still pending.');
       await supabaseFetch(`/crm_sales?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ---------------------------------------------------------------- invoices
+    if (action === 'company_save') {
+      if (!isAdmin && me.role !== 'accounts') throw forbidden('Only Admin or Accounts can change the company details.');
+      const c = body.company || {};
+      const data = {
+        name: str(c.name, 160, { required: true, name: 'Company name' }), payTo: str(c.payTo, 160, { name: 'Cheque payee' }), ntn: str(c.ntn, 60, { name: 'NTN' }),
+        address: str(c.address, 400, { name: 'Address' }), phone: str(c.phone, 80, { name: 'Phone' }), email: str(c.email, 120, { name: 'Email' }),
+        website: str(c.website, 120, { name: 'Website' }), bankDetails: str(c.bankDetails, 600, { name: 'Bank details' }), terms: str(c.terms, 1200, { name: 'Terms' }),
+        footer: str(c.footer, 200, { name: 'Footer line' }),
+      };
+      await upsert('crm_company', { id: 'main', data, updated_at: nowIso() });
+      return res.status(200).json({ ok: true, company: { ...DEFAULT_COMPANY, ...data } });
+    }
+
+    if (action === 'invoice_save') {
+      const x = body.invoice || {};
+      const currency = String(x.currency || '').toUpperCase();
+      if (!/^[A-Z]{3}$/.test(currency)) throw bad('Choose the invoice currency.');
+      const money = (v, label, { min = 0 } = {}) => {
+        const n = Number(v === '' || v === null || v === undefined ? 0 : v);
+        if (!Number.isFinite(n) || n < min || n > 9999999999) throw bad(`${label} is not a valid amount.`);
+        return n;
+      };
+      const taxRate = money(x.taxRate, 'Tax rate');
+      if (taxRate > 100) throw bad('Tax rate cannot be more than 100%.');
+      const sectionsIn = Array.isArray(x.sections) ? x.sections.slice(0, 30) : [];
+      let subtotal = 0; let taxable = 0; let priced = 0;
+      const sections = sectionsIn.map((sec, si) => {
+        const lines = (Array.isArray(sec.lines) ? sec.lines : []).slice(0, 60).map((l, li) => {
+          const description = str(l.description, 300, { required: true, name: `Section ${si + 1}, line ${li + 1} description` });
+          const hasPrice = !(l.unitPrice === '' || l.unitPrice === null || l.unitPrice === undefined);
+          if (!hasPrice) return { description, note: true };
+          const unitPrice = money(l.unitPrice, `Unit price of "${description}"`);
+          const units = money(l.units === '' || l.units === undefined ? 1 : l.units, `Units of "${description}"`);
+          const lineCur = String(l.currency || currency).toUpperCase();
+          if (!/^[A-Z]{3}$/.test(lineCur)) throw bad(`Currency of "${description}" is not valid.`);
+          let rate = 1;
+          if (lineCur !== currency) {
+            rate = Number(l.rate);
+            if (!Number.isFinite(rate) || rate <= 0) throw bad(`Enter the exchange rate for "${description}" (1 ${lineCur} = ? ${currency}).`);
+          }
+          const amount = r2(unitPrice * units * rate);
+          subtotal += amount; priced++;
+          if (l.taxable) taxable += amount;
+          return { description, unitPrice, units, currency: lineCur, rate, amount, taxable: Boolean(l.taxable) };
+        });
+        return { title: str(sec.title, 160, { name: 'Section title' }), lines };
+      }).filter((sec) => sec.title || sec.lines.length);
+      if (!priced) throw bad('Add at least one priced line to the invoice.');
+      const discount = money(x.discount, 'Discount');
+      const advancePaid = money(x.advancePaid, 'Advance received');
+      const taxAmount = r2(taxable * taxRate / 100);
+      const total = r2(subtotal + taxAmount - discount);
+      if (total < 0) throw bad('The discount is larger than the invoice total.');
+      const balance = r2(Math.max(0, total - advancePaid));
+      const dateOnly = (v, name, required) => {
+        const d = String(v || '').slice(0, 10);
+        if (!d) { if (required) throw bad(`${name} is required.`); return null; }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(d))) throw bad(`${name} is not a valid date.`);
+        return d;
+      };
+      const base = {
+        customer_name: str(x.customerName, 160, { required: true, name: 'Customer name' }), customer_phone: str(x.customerPhone, 60, { name: 'Phone' }),
+        customer_address: str(x.customerAddress, 400, { name: 'Address' }), customer_ntn: str(x.customerNtn, 60, { name: 'Customer NTN' }),
+        reference: str(x.reference, 120, { name: 'Reference' }), invoice_date: dateOnly(x.invoiceDate, 'Invoice date', true), due_date: dateOnly(x.dueDate, 'Due date', false),
+        currency, sections, tax_label: str(x.taxLabel, 40, { name: 'Tax label' }) || 'Tax', tax_rate: taxRate, discount, advance_paid: advancePaid,
+        subtotal: r2(subtotal), tax_amount: taxAmount, total, balance, notes: str(x.notes, 1500, { name: 'Notes' }),
+      };
+      const at = nowIso();
+      if (x.id) {
+        const existing = await getOne('crm_invoices', x.id);
+        if (!existing) throw notFound('Invoice not found.');
+        if (!isAdmin && me.role !== 'accounts' && !(existing.created_by === me.id && existing.status === 'unpaid')) throw forbidden('You can only edit your own unpaid invoices.');
+        const row = { ...existing, ...base, updated_at: at };
+        await upsert('crm_invoices', row);
+        await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'Someone'} updated invoice ${row.invoice_no} (${currency} ${total}).`, me.id);
+        return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
+      }
+      const invoiceNo = await supabaseFetch('/rpc/crm_next_invoice_no', { method: 'POST', body: '{}' });
+      const row = { id: id('inv'), invoice_no: String(invoiceNo), created_by: me.id, status: 'unpaid', created_at: at, updated_at: at, ...base };
+      await upsert('crm_invoices', row);
+      await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'An employee'} generated invoice ${row.invoice_no} for ${base.customer_name} (${currency} ${total}).`, me.id);
+      return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
+    }
+
+    if (action === 'invoice_status') {
+      const existing = await getOne('crm_invoices', body.id);
+      if (!existing) throw notFound('Invoice not found.');
+      const status = String(body.status || '');
+      if (!['unpaid', 'paid', 'cancelled'].includes(status)) throw bad('Choose Unpaid, Paid or Cancelled.');
+      const staff = isAdmin || me.role === 'accounts';
+      if (!staff && !(existing.created_by === me.id && status === 'cancelled' && existing.status === 'unpaid')) throw forbidden('Only Accounts or Admin can change the invoice status.');
+      const row = { ...existing, status, updated_at: nowIso() };
+      await upsert('crm_invoices', row);
+      if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Your invoice ${existing.invoice_no} was marked ${status.toUpperCase()}.`, me.id);
+      return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
+    }
+
+    if (action === 'invoice_delete') {
+      if (!isAdmin) throw forbidden('Only an administrator can delete an invoice. You can cancel it instead.');
+      const existing = await getOne('crm_invoices', body.id);
+      if (!existing) throw notFound('Invoice not found.');
+      await supabaseFetch(`/crm_invoices?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
       return res.status(200).json({ ok: true });
     }
 
