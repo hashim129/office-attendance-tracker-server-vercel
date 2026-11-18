@@ -69,6 +69,7 @@ import { FaceScanModal } from './components/common/FaceScanModal';
 import { CRM_ENABLED } from './crm/config';
 import { useCrm } from './crm/useCrm';
 import { CrmPage } from './crm/CrmPage';
+import { LiveAlerts } from './crm/LiveAlerts';
 import { KioskMode } from './components/kiosk/KioskMode';
 
 export default function App() {
@@ -965,6 +966,8 @@ export default function App() {
             cloudSyncState={cloudSyncState}
             onRetrySync={() => void retryCloudOutboxNow()}
             onOpenMobileNav={() => setIsMobileNavOpen(true)}
+            crmUnread={CRM_ENABLED ? crm.badges.unreadTotal : 0}
+            onOpenCrmNotifications={CRM_ENABLED ? () => setActiveTab('crm-notifications') : undefined}
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
@@ -1020,8 +1023,8 @@ export default function App() {
                 />
               )}
 
-              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory') && (
-                <CrmPage section={activeTab} crm={crm} employees={employees} currentUser={currentUser} />
+              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-notifications') && (
+                <CrmPage section={activeTab} crm={crm} employees={employees} currentUser={currentUser} onNavigate={setActiveTab} />
               )}
 
               {activeTab === 'leaves' && (
@@ -1118,6 +1121,7 @@ export default function App() {
                 />
               )}
               </ErrorBoundary>
+              {CRM_ENABLED && <LiveAlerts crm={crm} onOpen={setActiveTab} />}
             </div>
             </main>
           </div>

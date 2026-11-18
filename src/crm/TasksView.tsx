@@ -5,7 +5,7 @@ import { Modal } from '../components/common/Modal';
 import { CrmFollowup, FollowupStatus, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { FollowupModal } from './FollowupModal';
-import { AddToCalendar, ErrorNote, Field, KIND_LABEL, Pill, STATUS_LABEL, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { AddToCalendar, Countdown, ErrorNote, Field, KIND_LABEL, Pill, STATUS_LABEL, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
 
 interface Props {
   crm: CrmState;
@@ -130,7 +130,6 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
             const isOpen = f.status === 'pending' || f.status === 'rescheduled';
             const canAct = f.assignedTo === currentUser.id || isAdmin;
             const canManage = f.createdBy === currentUser.id || isAdmin;
-            const overdue = isOpen && f.dueAt && Date.parse(f.dueAt) < Date.now();
             return (
               <div key={f.id} className={`${cardCls} p-4`}>
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
@@ -144,7 +143,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Pill tone="slate">{KIND_LABEL[f.kind] || f.kind}</Pill>
                       <Pill tone={statusTone(f.status)}>{STATUS_LABEL[f.status] || f.status}</Pill>
-                      {overdue && <Pill tone="red">Overdue</Pill>}
+                      {isOpen && <Countdown atIso={f.dueAt} kind="due" />}
                     </div>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
                       For <b className="text-slate-700 dark:text-slate-200">{empName.get(f.assignedTo) || 'Former employee'}</b> · created by {empName.get(f.createdBy) || 'Former employee'} · due {fmtDateTime(f.dueAt)}
@@ -160,7 +159,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                     )}
                   </div>
                   <div className="flex flex-wrap md:flex-col lg:flex-row gap-1.5 shrink-0">
-                    {f.dueAt && isOpen && (
+                    {f.dueAt && f.status !== 'cancelled' && (
                       <AddToCalendar event={{ title: `${KIND_LABEL[f.kind] || 'Follow-up'}${c ? `: ${c.customerName}` : ''}`, startIso: f.dueAt, description: [f.remarks, `Assigned to: ${empName.get(f.assignedTo) || ''}`].filter(Boolean).join('\n') }} />
                     )}
                     {canAct && isOpen && <button className={btnPrimary} onClick={() => openOutcome(f)}>Update status</button>}
