@@ -4,7 +4,7 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmSale, SaleType, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
-import { ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, inputCls } from './ui';
+import { ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, inputCls } from './ui';
 
 interface Props {
   crm: CrmState;
@@ -19,26 +19,32 @@ const typeText = (s: CrmSale) => (s.saleType === 'others' && s.otherType ? s.oth
 
 interface CurrencyStats {
   currency: string;
-  receivable: number; // sale amount still to collect (approved, not paid)
-  payable: number; // cost still to pay vendors (approved, not paid)
-  expectedProfit: number; // sale - cost of approved, not paid
-  realisedProfit: number; // sale - cost of approved and paid
+  receivable: number; // sale amount of every created coupon (pending + approved + paid), declined ones excluded
+  payable: number; // cost amount of every created coupon, declined ones excluded
+  receivableOpen: number; // the part of receivable not marked Paid yet
+  payableOpen: number; // the part of payable not marked Paid yet
+  expectedProfit: number; // sale - cost of every created coupon
+  realisedProfit: number; // sale - cost of coupons marked Paid
   pendingValue: number; // sale value waiting for review
   pendingCount: number;
-  totalSales: number; // approved sale amount
+  totalSales: number;
   totalCost: number;
 }
 
 function buildStats(sales: CrmSale[]): CurrencyStats[] {
   const map = new Map<string, CurrencyStats>();
   for (const s of sales) {
-    const c = map.get(s.currency) || { currency: s.currency, receivable: 0, payable: 0, expectedProfit: 0, realisedProfit: 0, pendingValue: 0, pendingCount: 0, totalSales: 0, totalCost: 0 };
+    const c = map.get(s.currency) || { currency: s.currency, receivable: 0, payable: 0, receivableOpen: 0, payableOpen: 0, expectedProfit: 0, realisedProfit: 0, pendingValue: 0, pendingCount: 0, totalSales: 0, totalCost: 0 };
     if (s.status === 'pending') { c.pendingValue += s.saleAmount; c.pendingCount++; }
-    if (s.status === 'approved') {
+    if (s.status !== 'declined') {
+      // Every created coupon counts straight away, as soon as it is generated.
       c.totalSales += s.saleAmount;
       c.totalCost += s.costAmount;
-      if (s.paymentStatus === 'paid') c.realisedProfit += s.saleAmount - s.costAmount;
-      else { c.receivable += s.saleAmount; c.payable += s.costAmount; c.expectedProfit += s.saleAmount - s.costAmount; }
+      c.receivable += s.saleAmount;
+      c.payable += s.costAmount;
+      c.expectedProfit += s.saleAmount - s.costAmount;
+      if (s.status === 'approved' && s.paymentStatus === 'paid') c.realisedProfit += s.saleAmount - s.costAmount;
+      else { c.receivableOpen += s.saleAmount; c.payableOpen += s.costAmount; }
     }
     map.set(s.currency, c);
   }
@@ -130,6 +136,8 @@ export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
     pending: sales.filter((s) => s.status === 'pending').length,
     approved: sales.filter((s) => s.status === 'approved').length,
     declined: sales.filter((s) => s.status === 'declined').length,
+    paid: sales.filter((s) => s.status === 'approved' && s.paymentStatus === 'paid').length,
+    unpaid: sales.filter((s) => s.status !== 'declined' && !(s.status === 'approved' && s.paymentStatus === 'paid')).length,
   }), [sales]);
 
   const shown = useMemo(() => {
@@ -198,6 +206,15 @@ export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
         <button className={btnPrimary} onClick={() => { setForm(emptyForm); setError(''); setFormOpen(true); }}><Plus className="w-3.5 h-3.5" /> Generate Sales Coupon</button>
       </div>
 
+      <StatBar
+        title={seesAll ? 'All coupons: paid, not paid and rejected' : 'Your coupons: paid, not paid and rejected'}
+        segments={[
+          { label: 'Paid', count: counts.paid, tone: 'green' },
+          { label: `Not paid (${counts.pending} awaiting review)`, count: counts.unpaid, tone: 'amber' },
+          { label: 'Rejected', count: counts.declined, tone: 'red' },
+        ]}
+      />
+
       {seesAll && (
         <>
           {stats.length === 0 ? (
@@ -215,29 +232,29 @@ export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                       <div>
                         <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Receivables</p>
                         <p className="text-base font-bold font-mono tabular-nums text-blue-600 dark:text-blue-400">{money(c.receivable, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">to collect from customers</p>
+                        <p className="text-[10px] text-slate-400">all created coupons · not yet paid: {money(c.receivableOpen, c.currency)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Payables</p>
                         <p className="text-base font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400">{money(c.payable, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">to pay vendors</p>
+                        <p className="text-[10px] text-slate-400">all created coupons · not yet paid: {money(c.payableOpen, c.currency)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Expected profit</p>
                         <p className="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">{money(c.expectedProfit, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">approved, not yet paid</p>
+                        <p className="text-[10px] text-slate-400">sale − cost, all created coupons</p>
                       </div>
                       <div>
                         <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Profit earned</p>
                         <p className="text-sm font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400">{money(c.realisedProfit, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">approved and paid</p>
+                        <p className="text-[10px] text-slate-400">coupons marked paid</p>
                       </div>
                     </div>
                     {c.pendingCount > 0 && <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-2">{c.pendingCount} coupon{c.pendingCount > 1 ? 's' : ''} waiting for review · {money(c.pendingValue, c.currency)}</p>}
                   </div>
                 ))}
               </div>
-              <p className="text-[10px] text-slate-400 px-1">Profit = sale amount − cost amount. Receivables and payables count approved coupons that are not marked Paid yet. Each currency is kept separate (no conversion).</p>
+              <p className="text-[10px] text-slate-400 px-1">Profit = sale amount − cost amount. Receivables and payables count every coupon as soon as it is created (declined ones are left out). Each currency is kept separate (no conversion).</p>
 
               <div className={`${cardCls} p-4 space-y-4`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
