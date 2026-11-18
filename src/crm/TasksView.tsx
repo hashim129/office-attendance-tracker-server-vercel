@@ -5,7 +5,7 @@ import { Modal } from '../components/common/Modal';
 import { CrmFollowup, FollowupStatus, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { FollowupModal } from './FollowupModal';
-import { AddToCalendar, Countdown, ErrorNote, Field, KIND_LABEL, Pill, STATUS_LABEL, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { AddToCalendar, Countdown, ErrorNote, StatBar, Field, KIND_LABEL, Pill, STATUS_LABEL, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
 
 interface Props {
   crm: CrmState;
@@ -23,7 +23,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   const { customers, followups, unread } = crm.data;
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const customerOf = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
-  const [scope, setScope] = useState<Scope>('mine');
+  const [scope, setScope] = useState<Scope>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CrmFollowup | null>(null);
@@ -52,6 +52,17 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
       .filter((f) => (statusFilter === 'all' ? true : statusFilter === 'open' ? f.status === 'pending' || f.status === 'rescheduled' : f.status === statusFilter))
       .sort((a, b) => (a.dueAt || a.createdAt).localeCompare(b.dueAt || b.createdAt));
   }, [followups, scope, statusFilter, currentUser.id]);
+
+  const scoped = useMemo(
+    () => followups.filter((f) => (scope === 'mine' ? f.assignedTo === currentUser.id || f.participantIds.includes(currentUser.id) : scope === 'created' ? f.createdBy === currentUser.id : true)),
+    [followups, scope, currentUser.id]
+  );
+  const statusCounts = useMemo(() => ({
+    pending: scoped.filter((f) => f.status === 'pending').length,
+    rescheduled: scoped.filter((f) => f.status === 'rescheduled').length,
+    completed: scoped.filter((f) => f.status === 'completed').length,
+    not_completed: scoped.filter((f) => f.status === 'not_completed').length,
+  }), [scoped]);
 
   const openOutcome = (f: CrmFollowup) => {
     setOutcomeFor(f);
@@ -89,9 +100,9 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   };
 
   const scopes: { id: Scope; label: string }[] = [
+    { id: 'all', label: isAdmin ? 'Everyone' : 'All (everyone involved)' },
     { id: 'mine', label: 'My follow-ups' },
     { id: 'created', label: 'Created by me' },
-    ...(isAdmin ? [{ id: 'all' as Scope, label: 'Everyone' }] : []),
   ];
   const statuses: { id: StatusFilter; label: string }[] = [
     { id: 'open', label: 'Open' },
@@ -116,6 +127,16 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
           {statuses.map((s) => <button key={s.id} className={chip(statusFilter === s.id)} onClick={() => setStatusFilter(s.id)}>{s.label}</button>)}
         </div>
       </div>
+
+      <StatBar
+        title="Follow-up status"
+        segments={[
+          { label: 'Pending', count: statusCounts.pending, tone: 'amber' },
+          { label: 'Rescheduled', count: statusCounts.rescheduled, tone: 'violet' },
+          { label: 'Completed', count: statusCounts.completed, tone: 'green' },
+          { label: 'Not completed', count: statusCounts.not_completed, tone: 'red' },
+        ]}
+      />
 
       <ErrorNote message={crm.error} />
 

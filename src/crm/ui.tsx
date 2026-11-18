@@ -194,3 +194,33 @@ export const Countdown: React.FC<{ atIso: string | null | undefined; endIso?: st
   }
   return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold font-mono tabular-nums border whitespace-nowrap ${cls}`} title="Live remaining time">{text}</span>;
 };
+
+const SEG_COLOR = { green: 'bg-emerald-500', amber: 'bg-amber-500', red: 'bg-red-500', blue: 'bg-blue-500', slate: 'bg-slate-400', violet: 'bg-violet-500' } as const;
+export interface StatSegment { label: string; count: number; tone: keyof typeof SEG_COLOR }
+
+/** One live stacked bar with a legend: "how many are in each state". It redraws whenever the page data refreshes. */
+export const StatBar: React.FC<{ title: string; segments: StatSegment[] }> = ({ title, segments }) => {
+  const total = segments.reduce((a, s) => a + s.count, 0);
+  return (
+    <div className={`${cardCls} p-4`}>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100">{title}</h3>
+        <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live · {total} total</span>
+      </div>
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" role="img" aria-label={segments.map((s) => `${s.label} ${s.count}`).join(', ')}>
+        {total > 0 && segments.filter((s) => s.count > 0).map((s) => (
+          <div key={s.label} className={`${SEG_COLOR[s.tone]} transition-all duration-500`} style={{ width: `${(s.count / total) * 100}%` }} title={`${s.label}: ${s.count}`} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+        {segments.map((s) => (
+          <span key={s.label} className="inline-flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300">
+            <span className={`w-2.5 h-2.5 rounded-sm ${SEG_COLOR[s.tone]}`} />
+            {s.label} <b className="font-mono tabular-nums text-slate-900 dark:text-slate-100">{s.count}</b>
+            {total > 0 && <span className="text-slate-400">({Math.round((s.count / total) * 100)}%)</span>}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};

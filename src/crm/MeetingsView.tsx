@@ -4,7 +4,7 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmMeeting, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
-import { AddToCalendar, Countdown, ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { AddToCalendar, Countdown, ErrorNote, StatBar, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, fromLocalInput, inputCls, toLocalInput } from './ui';
 
 interface Props {
   crm: CrmState;
@@ -145,6 +145,34 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
   const upcoming = meetings.filter((m) => m.status === 'scheduled' && Date.parse(m.endAt) >= now).sort((a, b) => a.startAt.localeCompare(b.startAt));
   const past = meetings.filter((m) => (m.status === 'scheduled' && Date.parse(m.endAt) < now) || m.status === 'completed' || m.status === 'cancelled').sort((a, b) => b.startAt.localeCompare(a.startAt));
 
+  const joinNames = (names: string[]) => (names.length <= 1 ? names[0] || '' : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+  /** A friendly one-liner about who is in the meeting, e.g. "Hashim and Faiq are attending this meeting 🤝". */
+  const attendLine = (m: CrmMeeting, outsiders: string[]) => {
+    const requester = m.requestedBy ? employees.find((e) => e.id === m.requestedBy) : undefined;
+    const ids = Array.from(new Set([...m.attendeeIds, ...(requester && requester.role !== 'admin' ? [requester.id] : [])]));
+    const names = [...ids.map((id) => empName.get(id) || 'A former employee'), ...outsiders];
+    if (names.length === 0) return '';
+    const plural = names.length > 1;
+    const who = joinNames(names);
+    switch (m.status) {
+      case 'pending_approval': return `⏳ ${who} would like to meet the CEO. Waiting for approval.`;
+      case 'rejected': return `🙈 ${who}'s meeting request was not approved this time.`;
+      case 'cancelled': return `😕 This meeting with ${who} was cancelled.`;
+      case 'completed': return `✅ ${who} attended this meeting. Well done! 🎉`;
+      default:
+        return Date.parse(m.endAt) < now
+          ? `✅ ${who} ${plural ? 'were' : 'was'} in this meeting. 👏`
+          : `${who} ${plural ? 'are' : 'is'} attending this meeting ${plural ? '🤝' : '😊'}`;
+    }
+  };
+
+  const meetingCounts = {
+    upcoming: meetings.filter((m) => m.status === 'scheduled' && Date.parse(m.endAt) >= now).length,
+    pending: meetings.filter((m) => m.status === 'pending_approval').length,
+    done: meetings.filter((m) => m.status === 'completed' || (m.status === 'scheduled' && Date.parse(m.endAt) < now)).length,
+    cancelled: meetings.filter((m) => m.status === 'cancelled' || m.status === 'rejected').length,
+  };
+
   const card = (m: CrmMeeting) => {
     const mine = m.attendeeIds.includes(currentUser.id) || m.requestedBy === currentUser.id;
     const cust = m.customerId ? customerOf.get(m.customerId) : undefined;
@@ -168,7 +196,7 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
               {newIds.has(m.id) && <Pill tone="blue">New</Pill>}
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-300">{fmtDay(m.startAt)} · {fmtTime(m.startAt)} – {fmtTime(m.endAt)}{m.location ? ` · ${m.location}` : ''}</p>
-            {who.length > 0 && <p className="text-[11px] text-slate-500 dark:text-slate-400">With: {who.join(', ')}</p>}
+            {attendLine(m, who.slice(m.attendeeIds.length)) && <p className="text-xs font-medium text-slate-700 dark:text-slate-200">{attendLine(m, who.slice(m.attendeeIds.length))}</p>}
             {m.requestedBy && <p className="text-[11px] text-slate-500 dark:text-slate-400">Requested by {empName.get(m.requestedBy) || 'Former employee'}</p>}
             {m.notes && <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">{m.notes}</p>}
             {m.decisionNote && <p className="text-xs text-slate-600 dark:text-slate-400 border-l-2 border-slate-300 dark:border-slate-700 pl-2">Admin note: {m.decisionNote}</p>}
@@ -245,6 +273,16 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
           </p>
         </div>
       </div>
+
+      <StatBar
+        title="Meeting status"
+        segments={[
+          { label: 'Upcoming', count: meetingCounts.upcoming, tone: 'green' },
+          { label: 'Waiting for approval', count: meetingCounts.pending, tone: 'amber' },
+          { label: 'Done', count: meetingCounts.done, tone: 'blue' },
+          { label: 'Cancelled / not approved', count: meetingCounts.cancelled, tone: 'red' },
+        ]}
+      />
 
       <ErrorNote message={crm.error} />
 

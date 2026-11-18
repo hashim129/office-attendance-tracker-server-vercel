@@ -22,7 +22,7 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const approvers = employees.filter((e) => e.isActive !== false && (e.role === 'accounts' || e.role === 'admin'));
 
-  const [tab, setTab] = useState<'mine' | 'assigned'>('mine');
+  const [tab, setTab] = useState<'all' | 'mine' | 'assigned'>('all');
   const [formOpen, setFormOpen] = useState(false);
   const [qty, setQty] = useState<Record<string, string>>({});
   const [assignee, setAssignee] = useState('');
@@ -66,7 +66,7 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
       await crmCall('inventory_save', { request: { items: chosen, assignedTo: assignee, note } });
       await crm.refresh();
       setFormOpen(false);
-      setTab('mine');
+      setTab('all');
     } catch (err: any) {
       setError(err?.message || 'Could not send the request.');
     } finally {
@@ -100,7 +100,7 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
     }
   };
 
-  const rows = inventory.filter((r) => (tab === 'mine' ? r.requestedBy === currentUser.id : isAdmin || r.assignedTo === currentUser.id));
+  const rows = inventory.filter((r) => (tab === 'all' ? true : tab === 'mine' ? r.requestedBy === currentUser.id : r.assignedTo === currentUser.id));
   const chip = (active: boolean) =>
     `px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 active:scale-[0.97] cursor-pointer ${active ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`;
 
@@ -108,8 +108,9 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
     <div className="space-y-4">
       <div className={`${cardCls} p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3`}>
         <div className="flex flex-wrap gap-1.5">
-          <button className={chip(tab === 'mine')} onClick={() => setTab('mine')}>My requests</button>
-          {canReview && <button className={chip(tab === 'assigned')} onClick={() => setTab('assigned')}>{isAdmin ? 'All requests' : 'Assigned to me'}</button>}
+          <button className={chip(tab === 'all')} onClick={() => setTab('all')}>{isAdmin ? 'All requests (everyone)' : 'All'}</button>
+          <button className={chip(tab === 'mine')} onClick={() => setTab('mine')}>Requested by me</button>
+          {canReview && <button className={chip(tab === 'assigned')} onClick={() => setTab('assigned')}>Assigned to me</button>}
         </div>
         <button className={btnPrimary} onClick={openForm}><Plus className="w-4 h-4" /> New inventory request</button>
       </div>
@@ -119,7 +120,7 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
       {crm.loading && !inventory.length ? (
         <p className={`${cardCls} p-8 text-center text-xs text-slate-500`}>Loading requests…</p>
       ) : rows.length === 0 ? (
-        <p className={`${cardCls} p-8 text-center text-xs text-slate-500`}>{tab === 'mine' ? 'You have not made any inventory requests yet.' : 'No requests assigned to you.'}</p>
+        <p className={`${cardCls} p-8 text-center text-xs text-slate-500`}>{tab === 'assigned' ? 'No requests assigned to you.' : tab === 'mine' ? 'You have not made any inventory requests yet.' : 'No inventory requests yet.'}</p>
       ) : (
         <div className="space-y-3">
           {rows.map((r) => {
