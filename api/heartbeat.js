@@ -1,5 +1,5 @@
-import { format12h, getOfficeDateTimeParts, setNoCacheHeaders } from './_cloud.js';
-import { isSupabaseConfigured, supabaseFetch, sweepAutoClose } from './_supabase.js';
+import { format12h, getOfficeDateTimeParts, getShiftEndWindowMs, setNoCacheHeaders } from './_cloud.js';
+import { isSupabaseConfigured, supabaseFetch, sweepAutoClose, sweepShiftReminders } from './_supabase.js';
 import { evaluateAttendancePresenceAndAutoClose } from './_cloud.js';
 import { getEmployeeRow, verifyAutoToken } from './_auth.js';
 
@@ -39,6 +39,7 @@ export default async function handler(req, res) {
     }
 
     // Close anyone whose Shift End + auto-logout window has passed (runs at most once a minute).
+    await sweepShiftReminders({ getShiftEndWindowMs, format12h });
     await sweepAutoClose(evaluateAttendancePresenceAndAutoClose);
 
     const { todayStr } = getOfficeDateTimeParts();

@@ -9,3 +9,9 @@ drop table if exists public.crm_customers;
 drop table if exists public.crm_sales;
 drop function if exists public.crm_next_sale_no();
 drop sequence if exists public.crm_sale_no_seq;
+
+-- Invoices (supabase_invoices.sql)
+drop table if exists public.crm_invoices;
+drop table if exists public.crm_company;
+drop function if exists public.crm_next_invoice_no();
+drop sequence if exists public.crm_invoice_no_seq;

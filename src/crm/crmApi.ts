@@ -88,6 +88,7 @@ export interface CrmBadges {
   inventoryNew: number;
   inventoryPending: number;
   salesNew: number;
+  invoiceNew: number;
   salesPending: number;
   unreadTotal: number;
   /** My open deadlines (follow-ups / meetings) within the next 3 days, plus just-missed ones. */
@@ -95,7 +96,7 @@ export interface CrmBadges {
   unreadLatest: { id: string; category: CrmCategory; message: string }[];
 }
 
-export type CrmCategory = 'followup' | 'meeting' | 'inventory' | 'sale';
+export type CrmCategory = 'followup' | 'meeting' | 'inventory' | 'sale' | 'reminder' | 'invoice';
 
 export interface CrmUpcoming {
   kind: 'followup' | 'meeting';
@@ -130,6 +131,66 @@ export interface CrmSale {
   updatedAt: string;
 }
 
+export interface InvoiceLine {
+  description: string;
+  /** A text-only row (no price), e.g. a route or a sub-heading. */
+  note?: boolean;
+  unitPrice?: number;
+  units?: number;
+  currency?: string;
+  /** How many invoice-currency units one unit of the line currency is worth. */
+  rate?: number;
+  amount?: number;
+  taxable?: boolean;
+}
+
+export interface InvoiceSection {
+  title: string;
+  lines: InvoiceLine[];
+}
+
+export interface CrmInvoice {
+  id: string;
+  invoiceNo: string;
+  createdBy: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress: string;
+  customerNtn: string;
+  reference: string;
+  invoiceDate: string;
+  dueDate: string | null;
+  currency: string;
+  sections: InvoiceSection[];
+  taxLabel: string;
+  taxRate: number;
+  discount: number;
+  advancePaid: number;
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  balance: number;
+  notes: string;
+  status: 'unpaid' | 'paid' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CompanyProfile {
+  name: string;
+  payTo: string;
+  ntn: string;
+  address: string;
+  phone: string;
+  email: string;
+  website: string;
+  bankDetails: string;
+  terms: string;
+  footer: string;
+}
+
+export const EMPTY_COMPANY: CompanyProfile = { name: '', payTo: '', ntn: '', address: '', phone: '', email: '', website: '', bankDetails: '', terms: '', footer: '' };
+
 export interface CrmHistoryItem {
   id: string;
   category: CrmCategory;
@@ -155,13 +216,15 @@ export interface CrmData {
   inventory: CrmInventoryRequest[];
   inventoryItems: string[];
   sales: CrmSale[];
+  invoices: CrmInvoice[];
+  company: CompanyProfile;
   history: CrmHistoryItem[];
   saleTypes: Record<string, string>;
   currencies: string[];
   badges: CrmBadges;
 }
 
-export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0, salesNew: 0, salesPending: 0, unreadTotal: 0, upcoming: [], unreadLatest: [] };
+export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0, salesNew: 0, invoiceNew: 0, salesPending: 0, unreadTotal: 0, upcoming: [], unreadLatest: [] };
 
 export class CrmError extends Error {
   code?: string;

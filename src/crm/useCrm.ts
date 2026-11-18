@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CRM_ENABLED } from './config';
-import { CrmData, CrmBadges, CrmCategory, EMPTY_BADGES, crmCall } from './crmApi';
+import { CrmData, CrmBadges, CrmCategory, EMPTY_BADGES, EMPTY_COMPANY, crmCall } from './crmApi';
 
-const EMPTY: CrmData = { customers: [], followups: [], meetings: [], unread: [], inventory: [], inventoryItems: [], sales: [], history: [], saleTypes: {}, currencies: [], badges: EMPTY_BADGES };
+const EMPTY: CrmData = { customers: [], followups: [], meetings: [], unread: [], inventory: [], inventoryItems: [], sales: [], invoices: [], company: EMPTY_COMPANY, history: [], saleTypes: {}, currencies: [], badges: EMPTY_BADGES };
 
 export interface CrmState {
   data: CrmData;
@@ -30,7 +30,7 @@ export function useCrm(signedIn: boolean, onCrmPage: boolean): CrmState {
     if (!loaded.current) setLoading(true);
     try {
       const r = await crmCall<CrmData & { ok: boolean }>('list');
-      setData({ customers: r.customers, followups: r.followups, meetings: r.meetings, unread: r.unread, inventory: r.inventory || [], inventoryItems: r.inventoryItems || [], sales: r.sales || [], history: r.history || [], saleTypes: r.saleTypes || {}, currencies: r.currencies || [], badges: r.badges });
+      setData({ customers: r.customers, followups: r.followups, meetings: r.meetings, unread: r.unread, inventory: r.inventory || [], inventoryItems: r.inventoryItems || [], sales: r.sales || [], invoices: r.invoices || [], company: r.company || EMPTY_COMPANY, history: r.history || [], saleTypes: r.saleTypes || {}, currencies: r.currencies || [], badges: r.badges });
       loaded.current = true;
       setError('');
     } catch (e: any) {
@@ -54,11 +54,11 @@ export function useCrm(signedIn: boolean, onCrmPage: boolean): CrmState {
   useEffect(() => {
     if (!CRM_ENABLED || !signedIn) return;
     const run = () => {
-      if (document.hidden) return;
-      void (onCrmPage ? refresh() : refreshBadges());
+      // Hidden tabs still check the small badge call, so alerts and sounds reach people who switched windows.
+      void (onCrmPage && !document.hidden ? refresh() : refreshBadges());
     };
     run();
-    const t = window.setInterval(run, 30000);
+    const t = window.setInterval(run, 20000);
     const vis = () => { if (!document.hidden) run(); };
     document.addEventListener('visibilitychange', vis);
     return () => {
@@ -78,6 +78,7 @@ export function useCrm(signedIn: boolean, onCrmPage: boolean): CrmState {
         if (all || category === 'meeting') b.meetingsNew = 0;
         if (all || category === 'inventory') b.inventoryNew = 0;
         if (all || category === 'sale') b.salesNew = 0;
+        if (all || category === 'invoice') b.invoiceNew = 0;
         return {
           ...d,
           unread: d.unread.filter((u) => !all && u.category !== category),

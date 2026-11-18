@@ -509,6 +509,69 @@ export async function sweepAutoClose(evaluate) {
   }
 }
 
+let lastReminderSweepAt = 0;
+const REMIND_BEFORE_MS = 15 * 60 * 1000;
+
+/**
+ * Punch-out reminders. For everybody who is still punched in, it adds (once each, per shift) a notification:
+ *   15 minutes before shift end, when the shift ends, and 15 minutes before the automatic logout.
+ * The portal turns these into a pop-up + sound and keeps them in the Notifications history.
+ * Runs from the heartbeat, the portal's own polling and every save, throttled to once a minute.
+ */
+export async function sweepShiftReminders({ getShiftEndWindowMs, format12h }) {
+  const nowMs = Date.now();
+  if (nowMs - lastReminderSweepAt < 60000) return 0;
+  lastReminderSweepAt = nowMs;
+  try {
+    const since = new Date(nowMs - 2 * 86400000).toISOString().slice(0, 10);
+    const openRows = await supabaseFetch(`/attendance?time_out=is.null&time_in=not.is.null&date=gte.${since}&select=*`);
+    if (!Array.isArray(openRows) || openRows.length === 0) return 0;
+    const [settingsRows, shiftsRows, empRows] = await Promise.all([
+      supabaseFetch('/settings?id=eq.current&select=*'),
+      supabaseFetch('/shifts?select=*&order=id.asc'),
+      supabaseFetch('/employees?deleted_at=is.null&select=*'),
+    ]);
+    const settings = settingsRows?.[0]?.data || {};
+    const graceHours = Math.max(0, Number(settings.autoPunchOutOnInactiveHours ?? 2) || 0);
+    const shifts = Array.isArray(shiftsRows) ? shiftsRows.map(mapDbShift) : [];
+    const employees = Array.isArray(empRows) ? empRows.map(mapDbEmployee) : [];
+    const clock = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ms));
+    const out = [];
+    for (const raw of openRows) {
+      const rec = mapDbAttendance(raw);
+      const emp = employees.find((e) => e.id === rec.employeeId);
+      if (!emp || emp.isActive === false || !rec.timeIn) continue;
+      const shift = shifts.find((x) => x.id === emp.shiftId) || shifts[0];
+      if (!shift) continue;
+      const { shiftEndMs, checkAtMs } = getShiftEndWindowMs(rec.date, rec.timeIn, shift, graceHours);
+      if (!Number.isFinite(shiftEndMs)) continue;
+      const endLabel = format12h ? format12h(shift.endTime) : shift.endTime;
+      const logoutLabel = format12h ? format12h(clock(checkAtMs)) : clock(checkAtMs);
+      let kind = null;
+      let message = '';
+      if (nowMs >= shiftEndMs - REMIND_BEFORE_MS && nowMs < shiftEndMs) {
+        kind = 'pre';
+        message = `⏰ Your shift ends at ${endLabel}. Please remember to punch out.`;
+      } else if (graceHours > 0 && nowMs >= checkAtMs - REMIND_BEFORE_MS && nowMs < checkAtMs) {
+        kind = 'final';
+        message = `⚠️ You will be logged out automatically at ${logoutLabel}. Please punch out now.`;
+      } else if (nowMs >= shiftEndMs && (graceHours === 0 || nowMs < checkAtMs)) {
+        kind = 'end';
+        message = `🔔 Your shift has ended. Please punch out${graceHours > 0 ? ` — you will be logged out automatically at ${logoutLabel}` : ''}.`;
+      }
+      if (!kind) continue;
+      out.push({ id: `rem-${rec.id}-${kind}`, employee_id: rec.employeeId, category: 'reminder', ref_id: rec.id, message, created_at: new Date().toISOString(), read_at: null });
+    }
+    if (out.length) {
+      await supabaseFetch('/crm_notifications?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates' }, body: JSON.stringify(out) });
+    }
+    return out.length;
+  } catch (e) {
+    console.error('Shift reminder sweep failed:', e);
+    return 0;
+  }
+}
+
 /**
  * Intelligent, atomic merge for an individual attendance record against existing Supabase record
  */

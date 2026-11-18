@@ -288,7 +288,7 @@ export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
           </div>
           <input className={`${inputCls} md:max-w-xs`} placeholder="Search coupon no., customer, PAX, vendor…" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        {error && !formOpen && !deciding && <ErrorNote>{error}</ErrorNote>}
+        {error && !formOpen && !deciding && <ErrorNote message={error} />}
       </div>
 
       {shown.length === 0 ? (
@@ -391,7 +391,7 @@ export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
               )}
             </>
           )}
-          {error && <ErrorNote>{error}</ErrorNote>}
+          {error && <ErrorNote message={error} />}
           <div className="flex justify-end gap-2">
             <button type="button" className={btnGhost} onClick={() => setFormOpen(false)}>Cancel</button>
             <button type="submit" className={btnPrimary} disabled={busy || !form.saleType}>{busy ? 'Sending…' : 'Send to Accounts'}</button>
@@ -402,7 +402,7 @@ export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
       <Modal isOpen={Boolean(deciding)} onClose={() => setDeciding(null)} title={deciding?.status === 'approved' ? 'Approve coupon' : 'Decline coupon'} subtitle={deciding?.s.couponNo} maxWidth="md">
         <form onSubmit={decide} className="space-y-4">
           <Field label="Remarks (optional)"><textarea className={inputCls} rows={3} value={remarks} onChange={(e) => setRemarks(e.target.value)} maxLength={1000} /></Field>
-          {error && <ErrorNote>{error}</ErrorNote>}
+          {error && <ErrorNote message={error} />}
           <div className="flex justify-end gap-2">
             <button type="button" className={btnGhost} onClick={() => setDeciding(null)}>Cancel</button>
             <button type="submit" className={deciding?.status === 'approved' ? btnPrimary : btnDanger} disabled={busy}>{deciding?.status === 'approved' ? 'Approve' : 'Decline'}</button>
