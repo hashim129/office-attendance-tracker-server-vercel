@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ActiveDesktopTab,
   AppMode,
@@ -80,6 +80,8 @@ export default function App() {
 
   // Database State
   const [employees, setEmployees] = useState<Employee[]>([]);
+  // The built-in "Office Administrator" account is kept out of every stats / attendance screen.
+  const statEmployees = useMemo(() => employees.filter((e) => e.id !== 'emp-101'), [employees]);
   const [shifts, setShifts] = useState<ShiftSchedule[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
@@ -990,7 +992,7 @@ export default function App() {
                 {activeTab === 'clock' && (
                 <PunchClockTab
                   currentUser={currentUser}
-                  allEmployees={employees}
+                  allEmployees={statEmployees}
                   shifts={shifts}
                   records={records}
                   onTimeIn={handleGatedTimeIn}
@@ -1040,7 +1042,7 @@ export default function App() {
               {/* Team Attendance & Office Presence (P/A) - Accessible by All Employees */}
               {activeTab === 'team-attendance' && (
                 <TeamAttendanceTab
-                  employees={employees}
+                  employees={statEmployees}
                   records={records}
                   shifts={shifts}
                   settings={settings}
@@ -1085,7 +1087,7 @@ export default function App() {
                 activeTab === 'insights' && (
                   <SmartInsightsTab
                     currentUser={currentUser}
-                    employees={employees}
+                    employees={statEmployees}
                     records={records}
                     shifts={shifts}
                     leaves={leaves}
@@ -1099,7 +1101,7 @@ export default function App() {
               {(currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.role === 'ceo') &&
                 activeTab === 'reports' && (
                   <ReportsTab
-                    employees={employees}
+                    employees={statEmployees}
                     records={records}
                     shifts={shifts}
                     settings={settings}

@@ -79,6 +79,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     hourlyRate: 35,
     isActive: true,
     allowWorkFromHome: false,
+    crmCustomerAccess: false,
   });
 
   const departments = Array.from(new Set(employees.map((e) => e.department))).sort();
@@ -113,6 +114,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       hourlyRate: 38,
       isActive: true,
       allowWorkFromHome: false,
+      crmCustomerAccess: false,
     });
     setIsAddModalOpen(true);
   };
@@ -132,6 +134,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       hourlyRate: emp.hourlyRate,
       isActive: emp.isActive,
       allowWorkFromHome: Boolean(emp.allowWorkFromHome),
+      crmCustomerAccess: Boolean(emp.crmCustomerAccess),
     });
   };
 
@@ -176,6 +179,10 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     if (!deletingEmp) return;
     if (deletingEmp.id === currentUserId) {
       alert('You cannot delete your own active administrator account.');
+      return;
+    }
+    if (deletingEmp.role === 'admin' && !employees.some((e) => e.id !== deletingEmp.id && e.role === 'admin' && e.isActive !== false)) {
+      alert('At least one active administrator must remain.');
       return;
     }
     onDeleteEmployee(deletingEmp.id);
@@ -264,6 +271,9 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                    {emp.crmCustomerAccess && emp.role !== 'admin' && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 dark:bg-violet-950/70 dark:text-violet-300 border border-violet-200 dark:border-violet-900">Customers access</span>
+                    )}
                     {emp.allowWorkFromHome && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 inline-flex items-center gap-1">
                         <Home className="w-2.5 h-2.5" />
@@ -625,6 +635,24 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   type="checkbox"
                   checked={Boolean(formData.allowWorkFromHome)}
                   onChange={(e) => setFormData({ ...formData, allowWorkFromHome: e.target.checked })}
+                  className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+              </label>
+            </div>
+
+            {/* Customers access: only administrators and employees selected here can open the Customers section */}
+            <div className="p-3.5 rounded-xl bg-violet-50/70 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-900/60">
+              <label className="flex items-start justify-between gap-3 cursor-pointer select-none">
+                <div className="flex-1">
+                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100">Can see the Customers section</span>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    Off by default. When enabled, this employee can open Customers and pick or add customers. Other staff only see follow-ups they are part of.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={Boolean(formData.crmCustomerAccess)}
+                  onChange={(e) => setFormData({ ...formData, crmCustomerAccess: e.target.checked })}
                   className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
               </label>
