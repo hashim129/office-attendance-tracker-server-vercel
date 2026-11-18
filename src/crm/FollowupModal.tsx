@@ -26,6 +26,7 @@ const KINDS: { id: FollowupKind; label: string; hint: string }[] = [
 type CustomerMode = 'none' | 'existing' | 'new';
 
 export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, currentUser, customers, presetCustomerId, editing }) => {
+  const hasCustomerAccess = currentUser.role === 'admin' || Boolean(currentUser.crmCustomerAccess);
   const [mode, setMode] = useState<CustomerMode>('existing');
   const [customerId, setCustomerId] = useState('');
   const [newName, setNewName] = useState('');
@@ -116,8 +117,8 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
           <span className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Customer (optional)</span>
           <div className="flex flex-wrap gap-1.5 mb-2">
             <button type="button" className={chip(mode === 'none')} onClick={() => setMode('none')}>No customer</button>
-            <button type="button" className={chip(mode === 'existing')} onClick={() => setMode('existing')} disabled={Boolean(editing) && !editing?.customerId}>Existing customer</button>
-            {!editing && <button type="button" className={chip(mode === 'new')} onClick={() => setMode('new')}>＋ Add new customer</button>}
+            {(hasCustomerAccess || Boolean(editing?.customerId)) && <button type="button" className={chip(mode === 'existing')} onClick={() => setMode('existing')} disabled={Boolean(editing) && !editing?.customerId}>Existing customer</button>}
+            {!editing && hasCustomerAccess && <button type="button" className={chip(mode === 'new')} onClick={() => setMode('new')}>＋ Add new customer</button>}
           </div>
           {mode === 'existing' && (
             <select className={inputCls} value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={Boolean(editing)} aria-label="Customer">

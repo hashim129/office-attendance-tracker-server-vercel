@@ -330,12 +330,14 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {(currentUser.role === 'admin' || currentUser.crmCustomerAccess) && (
                 <Field label="Customer (optional)">
                   <select className={inputCls} value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
                     <option value="">None</option>
                     {customers.map((c) => <option key={c.id} value={c.id}>{c.customerName}{c.companyName ? ` — ${c.companyName}` : ''}</option>)}
                   </select>
                 </Field>
+                )}
                 <Field label="Other outside person / company (optional)"><input className={inputCls} value={external} onChange={(e) => setExternal(e.target.value)} maxLength={160} /></Field>
               </div>
             </>

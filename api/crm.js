@@ -58,6 +58,14 @@ const mapInventory = (r) => ({
   decisionRemarks: r.decision_remarks || '', decidedBy: r.decided_by || null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const num = (v) => Number(v) || 0;
+// Customers are only for administrators and for the employees an administrator has selected.
+const hasCustomerAccess = (e) => {
+  if (!e) return false;
+  if (e.role === 'admin') return true;
+  let p = e.pending_device_request;
+  if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+  return Boolean(p && p.crmCustomerAccess);
+};
 const DEFAULT_COMPANY = {
   name: 'Bahaar Journeys (Pvt) Ltd', payTo: 'BAHAAR JOURNEYS (PVT) LTD', ntn: '6988772-2',
   address: '', phone: '', email: '', website: '', bankDetails: '', terms: '', footer: 'Thanking you',
@@ -146,6 +154,7 @@ export default async function handler(req, res) {
     const me = await getSessionEmployee(body.sessionToken);
     if (!me) throw new HttpError(401, 'Please sign in again.', 'SESSION_REQUIRED');
     const isAdmin = me.role === 'admin';
+    const canCust = hasCustomerAccess(me);
     const { action } = body;
 
     // ------------------------------------------------------------------ reading
@@ -190,8 +199,11 @@ export default async function handler(req, res) {
       };
       if (action === 'badges') return res.status(200).json({ ok: true, badges });
 
-      const customers = (await getAll('crm_customers')).filter((c) => !c.deleted_at).map(mapCustomer);
       const visibleFollowups = followups.filter((f) => isAdmin || f.assigned_to === me.id || f.created_by === me.id || asArray(f.participant_ids).includes(me.id)).map(mapFollowup);
+      const allCustomers = (await getAll('crm_customers')).filter((c) => !c.deleted_at);
+      // Employees without Customers access only ever see the customer attached to a follow-up/meeting they are part of.
+      const linkedIds = new Set([...visibleFollowups.map((f) => f.customerId), ...meetings.filter((m) => asArray(m.attendee_ids).includes(me.id) || m.requested_by === me.id).map((m) => m.customer_id)].filter(Boolean));
+      const customers = (canCust ? allCustomers : allCustomers.filter((c) => linkedIds.has(c.id))).map(mapCustomer);
       const visibleInventory = inventory.filter((r) => isAdmin || r.requested_by === me.id || r.assigned_to === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapInventory);
       const sales = salesRows.filter((x) => salesViewer || x.created_by === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapSale);
       const history = notifs.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 200)
@@ -209,7 +221,7 @@ export default async function handler(req, res) {
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS, sales, history, invoices, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
+        ok: true, me: { id: me.id, role: me.role, customerAccess: canCust }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS, sales, history, invoices, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
     }
@@ -223,6 +235,7 @@ export default async function handler(req, res) {
 
     // ---------------------------------------------------------------- customers
     if (action === 'customer_save') {
+      if (!canCust) throw forbidden('You do not have access to Customers. Ask an administrator.');
       const c = body.customer || {};
       const destinations = asArray(c.destinations).map((d) => str(d, 100)).filter(Boolean);
       if (destinations.length > 30) throw bad('Too many destinations (max 30).');
@@ -263,10 +276,13 @@ export default async function handler(req, res) {
       // The customer is optional. It can be an existing one, or a new one typed in right here.
       let customer = null;
       let newCustomerRow = null;
+      const existingFu = f.id ? await getOne('crm_followups', f.id) : null;
       if (f.customerId) {
+        if (!canCust && f.customerId !== existingFu?.customer_id) throw forbidden('You do not have access to Customers. Ask an administrator.');
         customer = await getOne('crm_customers', f.customerId);
         if (!customer || customer.deleted_at) throw bad('The selected customer was not found.');
       } else if (f.newCustomer && String(f.newCustomer.customerName || '').trim()) {
+        if (!canCust) throw forbidden('You do not have access to Customers. Ask an administrator.');
         const c = f.newCustomer;
         const destinations = asArray(c.destinations).map((d) => str(d, 100)).filter(Boolean).slice(0, 30);
         newCustomerRow = {
@@ -371,6 +387,7 @@ export default async function handler(req, res) {
     // Any employee can ask for their own slot with the CEO; the administrator decides.
     if (action === 'meeting_request') {
       const fields = readMeetingInput(body.meeting || {});
+      if (fields.customer_id && !canCust) throw forbidden('You do not have access to Customers. Ask an administrator.');
       if (Date.parse(fields.start_at) < Date.now() - 5 * 60 * 1000) throw bad('Please choose a time in the future.');
       await assertSlotFree(fields.start_at, fields.end_at);
       const row = { id: id('mtg'), ...fields, attendee_ids: [me.id], status: 'pending_approval', requested_by: me.id, decided_by: null, decision_note: '', created_by: me.id, created_at: nowIso(), updated_at: nowIso() };

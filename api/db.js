@@ -794,11 +794,12 @@ export default async function handler(req, res) {
             }
           } else if (scope === 'employee_delete') {
             const targetId = incoming.deletedEmployeeId || incoming.employeeId;
-            if (targetId && targetId !== 'emp-101') {
+            const remainingAdmins = finalEmployees.filter((e) => e.role === 'admin' && e.isActive !== false && e.id !== targetId);
+            if (targetId && remainingAdmins.length === 0 && finalEmployees.some((e) => e.id === targetId && e.role === 'admin')) {
+              rejectionReason = 'At least one active administrator must remain.';
+            } else if (targetId) {
               finalEmployees = finalEmployees.filter((e) => e.id !== targetId);
               finalDeletedEmployeeIds = Array.from(new Set([...finalDeletedEmployeeIds, targetId]));
-            } else if (targetId === 'emp-101') {
-              rejectionReason = 'Primary Administrator account (emp-101) cannot be deleted.';
             }
           } else if (scope === 'shifts') {
             if (Array.isArray(incoming.shifts) && incoming.shifts.length > 0) {

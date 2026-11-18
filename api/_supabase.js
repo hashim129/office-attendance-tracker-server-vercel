@@ -118,6 +118,7 @@ function mapDbEmployee(r) {
   const allowWorkFromHome = Boolean(
     r.allow_work_from_home ?? pendingObj?.allowWorkFromHome ?? false
   );
+  const crmCustomerAccess = Boolean(pendingObj?.crmCustomerAccess);
 
   return {
     id: r.id,
@@ -138,6 +139,7 @@ function mapDbEmployee(r) {
     joinedDate: r.joined_date || '',
     avatarSeed: r.avatar_seed || '',
     allowWorkFromHome,
+    crmCustomerAccess,
     registeredDeviceId: r.registered_device_id || undefined,
     registeredDeviceName: r.registered_device_name || undefined,
     registeredAt: r.registered_at || undefined,
@@ -158,6 +160,7 @@ function mapAppEmployeeToDb(e) {
   const pendingWithWfh = {
     ...existingPending,
     allowWorkFromHome: Boolean(e.allowWorkFromHome),
+    crmCustomerAccess: Boolean(e.crmCustomerAccess),
   };
 
   return {
@@ -978,7 +981,21 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
     }
   } else if (scope === 'employee_delete') {
     const targetId = incoming.deletedEmployeeId || incoming.employeeId;
-    if (targetId && targetId !== 'emp-101') {
+    if (targetId && targetId === ctx.actor?.id) {
+      const e = new Error('You cannot delete your own account while you are signed in.');
+      e.status = 400; e.code = 'CANNOT_DELETE_SELF';
+      throw e;
+    }
+    if (targetId) {
+      // An administrator may remove another administrator, but never the last active one.
+      const admins = await supabaseFetch('/employees?role=eq.admin&deleted_at=is.null&is_active=eq.true&select=id');
+      const others = (Array.isArray(admins) ? admins : []).filter((a) => a.id !== targetId);
+      const targetIsAdmin = (Array.isArray(admins) ? admins : []).some((a) => a.id === targetId);
+      if (targetIsAdmin && others.length === 0) {
+        const e = new Error('At least one active administrator must remain.');
+        e.status = 400; e.code = 'LAST_ADMIN';
+        throw e;
+      }
       await supabaseFetch(`/employees?id=eq.${encodeURIComponent(targetId)}`, {
         method: 'PATCH',
         body: JSON.stringify({ deleted_at: new Date().toISOString(), is_active: false }),
