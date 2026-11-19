@@ -23,6 +23,12 @@
   }
 }
 
+/* Wide tables scroll inside their own box. Without this, some phone browsers (especially in "Desktop site" mode)
+   count the table's full width as page width, zoom out and leave a blank strip on the right. */
+.overflow-x-auto {
+  contain: paint;
+}
+
 /* Custom scrollbars for Windows desktop & wide table horizontal panning */
 ::-webkit-scrollbar {
   width: 10px;
