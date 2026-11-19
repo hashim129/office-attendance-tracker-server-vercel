@@ -262,7 +262,10 @@ function mapDbAttendance(r) {
     adminKeepOpen: Boolean(r.admin_keep_open),
     workMode: r.work_mode === 'wfh' ? 'wfh' : 'office',
     wfhReason: r.wfh_reason || '',
+    unverifiedMinutes: Number(r.unverified_minutes) || 0,
   };
+  if (r.work_confirmed_at) out.workConfirmedAt = r.work_confirmed_at;
+  if (r.auto_out_at) out.autoOutAt = r.auto_out_at;
   if (r.time_out) out.timeOut = r.time_out;
   if (r.auto_punch_out_reason) out.autoPunchOutReason = r.auto_punch_out_reason;
   if (r.disconnected_at) out.disconnectedAt = r.disconnected_at;
@@ -296,6 +299,9 @@ function mapAppAttendanceToDb(a) {
     admin_keep_open: Boolean(a.adminKeepOpen ?? a.admin_keep_open),
     work_mode: (a.workMode ?? a.work_mode) === 'wfh' ? 'wfh' : 'office',
     wfh_reason: (a.workMode ?? a.work_mode) === 'wfh' ? String(a.wfhReason ?? a.wfh_reason ?? '').slice(0, 300) : '',
+    work_confirmed_at: a.workConfirmedAt || a.work_confirmed_at || null,
+    auto_out_at: a.autoOutAt || a.auto_out_at || null,
+    unverified_minutes: Math.max(0, Math.round(Number(a.unverifiedMinutes ?? a.unverified_minutes) || 0)),
   };
 }
 
@@ -514,6 +520,7 @@ export async function sweepAutoClose(evaluate) {
 
 let lastReminderSweepAt = 0;
 const REMIND_BEFORE_MS = 15 * 60 * 1000;
+const ASK_WINDOW_MS = 30 * 60 * 1000;
 
 /**
  * Punch-out reminders. For everybody who is still punched in, it adds (once each, per shift) a notification:
@@ -546,7 +553,14 @@ export async function sweepShiftReminders({ getShiftEndWindowMs, format12h }) {
       if (!emp || emp.isActive === false || !rec.timeIn) continue;
       const shift = shifts.find((x) => x.id === emp.shiftId) || shifts[0];
       if (!shift) continue;
-      const { shiftEndMs, checkAtMs } = getShiftEndWindowMs(rec.date, rec.timeIn, shift, graceHours);
+      const confirmedMs = rec.workConfirmedAt ? Date.parse(rec.workConfirmedAt) : NaN;
+      const win = getShiftEndWindowMs(rec.date, rec.timeIn, shift, graceHours, confirmedMs);
+      const shiftEndMs = win.shiftEndMs;
+      let checkAtMs = win.checkAtMs;
+      if (!win.isOvernightShift && rec.date) {
+        const capMs = Date.parse(`${rec.date}T23:59:00+05:00`);
+        if (Number.isFinite(capMs) && checkAtMs > capMs) checkAtMs = capMs;
+      }
       if (!Number.isFinite(shiftEndMs)) continue;
       const endLabel = format12h ? format12h(shift.endTime) : shift.endTime;
       const logoutLabel = format12h ? format12h(clock(checkAtMs)) : clock(checkAtMs);
@@ -555,9 +569,12 @@ export async function sweepShiftReminders({ getShiftEndWindowMs, format12h }) {
       if (nowMs >= shiftEndMs - REMIND_BEFORE_MS && nowMs < shiftEndMs) {
         kind = 'pre';
         message = `⏰ Your shift ends at ${endLabel}. Please remember to punch out.`;
-      } else if (graceHours > 0 && nowMs >= checkAtMs - REMIND_BEFORE_MS && nowMs < checkAtMs) {
-        kind = 'final';
-        message = `⚠️ You will be logged out automatically at ${logoutLabel}. Please punch out now.`;
+      } else if (graceHours > 0 && nowMs >= shiftEndMs && nowMs >= checkAtMs - ASK_WINDOW_MS && nowMs < checkAtMs) {
+        // Repeated "are you still working?" prompts every 5 minutes before the automatic punch-out
+        const minsLeft = Math.ceil((checkAtMs - nowMs) / 60000);
+        const slot = Math.max(5, Math.ceil(minsLeft / 5) * 5);
+        kind = `ask-${Math.round(checkAtMs / 60000)}-${slot}`;
+        message = `❓ Are you still working online? Please confirm now — otherwise you will be punched out automatically at ${logoutLabel} (${minsLeft} min left) and the extra time will not count as overtime.`;
       } else if (nowMs >= shiftEndMs && (graceHours === 0 || nowMs < checkAtMs)) {
         kind = 'end';
         message = `🔔 Your shift has ended. Please punch out${graceHours > 0 ? ` — you will be logged out automatically at ${logoutLabel}` : ''}.`;
@@ -599,9 +616,20 @@ export async function persistAutoClosures(originalRecords, evaluatedRecords) {
           is_auto_punched_out: true,
           auto_punch_out_reason: ev.autoPunchOutReason || null,
           admin_keep_open: false,
+          auto_out_at: ev.autoOutAt || null,
+          unverified_minutes: Math.max(0, Math.round(Number(ev.unverifiedMinutes) || 0)),
           record_updated_at: new Date().toISOString(),
         }),
       });
+      if (orig.employeeId) {
+        const outLabel = (t) => { const [h, m] = String(t || '').split(':').map((x) => parseInt(x, 10)); return Number.isFinite(h) ? `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}` : ''; };
+        const msg = ev.unverifiedMinutes > 0
+          ? `🔒 You were punched out automatically at ${outLabel(ev.autoOutAt)} because working online was not confirmed. Your counted time ends at ${outLabel(ev.timeOut)}; the remaining ${Math.floor(ev.unverifiedMinutes / 60)}h ${ev.unverifiedMinutes % 60}m is not counted as overtime.`
+          : `🔒 You were punched out automatically at ${outLabel(ev.timeOut)}.`;
+        try {
+          await supabaseFetch('/crm_notifications?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates' }, body: JSON.stringify([{ id: `rem-${orig.id}-closed`, employee_id: orig.employeeId, category: 'reminder', ref_id: orig.id, message: msg, created_at: new Date().toISOString(), read_at: null }]) });
+        } catch (_) {}
+      }
       saved++;
     } catch (e) {
       console.error('Could not save auto-closed punch', orig.id, e);
@@ -617,6 +645,7 @@ export function mergeSupabaseAttendanceRecord(existing, incomingRec, options = {
 
   if (!existing) {
     const fresh = { ...incomingRec };
+    delete fresh.workConfirmedAt; delete fresh.autoOutAt; fresh.unverifiedMinutes = 0;
     if (fresh.clearTimeOut) {
       delete fresh.timeOut;
       delete fresh.clearTimeOut;
@@ -710,6 +739,10 @@ export function mergeSupabaseAttendanceRecord(existing, incomingRec, options = {
       : (incomingRec.adminKeepOpen !== undefined ? Boolean(incomingRec.adminKeepOpen) : Boolean(existing.adminKeepOpen)),
     workMode: (isAdmin || isFreshPunchIn) && (incomingRec.workMode === 'wfh' || incomingRec.workMode === 'office') ? incomingRec.workMode : (existing.workMode || 'office'),
     wfhReason: (isAdmin || isFreshPunchIn) && incomingRec.workMode ? (incomingRec.workMode === 'wfh' ? String(incomingRec.wfhReason || '') : '') : (existing.wfhReason || ''),
+    // Confirmation / auto punch-out details are written only by the server (never trusted from the browser)
+    workConfirmedAt: existing.workConfirmedAt,
+    autoOutAt: shouldClearTimeOut ? undefined : (incomingRec.actorAction === 'auto_close' ? incomingRec.autoOutAt : existing.autoOutAt),
+    unverifiedMinutes: shouldClearTimeOut ? 0 : (incomingRec.actorAction === 'auto_close' ? Number(incomingRec.unverifiedMinutes) || 0 : Number(existing.unverifiedMinutes) || 0),
     lastEditedByRole: actorRole,
     recordUpdatedAt: nowIso,
   };

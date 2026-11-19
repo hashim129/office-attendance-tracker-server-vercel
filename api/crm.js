@@ -233,6 +233,21 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, marked: rows.length });
     }
 
+    // Employee answers "Are you still working online?" - postpones the automatic punch-out
+    if (action === 'work_confirm') {
+      const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+      const open = await supabaseFetch(`/attendance?employee_id=eq.${encodeURIComponent(me.id)}&time_out=is.null&time_in=not.is.null&date=gte.${since}&select=id&order=date.desc&limit=1`);
+      if (!Array.isArray(open) || !open[0]) throw bad('You are not punched in right now.');
+      const at = nowIso();
+      await supabaseFetch(`/attendance?id=eq.${encodeURIComponent(open[0].id)}&time_out=is.null`, {
+        method: 'PATCH',
+        body: JSON.stringify({ work_confirmed_at: at, record_updated_at: at }),
+      });
+      const asks = (await myNotifications(me.id)).filter((n) => !n.read_at && n.category === 'reminder' && String(n.id).includes('-ask-'));
+      if (asks.length) await upsert('crm_notifications', asks.map((n) => ({ ...n, read_at: at })));
+      return res.status(200).json({ ok: true, confirmedAt: at });
+    }
+
     // ---------------------------------------------------------------- customers
     if (action === 'customer_save') {
       if (!canCust) throw forbidden('You do not have access to Customers. Ask an administrator.');

@@ -55,6 +55,12 @@ export interface AttendanceRecord {
   deviceMismatchReason?: string;
   isAutoPunchedOut?: boolean;
   autoPunchOutReason?: 'midnight' | 'shift_end_2h' | 'inactivity_2h';
+  /** When the employee last confirmed "I'm still working" (ISO) */
+  workConfirmedAt?: string;
+  /** The time the system actually punched out (HH:mm:ss) — the counted punch-out is earlier when time was unverified */
+  autoOutAt?: string;
+  /** Minutes between the last verified moment and the system punch-out; never counted as worked time or overtime */
+  unverifiedMinutes?: number;
   connectionStatus?: 'online' | 'no_internet';
   lastHeartbeatAt?: string;
   lastActivityAt?: string;

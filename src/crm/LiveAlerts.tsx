@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Bell, Clock, X } from 'lucide-react';
 import { installSoundUnlock, playAlertSound } from './sound';
 import { ActiveDesktopTab } from '../types';
-import { CrmUpcoming } from './crmApi';
+import { CrmUpcoming, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { formatRemaining } from './ui';
 
@@ -12,6 +12,7 @@ interface Toast {
   text: string;
   tab: ActiveDesktopTab;
   urgent?: boolean;
+  ask?: boolean; // "Are you still working?" prompt with a confirm button
 }
 
 const SEEN_KEY = 'crm_alerts_seen_v1';
@@ -55,7 +56,8 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
     } catch {
       // desktop alerts are optional
     }
-    if (t.kind !== 'deadline') window.setTimeout(() => setToasts((list) => list.filter((x) => x.key !== t.key)), 20000);
+    // a confirm prompt stays until answered (the next prompt comes within 5 minutes)
+    if (t.kind !== 'deadline') window.setTimeout(() => setToasts((list) => list.filter((x) => x.key !== t.key)), t.ask ? 5 * 60 * 1000 : 20000);
   };
 
   // New notifications. The first load only records what is already waiting, so signing in does not flood the screen.
@@ -71,6 +73,7 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
       key: `n:${n.id}`,
       kind: n.category === 'reminder' ? 'reminder' : 'notice',
       urgent: n.category === 'reminder',
+      ask: n.category === 'reminder' && String(n.id).includes('-ask-'),
       text: n.message,
       tab: n.category === 'followup' ? 'crm-tasks' : n.category === 'meeting' ? 'crm-meetings' : n.category === 'sale' ? 'crm-sales' : n.category === 'invoice' ? 'crm-invoices' : n.category === 'reminder' ? 'clock' : 'crm-inventory',
     }));
@@ -96,6 +99,20 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [upcoming]);
 
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const confirmWorking = async (key: string) => {
+    setConfirming(key);
+    try {
+      await crmCall('work_confirm');
+      setToasts((l) => l.filter((x) => !x.ask));
+      crm.refresh();
+    } catch {
+      // if it fails the prompt stays so the employee can tap again
+    } finally {
+      setConfirming(null);
+    }
+  };
+
   if (toasts.length === 0) return null;
   return (
     <div className="fixed bottom-4 right-4 z-[80] w-[min(92vw,22rem)] space-y-2" role="region" aria-label="Live alerts" aria-live="polite">
@@ -103,9 +120,18 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
         <div key={t.key} className={`rounded-xl border shadow-lg p-3 flex items-start gap-2.5 bg-white dark:bg-slate-900 ${t.urgent ? 'border-red-400 dark:border-red-700' : t.kind === 'deadline' ? 'border-amber-400 dark:border-amber-700' : 'border-blue-300 dark:border-blue-800'}`}>
           {t.kind !== 'notice' ? <Clock className={`w-4 h-4 mt-0.5 shrink-0 ${t.urgent ? 'text-red-600' : 'text-amber-600'}`} /> : <Bell className="w-4 h-4 mt-0.5 shrink-0 text-blue-600" />}
           <button className="flex-1 text-left text-xs text-slate-800 dark:text-slate-100 cursor-pointer" onClick={() => { onOpen(t.tab); setToasts((l) => l.filter((x) => x.key !== t.key)); }}>
-            <span className="block font-bold text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">{t.kind === 'reminder' ? 'Punch-out reminder' : t.kind === 'deadline' ? (t.urgent ? 'Deadline now' : 'Deadline soon') : 'New notification'}</span>
+            <span className="block font-bold text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">{t.ask ? 'Are you still working?' : t.kind === 'reminder' ? 'Punch-out reminder' : t.kind === 'deadline' ? (t.urgent ? 'Deadline now' : 'Deadline soon') : 'New notification'}</span>
             {t.text}
           </button>
+          {t.ask && (
+            <button
+              disabled={confirming === t.key}
+              className="self-center shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-2.5 py-1.5 cursor-pointer disabled:opacity-60"
+              onClick={() => confirmWorking(t.key)}
+            >
+              {confirming === t.key ? '…' : "Yes, I'm working"}
+            </button>
+          )}
           <button aria-label="Dismiss" className="text-slate-400 hover:text-slate-700 cursor-pointer" onClick={() => setToasts((l) => l.filter((x) => x.key !== t.key))}><X className="w-3.5 h-3.5" /></button>
         </div>
       ))}

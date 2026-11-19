@@ -569,7 +569,7 @@ function formatOfficeDateFromMs(ms) {
   }
 }
 
-export function getShiftEndWindowMs(recordDate, timeIn, shift = {}, graceHours = 2) {
+export function getShiftEndWindowMs(recordDate, timeIn, shift = {}, graceHours = 2, confirmedAtMs = NaN) {
   const startTime = shift?.startTime || '09:00';
   const endTime = shift?.endTime || '17:00';
   const startMins = parseMinutes(startTime);
@@ -581,7 +581,9 @@ export function getShiftEndWindowMs(recordDate, timeIn, shift = {}, graceHours =
   const endDateStr = isOvernightShift && inMins > endMins ? addDaysYmd(recordDate, 1) : recordDate;
   const shiftEndMs = Date.parse(`${endDateStr}T${normalizeHms(endTime)}+05:00`);
   const cleanGrace = Math.max(0, Number(graceHours || 0));
-  const checkAtMs = shiftEndMs + cleanGrace * 60 * 60 * 1000;
+  // An employee's "I'm still working" confirmation after shift end postpones the automatic punch-out
+  const baseMs = Number.isFinite(confirmedAtMs) ? Math.max(shiftEndMs, confirmedAtMs) : shiftEndMs;
+  const checkAtMs = baseMs + cleanGrace * 60 * 60 * 1000;
 
   return { inMs, shiftEndMs, checkAtMs, isOvernightShift };
 }
@@ -599,10 +601,63 @@ function computeBreakMins(breaks = []) {
   return breakMins;
 }
 
-function finalizeClosedRecord(rec, outTime, remark, reason, expectedHours = 8) {
-  const updatedBreaks = (rec.breaks || []).map((b) => (!b.end ? { ...b, end: outTime } : b));
+function fmtHmsPkt(ms) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Karachi',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date(ms));
+}
+
+/**
+ * Closes a punch on behalf of the system. Time that the employee never confirmed (after the shift end,
+ * or after their last "I'm still working" confirmation) is NOT counted as worked time or overtime:
+ * the counted punch-out is moved back to the last verified moment and the rest is kept separately
+ * (autoOutAt = when the system actually punched out, unverifiedMinutes = the time not counted).
+ */
+function finalizeClosedRecord(rec, outTime, remark, reason, expectedHours = 8, ctx = {}) {
+  let countedOut = outTime;
+  let unverifiedMinutes = 0;
+  let autoOutAt = null;
+  let breaksIn = rec.breaks || [];
+
+  const { shiftEndMs, outMs } = ctx;
+  const inMs = Date.parse(`${rec.date}T${normalizeHms(rec.timeIn)}+05:00`);
+  if (Number.isFinite(shiftEndMs) && Number.isFinite(outMs) && Number.isFinite(inMs)) {
+    const confirmedMs = rec.workConfirmedAt ? Date.parse(rec.workConfirmedAt) : NaN;
+    const verifiedMs = Math.min(
+      outMs,
+      Math.max(shiftEndMs, inMs, Number.isFinite(confirmedMs) ? confirmedMs : 0)
+    );
+    if (outMs - verifiedMs >= 60000) {
+      const inMins = parseMinutes(rec.timeIn);
+      const verifiedOffset = Math.round((verifiedMs - inMs) / 60000);
+      const before = computeBreakMins(
+        breaksIn.map((b) => (!b.end ? { ...b, end: outTime } : b))
+      );
+      // keep only the part of each break that falls inside the verified period
+      breaksIn = breaksIn
+        .filter((b) => {
+          if (!b.start) return true;
+          const off = (parseMinutes(b.start) - inMins + 1440) % 1440;
+          return off < verifiedOffset;
+        })
+        .map((b) => {
+          const endOff = b.end ? (parseMinutes(b.end) - inMins + 1440) % 1440 : Infinity;
+          return !b.end || endOff > verifiedOffset ? { ...b, end: fmtHmsPkt(verifiedMs) } : b;
+        });
+      const kept = computeBreakMins(breaksIn);
+      countedOut = fmtHmsPkt(verifiedMs);
+      autoOutAt = outTime;
+      unverifiedMinutes = Math.max(0, Math.round((outMs - verifiedMs) / 60000) - Math.max(0, before - kept));
+    }
+  }
+
+  const updatedBreaks = breaksIn.map((b) => (!b.end ? { ...b, end: countedOut } : b));
   const inMins = parseMinutes(rec.timeIn);
-  const outMins = parseMinutes(outTime);
+  const outMins = parseMinutes(countedOut);
   const diff = outMins >= inMins ? outMins - inMins : 24 * 60 - inMins + outMins;
   const breakMins = computeBreakMins(updatedBreaks);
   const netWorked = Math.max(0, diff - breakMins);
@@ -611,15 +666,19 @@ function finalizeClosedRecord(rec, outTime, remark, reason, expectedHours = 8) {
   const overtime = Math.max(0, netWorked - threshold);
 
   const existingNotes = rec.notes ? rec.notes.trim() : '';
+  const finalRemark =
+    unverifiedMinutes > 0
+      ? `${remark} · not confirmed working online, ${Math.floor(unverifiedMinutes / 60)}h ${unverifiedMinutes % 60}m not counted`
+      : remark;
   const finalNotes = existingNotes
     ? existingNotes.includes(remark)
       ? existingNotes
-      : `${existingNotes} · ${remark}`
-    : remark;
+      : `${existingNotes} · ${finalRemark}`
+    : finalRemark;
 
   return {
     ...rec,
-    timeOut: outTime,
+    timeOut: countedOut,
     breaks: updatedBreaks,
     totalWorkedMinutes: netWorked,
     regularMinutes: regular,
@@ -627,6 +686,8 @@ function finalizeClosedRecord(rec, outTime, remark, reason, expectedHours = 8) {
     notes: finalNotes,
     isAutoPunchedOut: true,
     autoPunchOutReason: reason,
+    autoOutAt: autoOutAt || undefined,
+    unverifiedMinutes,
     adminKeepOpen: false,
     actorAction: 'auto_close',
   };
@@ -686,7 +747,8 @@ export function evaluateAttendancePresenceAndAutoClose(
       rec.date,
       rec.timeIn,
       shift,
-      overtimeWindowHoursRaw
+      overtimeWindowHoursRaw,
+      rec.workConfirmedAt ? Date.parse(rec.workConfirmedAt) : NaN
     );
 
     const onBreak = Array.isArray(rec.breaks) && rec.breaks.some((b) => !b.end);
@@ -740,7 +802,8 @@ export function evaluateAttendancePresenceAndAutoClose(
         outTime,
         `Auto Punched Out (Shift Ended + ${overtimeWindowHoursRaw}h)`,
         'shift_end_2h',
-        expectedHours
+        expectedHours,
+        { shiftEndMs, outMs }
       );
     }
 
@@ -765,7 +828,10 @@ export function evaluateAttendancePresenceAndAutoClose(
     ) {
       changed = true;
       closedChanged = true;
-      return finalizeClosedRecord(rec, '23:59:00', 'Auto system Punched out', 'midnight', expectedHours);
+      return finalizeClosedRecord(rec, '23:59:00', 'Auto system Punched out', 'midnight', expectedHours, {
+        shiftEndMs,
+        outMs: rec.date ? Date.parse(`${rec.date}T23:59:00+05:00`) : NaN,
+      });
     }
 
     // Update in-flight worked and overtime minutes for active shifts

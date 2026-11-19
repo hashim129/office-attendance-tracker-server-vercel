@@ -46,6 +46,7 @@ import {
   getLiveWorkedStats,
   getTodayDateString,
   isLateArrival,
+  describeUnverifiedTime,
 } from '../../lib/attendanceCalculations';
 import { exportAttendanceToCsv } from '../../lib/exportUtils';
 import { downloadOfficialTimesheetPdf } from '../../lib/pdfTimesheet';
@@ -1157,6 +1158,9 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                               <Sunset className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
                               <span>{formatTime12h(record.timeOut)}</span>
                             </div>
+                            {describeUnverifiedTime(record) && (
+                              <span className="block text-[9px] text-red-600 dark:text-red-400 font-sans font-semibold mt-0.5">{describeUnverifiedTime(record)}</span>
+                            )}
                             {record.isAutoPunchedOut && (
                               <span className="text-[9px] text-amber-600 dark:text-amber-400 font-sans font-semibold mt-0.5">
                                 {record.autoPunchOutReason === 'shift_end_2h'
