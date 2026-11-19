@@ -198,7 +198,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 { tab: 'crm-customers' as const, label: 'Customers', Icon: Contact, badge: 0, tone: 'bg-amber-500' },
                 { tab: 'crm-tasks' as const, label: 'Follow-ups & Tasks', Icon: ClipboardList, badge: crmBadges?.tasksNew || 0, tone: 'bg-amber-500' },
                 { tab: 'crm-meetings' as const, label: 'Meetings', Icon: CalendarClock, badge: (crmBadges?.meetingsNew || 0) + (crmBadges?.meetingsPending || 0), tone: 'bg-amber-500' },
-              ]).filter((i) => i.tab !== 'crm-customers' || isAdmin || Boolean(currentUser.crmCustomerAccess)).map(({ tab, label, Icon, badge, tone }) => (
+              ]).map(({ tab, label, Icon, badge, tone }) => (
                 <button
                   key={tab}
                   onClick={() => onSelectTab(tab)}
@@ -232,7 +232,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 { tab: 'crm-sales' as const, label: 'Sales', Icon: Receipt, badge: (crmBadges?.salesNew || 0) + (crmBadges?.salesPending || 0) },
                 { tab: 'crm-invoices' as const, label: 'Invoices', Icon: FileText, badge: crmBadges?.invoiceNew || 0 },
                 { tab: 'crm-notifications' as const, label: 'Notifications', Icon: BellRing, badge: crmBadges?.unreadTotal || 0 },
-              ]).map(({ tab, label, Icon, badge }) => (
+              ]).filter((i) => i.tab !== 'crm-sales' || ['admin', 'accounts', 'ceo'].includes(currentUser.role) || Boolean(currentUser.salesAccess)).map(({ tab, label, Icon, badge }) => (
                 <button
                   key={tab}
                   onClick={() => onSelectTab(tab)}

@@ -969,6 +969,8 @@ export default function App() {
             onRetrySync={() => void retryCloudOutboxNow()}
             onOpenMobileNav={() => setIsMobileNavOpen(true)}
             crmUnread={CRM_ENABLED ? crm.badges.unreadTotal : 0}
+            crmLatest={CRM_ENABLED ? crm.badges.unreadLatest : []}
+            onCrmRefresh={CRM_ENABLED ? () => void crm.refresh() : undefined}
             onOpenCrmNotifications={CRM_ENABLED ? () => setActiveTab('crm-notifications') : undefined}
           />
 

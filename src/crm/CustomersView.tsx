@@ -15,6 +15,8 @@ interface Props {
 
 export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   const isAdmin = currentUser.role === 'admin';
+  const seesAll = ['admin', 'ceo', 'accounts'].includes(currentUser.role);
+  const canChange = (c: CrmCustomer) => seesAll || c.createdBy === currentUser.id;
   const { customers, followups } = crm.data;
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const [query, setQuery] = useState('');
@@ -30,6 +32,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
   const [by, setBy] = useState('');
   const [dest, setDest] = useState('');
   const [dests, setDests] = useState<string[]>([]);
+  const [shared, setShared] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -41,6 +44,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
     setThrough(c?.acquiredThrough || '');
     setBy(c?.acquiredBy || '');
     setDests(c?.destinations || []);
+    setShared(c?.sharedWith || []);
     setDest('');
     setError('');
     setFormOpen(true);
@@ -62,7 +66,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
     const pending = dest.split(';').map((d) => d.trim()).filter(Boolean);
     const destinations = [...dests, ...pending.filter((p) => !dests.some((c) => c.toLowerCase() === p.toLowerCase()))];
     try {
-      await crmCall('customer_save', { customer: { id: editing?.id, customerName: name, companyName: company, customerNumber: number, acquiredThrough: through, acquiredBy: by, destinations } });
+      await crmCall('customer_save', { customer: { id: editing?.id, customerName: name, companyName: company, customerNumber: number, acquiredThrough: through, acquiredBy: by, destinations, sharedWith: shared } });
       await crm.refresh();
       setFormOpen(false);
     } catch (err: any) {
@@ -144,14 +148,16 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
                       ) : '—'}
                     </td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
-                      {empName.get(c.createdBy) || 'Former employee'}
+                      {empName.get(c.createdBy) || 'Former employee'}{c.createdBy === currentUser.id ? ' (you)' : ''}
                       <span className="block text-[10px] text-slate-400">{fmtDateTime(c.createdAt)}</span>
+                      {c.createdBy !== currentUser.id && !seesAll && <span className="block text-[10px] text-violet-600 dark:text-violet-400">Shared with you</span>}
+                      {c.sharedWith.length > 0 && canChange(c) && <span className="block text-[10px] text-violet-600 dark:text-violet-400">Shared with {c.sharedWith.map((x) => empName.get(x) || '').filter(Boolean).join(', ')}</span>}
                     </td>
                     <td className="px-4 py-3">{openCount(c.id) ? <Pill tone="amber">{openCount(c.id)} open</Pill> : <span className="text-slate-400">None</span>}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1.5">
                         <button className={btnGhost} onClick={() => { setFuCustomer(c.id); setFuOpen(true); }} title="Create a follow-up for this customer"><ClipboardList className="w-3.5 h-3.5" /> Follow-up</button>
-                        <button className={btnGhost} onClick={() => openForm(c)} title="Edit customer" aria-label={`Edit ${c.customerName}`}><Pencil className="w-3.5 h-3.5" /></button>
+                        {canChange(c) && <button className={btnGhost} onClick={() => openForm(c)} title="Edit customer" aria-label={`Edit ${c.customerName}`}><Pencil className="w-3.5 h-3.5" /></button>}
                         {isAdmin && <button className={btnDanger} onClick={() => remove(c)} title="Delete customer" aria-label={`Delete ${c.customerName}`}><Trash2 className="w-3.5 h-3.5" /></button>}
                       </div>
                     </td>
@@ -203,6 +209,16 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
               ))}
             </div>
           )}
+          <Field label="Let these employees see this customer (optional)" hint="Only you, Admin, CEO and Accounts see this customer unless you choose colleagues here.">
+            <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 p-2 grid grid-cols-1 sm:grid-cols-2 gap-1">
+              {employees.filter((x) => x.isActive !== false && x.id !== currentUser.id && x.id !== editing?.createdBy && x.id !== 'emp-101').map((x) => (
+                <label key={x.id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                  <input type="checkbox" checked={shared.includes(x.id)} onChange={(e) => setShared((cur) => (e.target.checked ? [...cur, x.id] : cur.filter((i) => i !== x.id)))} />
+                  {x.name}
+                </label>
+              ))}
+            </div>
+          </Field>
           <ErrorNote message={error} />
           <div className="flex justify-end gap-2">
             <button type="button" className={btnGhost} onClick={() => setFormOpen(false)}>Cancel</button>

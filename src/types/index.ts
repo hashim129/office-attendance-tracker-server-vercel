@@ -137,7 +137,8 @@ export interface Employee {
   isActive: boolean;
   joinedDate: string;
   avatarSeed?: string;
-  crmCustomerAccess?: boolean; // Admin-selected: may open the Customers section
+  crmCustomerAccess?: boolean; // (no longer used: every employee has Customers, see own + shared)
+  salesAccess?: boolean; // Admin-selected: may open the Sales section
   allowWorkFromHome?: boolean; // When true, attendance punch in/out has NO IP restriction
   registeredDeviceId?: string; // Persistent device UUID bound to this employee
   registeredDeviceName?: string; // e.g. "Ahmed's Samsung Galaxy A54 (Android)"

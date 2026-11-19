@@ -26,7 +26,7 @@ const KINDS: { id: FollowupKind; label: string; hint: string }[] = [
 type CustomerMode = 'none' | 'existing' | 'new';
 
 export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, currentUser, customers, presetCustomerId, editing }) => {
-  const hasCustomerAccess = currentUser.role === 'admin' || Boolean(currentUser.crmCustomerAccess);
+  const hasCustomerAccess = true; // everyone can add customers; they only see their own + shared
   const [mode, setMode] = useState<CustomerMode>('existing');
   const [customerId, setCustomerId] = useState('');
   const [newName, setNewName] = useState('');

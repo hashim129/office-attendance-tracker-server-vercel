@@ -13,6 +13,8 @@ export interface CrmCustomer {
   customerNumber: string;
   acquiredThrough: string;
   acquiredBy: string; // employee id (or a typed name)
+  /** Employees the creator allows to see this customer */
+  sharedWith: string[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -142,15 +144,24 @@ export interface InvoiceLine {
   rate?: number;
   amount?: number;
   taxable?: boolean;
+  /** Stable id of the line and whether it was saved & locked (locked lines can never be edited or removed). */
+  key?: string;
+  locked?: boolean;
 }
 
 export interface InvoiceSection {
   title: string;
+  key?: string;
+  locked?: boolean;
   lines: InvoiceLine[];
 }
 
 export interface CrmInvoice {
   id: string;
+  /** 'customer' = what we bill customers; 'vendor' = what we owe a vendor (payable, never printed on a customer's invoice) */
+  kind: 'customer' | 'vendor';
+  crmId: string;
+  queryCode: string;
   invoiceNo: string;
   createdBy: string;
   customerName: string;

@@ -115,7 +115,7 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
 
   if (toasts.length === 0) return null;
   return (
-    <div className="fixed bottom-4 right-4 z-[80] w-[min(92vw,22rem)] space-y-2" role="region" aria-label="Live alerts" aria-live="polite">
+    <div className="fixed top-[6.25rem] right-4 z-[80] w-[min(92vw,22rem)] space-y-2" role="region" aria-label="Live alerts" aria-live="polite">
       {toasts.map((t) => (
         <div key={t.key} className={`rounded-xl border shadow-lg p-3 flex items-start gap-2.5 bg-white dark:bg-slate-900 ${t.urgent ? 'border-red-400 dark:border-red-700' : t.kind === 'deadline' ? 'border-amber-400 dark:border-amber-700' : 'border-blue-300 dark:border-blue-800'}`}>
           {t.kind !== 'notice' ? <Clock className={`w-4 h-4 mt-0.5 shrink-0 ${t.urgent ? 'text-red-600' : 'text-amber-600'}`} /> : <Bell className="w-4 h-4 mt-0.5 shrink-0 text-blue-600" />}
