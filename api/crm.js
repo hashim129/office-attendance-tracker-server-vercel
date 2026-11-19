@@ -46,7 +46,7 @@ const asArray = (v) => (Array.isArray(v) ? v : typeof v === 'string' ? (() => { 
 const mapCustomer = (r) => ({
   id: r.id, customerName: r.customer_name, companyName: r.company_name || '', destinations: asArray(r.destinations),
   customerNumber: r.customer_number || '', acquiredThrough: r.acquired_through || '', acquiredBy: r.acquired_by || '',
-  createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+  sharedWith: asArray(r.shared_with), createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const mapFollowup = (r) => ({
   id: r.id, customerId: r.customer_id || null, participantIds: asArray(r.participant_ids), kind: r.kind, assignedTo: r.assigned_to, remarks: r.remarks || '', dueAt: r.due_at,
@@ -58,21 +58,20 @@ const mapInventory = (r) => ({
   decisionRemarks: r.decision_remarks || '', decidedBy: r.decided_by || null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const num = (v) => Number(v) || 0;
-// Customers are only for administrators and for the employees an administrator has selected.
-const hasCustomerAccess = (e) => {
-  if (!e) return false;
-  if (e.role === 'admin') return true;
-  let p = e.pending_device_request;
+const flagOf = (e, name) => {
+  let p = e && e.pending_device_request;
   if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
-  return Boolean(p && p.crmCustomerAccess);
+  return Boolean(p && p[name]);
 };
+// Sales: Admin, Accounts and CEO always; any other employee only when an administrator has switched it on for them.
+const hasSalesAccess = (e) => Boolean(e) && (['admin', 'accounts', 'ceo'].includes(e.role) || flagOf(e, 'salesAccess'));
 const DEFAULT_COMPANY = {
   name: 'Bahaar Journeys (Pvt) Ltd', payTo: 'BAHAAR JOURNEYS (PVT) LTD', ntn: '6988772-2',
   address: '', phone: '', email: '', website: '', bankDetails: '', terms: '', footer: 'Thanking you',
 };
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const mapInvoice = (r) => ({
-  id: r.id, invoiceNo: r.invoice_no, createdBy: r.created_by, customerName: r.customer_name, customerPhone: r.customer_phone || '',
+  id: r.id, kind: r.kind === 'vendor' ? 'vendor' : 'customer', crmId: r.crm_id || '', queryCode: r.query_code || '', invoiceNo: r.invoice_no, createdBy: r.created_by, customerName: r.customer_name, customerPhone: r.customer_phone || '',
   customerAddress: r.customer_address || '', customerNtn: r.customer_ntn || '', reference: r.reference || '',
   invoiceDate: r.invoice_date, dueDate: r.due_date || null, currency: r.currency, sections: Array.isArray(r.sections) ? r.sections : [],
   taxLabel: r.tax_label || 'Tax', taxRate: num(r.tax_rate), discount: num(r.discount), advancePaid: num(r.advance_paid),
@@ -154,7 +153,10 @@ export default async function handler(req, res) {
     const me = await getSessionEmployee(body.sessionToken);
     if (!me) throw new HttpError(401, 'Please sign in again.', 'SESSION_REQUIRED');
     const isAdmin = me.role === 'admin';
-    const canCust = hasCustomerAccess(me);
+    const seeAllCust = isAdmin || me.role === 'accounts' || me.role === 'ceo';
+    // Everyone can add customers; they see their own plus the ones shared with them. Admin, CEO and Accounts see all.
+    const canSeeCust = (c) => seeAllCust || c.created_by === me.id || asArray(c.shared_with).includes(me.id);
+    const canSales = hasSalesAccess(me);
     const { action } = body;
 
     // ------------------------------------------------------------------ reading
@@ -203,9 +205,9 @@ export default async function handler(req, res) {
       const allCustomers = (await getAll('crm_customers')).filter((c) => !c.deleted_at);
       // Employees without Customers access only ever see the customer attached to a follow-up/meeting they are part of.
       const linkedIds = new Set([...visibleFollowups.map((f) => f.customerId), ...meetings.filter((m) => asArray(m.attendee_ids).includes(me.id) || m.requested_by === me.id).map((m) => m.customer_id)].filter(Boolean));
-      const customers = (canCust ? allCustomers : allCustomers.filter((c) => linkedIds.has(c.id))).map(mapCustomer);
+      const customers = allCustomers.filter((c) => canSeeCust(c) || linkedIds.has(c.id)).map(mapCustomer);
       const visibleInventory = inventory.filter((r) => isAdmin || r.requested_by === me.id || r.assigned_to === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapInventory);
-      const sales = salesRows.filter((x) => salesViewer || x.created_by === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapSale);
+      const sales = (!canSales ? [] : salesRows).filter((x) => salesViewer || x.created_by === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapSale);
       const history = notifs.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 200)
         .map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at, read: Boolean(n.read_at) }));
       let invoices = [];
@@ -221,7 +223,7 @@ export default async function handler(req, res) {
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role, customerAccess: canCust }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS, sales, history, invoices, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
+        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS, sales, history, invoices, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
     }
@@ -250,7 +252,6 @@ export default async function handler(req, res) {
 
     // ---------------------------------------------------------------- customers
     if (action === 'customer_save') {
-      if (!canCust) throw forbidden('You do not have access to Customers. Ask an administrator.');
       const c = body.customer || {};
       const destinations = asArray(c.destinations).map((d) => str(d, 100)).filter(Boolean);
       if (destinations.length > 30) throw bad('Too many destinations (max 30).');
@@ -263,13 +264,22 @@ export default async function handler(req, res) {
         acquired_by: str(c.acquiredBy, 80, { name: 'Acquired by' }),
         updated_at: nowIso(),
       };
+      // Only the person who added the customer (or Admin / CEO / Accounts) decides who else may see it.
+      const staffList = await activeEmployees();
+      const sharedWith = [...new Set(asArray(c.sharedWith).map(String))].slice(0, 100);
+      for (const sid of sharedWith) if (!staffList.some((e) => e.id === sid)) throw bad('One of the employees chosen to see this customer was not found or is no longer active.');
       if (c.id) {
         const existing = await getOne('crm_customers', c.id);
         if (!existing || existing.deleted_at) throw notFound('Customer not found.');
-        await upsert('crm_customers', { ...existing, ...fields });
-        return res.status(200).json({ ok: true, customer: mapCustomer({ ...existing, ...fields }) });
+        if (!seeAllCust && existing.created_by !== me.id) throw forbidden('You can only change customers you added.');
+        const upd = { ...existing, ...fields, shared_with: sharedWith.filter((x) => x !== existing.created_by) };
+        await upsert('crm_customers', upd);
+        const newlyShared = upd.shared_with.filter((x) => !asArray(existing.shared_with).includes(x) && x !== me.id);
+        if (newlyShared.length) await notify(newlyShared, 'followup', existing.id, `${me.name || 'A colleague'} shared customer ${fields.customer_name} with you.`, me.id);
+        return res.status(200).json({ ok: true, customer: mapCustomer(upd) });
       }
-      const row = { id: id('cus'), ...fields, created_by: me.id, created_at: nowIso(), deleted_at: null };
+      const row = { id: id('cus'), ...fields, shared_with: sharedWith.filter((x) => x !== me.id), created_by: me.id, created_at: nowIso(), deleted_at: null };
+      if (row.shared_with.length) await notify(row.shared_with, 'followup', row.id, `${me.name || 'A colleague'} shared customer ${fields.customer_name} with you.`, me.id);
       await upsert('crm_customers', row);
       return res.status(200).json({ ok: true, customer: mapCustomer(row) });
     }
@@ -293,11 +303,10 @@ export default async function handler(req, res) {
       let newCustomerRow = null;
       const existingFu = f.id ? await getOne('crm_followups', f.id) : null;
       if (f.customerId) {
-        if (!canCust && f.customerId !== existingFu?.customer_id) throw forbidden('You do not have access to Customers. Ask an administrator.');
         customer = await getOne('crm_customers', f.customerId);
         if (!customer || customer.deleted_at) throw bad('The selected customer was not found.');
+        if (f.customerId !== existingFu?.customer_id && !canSeeCust(customer)) throw forbidden('You can only use customers you added or that were shared with you.');
       } else if (f.newCustomer && String(f.newCustomer.customerName || '').trim()) {
-        if (!canCust) throw forbidden('You do not have access to Customers. Ask an administrator.');
         const c = f.newCustomer;
         const destinations = asArray(c.destinations).map((d) => str(d, 100)).filter(Boolean).slice(0, 30);
         newCustomerRow = {
@@ -402,7 +411,11 @@ export default async function handler(req, res) {
     // Any employee can ask for their own slot with the CEO; the administrator decides.
     if (action === 'meeting_request') {
       const fields = readMeetingInput(body.meeting || {});
-      if (fields.customer_id && !canCust) throw forbidden('You do not have access to Customers. Ask an administrator.');
+      if (fields.customer_id) {
+        const cu = await getOne('crm_customers', fields.customer_id);
+        if (!cu || cu.deleted_at) throw bad('The selected customer was not found.');
+        if (!canSeeCust(cu)) throw forbidden('You can only use customers you added or that were shared with you.');
+      }
       if (Date.parse(fields.start_at) < Date.now() - 5 * 60 * 1000) throw bad('Please choose a time in the future.');
       await assertSlotFree(fields.start_at, fields.end_at);
       const row = { id: id('mtg'), ...fields, attendee_ids: [me.id], status: 'pending_approval', requested_by: me.id, decided_by: null, decision_note: '', created_by: me.id, created_at: nowIso(), updated_at: nowIso() };
@@ -486,6 +499,7 @@ export default async function handler(req, res) {
 
     // ---------------------------------------------------------------- sales coupons
     // Any employee generates a coupon; Accounts / Admin review it (approve or decline) and mark it paid or unpaid.
+    if (String(action).startsWith('sale_') && !canSales) throw forbidden('You do not have access to Sales. Ask an administrator.');
     if (action === 'sale_save') {
       const x = body.sale || {};
       const saleType = String(x.saleType || '');
@@ -569,6 +583,17 @@ export default async function handler(req, res) {
 
     if (action === 'invoice_save') {
       const x = body.invoice || {};
+      const existing = x.id ? await getOne('crm_invoices', x.id) : null;
+      if (x.id && !existing) throw notFound('Invoice not found.');
+      const kind = existing ? (existing.kind === 'vendor' ? 'vendor' : 'customer') : (x.kind === 'vendor' ? 'vendor' : 'customer');
+      const vendorBill = kind === 'vendor';
+      const usedKeys = new Set();
+      const keyOf = (k, prefix) => {
+        let v = /^[A-Za-z0-9_-]{1,40}$/.test(String(k || '')) ? String(k) : '';
+        if (!v || usedKeys.has(v)) v = id(prefix);
+        usedKeys.add(v);
+        return v;
+      };
       const currency = String(x.currency || '').toUpperCase();
       if (!/^[A-Z]{3}$/.test(currency)) throw bad('Choose the invoice currency.');
       const money = (v, label, { min = 0 } = {}) => {
@@ -584,7 +609,7 @@ export default async function handler(req, res) {
         const lines = (Array.isArray(sec.lines) ? sec.lines : []).slice(0, 60).map((l, li) => {
           const description = str(l.description, 300, { required: true, name: `Section ${si + 1}, line ${li + 1} description` });
           const hasPrice = !(l.unitPrice === '' || l.unitPrice === null || l.unitPrice === undefined);
-          if (!hasPrice) return { description, note: true };
+          if (!hasPrice) return { description, note: true, key: keyOf(l.key, 'ln'), locked: Boolean(l.locked) };
           const unitPrice = money(l.unitPrice, `Unit price of "${description}"`);
           const units = money(l.units === '' || l.units === undefined ? 1 : l.units, `Units of "${description}"`);
           const lineCur = String(l.currency || currency).toUpperCase();
@@ -597,11 +622,31 @@ export default async function handler(req, res) {
           const amount = r2(unitPrice * units * rate);
           subtotal += amount; priced++;
           if (l.taxable) taxable += amount;
-          return { description, unitPrice, units, currency: lineCur, rate, amount, taxable: Boolean(l.taxable) };
+          return { description, unitPrice, units, currency: lineCur, rate, amount, taxable: Boolean(l.taxable), key: keyOf(l.key, 'ln'), locked: Boolean(l.locked) };
         });
-        return { title: str(sec.title, 160, { name: 'Section title' }), lines };
+        return { title: str(sec.title, 160, { name: 'Section title' }), key: keyOf(sec.key, 'sec'), locked: Boolean(sec.locked), lines };
       }).filter((sec) => sec.title || sec.lines.length);
       if (!priced) throw bad('Add at least one priced line to the invoice.');
+      // Save & lock: lines saved as locked can never be changed or removed (not even by Admin); new lines can always be added.
+      if (existing) {
+        const sig = (l) => JSON.stringify([l.description, Boolean(l.note), l.unitPrice ?? null, l.units ?? null, l.currency ?? null, l.rate ?? null, Boolean(l.taxable)]);
+        const newLineByKey = new Map();
+        sections.forEach((sec) => sec.lines.forEach((l) => newLineByKey.set(l.key, { sec, l })));
+        const newSecByKey = new Map(sections.map((sec) => [sec.key, sec]));
+        for (const ps of Array.isArray(existing.sections) ? existing.sections : []) {
+          if (ps.locked) {
+            const ns = ps.key && newSecByKey.get(ps.key);
+            if (!ns || ns.title !== ps.title) throw bad('A saved & locked section cannot be changed or removed.');
+            ns.locked = true;
+          }
+          for (const pl of ps.lines || []) {
+            if (!pl.locked) continue;
+            const f = pl.key && newLineByKey.get(pl.key);
+            if (!f || f.sec.key !== ps.key || sig(f.l) !== sig(pl)) throw bad('A saved & locked line cannot be changed or removed. You can add new lines.');
+            f.l.locked = true;
+          }
+        }
+      }
       const discount = money(x.discount, 'Discount');
       const advancePaid = money(x.advancePaid, 'Advance received');
       const taxAmount = r2(taxable * taxRate / 100);
@@ -615,26 +660,24 @@ export default async function handler(req, res) {
         return d;
       };
       const base = {
-        customer_name: str(x.customerName, 160, { required: true, name: 'Customer name' }), customer_phone: str(x.customerPhone, 60, { name: 'Phone' }),
+        customer_name: str(x.customerName, 160, { required: true, name: vendorBill ? 'Vendor name' : 'Customer name' }), customer_phone: str(x.customerPhone, 60, { name: 'Phone' }),
         customer_address: str(x.customerAddress, 400, { name: 'Address' }), customer_ntn: str(x.customerNtn, 60, { name: 'Customer NTN' }),
-        reference: str(x.reference, 120, { name: 'Reference' }), invoice_date: dateOnly(x.invoiceDate, 'Invoice date', true), due_date: dateOnly(x.dueDate, 'Due date', false),
+        reference: str(x.reference, 120, { name: 'Reference' }), crm_id: str(x.crmId, 60, { name: 'CRM ID' }), query_code: str(x.queryCode, 80, { name: 'Query code' }), invoice_date: dateOnly(x.invoiceDate, 'Invoice date', true), due_date: dateOnly(x.dueDate, 'Due date', false),
         currency, sections, tax_label: str(x.taxLabel, 40, { name: 'Tax label' }) || 'Tax', tax_rate: taxRate, discount, advance_paid: advancePaid,
         subtotal: r2(subtotal), tax_amount: taxAmount, total, balance, notes: str(x.notes, 1500, { name: 'Notes' }),
       };
       const at = nowIso();
-      if (x.id) {
-        const existing = await getOne('crm_invoices', x.id);
-        if (!existing) throw notFound('Invoice not found.');
+      if (existing) {
         if (!isAdmin && me.role !== 'accounts' && !(existing.created_by === me.id && existing.status === 'unpaid')) throw forbidden('You can only edit your own unpaid invoices.');
         const row = { ...existing, ...base, updated_at: at };
         await upsert('crm_invoices', row);
-        await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'Someone'} updated invoice ${row.invoice_no} (${currency} ${total}).`, me.id);
+        await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'Someone'} updated ${vendorBill ? 'vendor payable' : 'invoice'} ${row.invoice_no} (${currency} ${total}).`, me.id);
         return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
       }
-      const invoiceNo = await supabaseFetch('/rpc/crm_next_invoice_no', { method: 'POST', body: '{}' });
-      const row = { id: id('inv'), invoice_no: String(invoiceNo), created_by: me.id, status: 'unpaid', created_at: at, updated_at: at, ...base };
+      const invoiceNo = await supabaseFetch(vendorBill ? '/rpc/crm_next_payable_no' : '/rpc/crm_next_invoice_no', { method: 'POST', body: '{}' });
+      const row = { id: id('inv'), kind, invoice_no: String(invoiceNo), created_by: me.id, status: 'unpaid', created_at: at, updated_at: at, ...base };
       await upsert('crm_invoices', row);
-      await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'An employee'} generated invoice ${row.invoice_no} for ${base.customer_name} (${currency} ${total}).`, me.id);
+      await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'An employee'} generated ${vendorBill ? 'vendor payable' : 'invoice'} ${row.invoice_no} ${vendorBill ? 'for vendor' : 'for'} ${base.customer_name} (${currency} ${total}).`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
 

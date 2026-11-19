@@ -330,7 +330,7 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {(currentUser.role === 'admin' || currentUser.crmCustomerAccess) && (
+                {true && (
                 <Field label="Customer (optional)">
                   <select className={inputCls} value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
                     <option value="">None</option>

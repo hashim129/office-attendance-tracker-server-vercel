@@ -66,7 +66,7 @@ async function loadLogo(pdf: PDFDocument) {
 /** Builds the invoice as a PDF (A4). Works fully in the browser; nothing is uploaded anywhere. */
 export async function buildInvoicePdf(inv: CrmInvoice, company: CompanyProfile, preparedBy: string): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
-  pdf.setTitle(`Invoice ${inv.invoiceNo}`);
+  pdf.setTitle(`${inv.kind === 'vendor' ? 'Payable' : 'Invoice'} ${inv.invoiceNo}`);
   pdf.setAuthor(company.name || 'Invoice');
   const reg = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -87,61 +87,60 @@ export async function buildInvoicePdf(inv: CrmInvoice, company: CompanyProfile, 
   const hline = (x1: number, x2: number, yy: number, t = 0.7) => page.drawLine({ start: { x: x1, y: yy }, end: { x: x2, y: yy }, thickness: t, color: LINE });
   const colX = (i: number) => M + COLS.slice(0, i).reduce((a, b) => a + b, 0);
 
-  // ----- header: logo + company contact on the left, meta table on the right
-  const logoW = 215;
-  let leftBottom = y;
+  const vendor = inv.kind === 'vendor';
+
+  // ----- header: big logo on top, bill-to on the left and the meta table on the right (like the sample invoice)
+  const logoW = 440;
   if (logo) {
     const h = (logo.height / logo.width) * logoW;
-    page.drawImage(logo, { x: M - 4, y: y - h, width: logoW, height: h });
-    leftBottom = y - h;
+    page.drawImage(logo, { x: M - 6, y: y - h, width: logoW, height: h });
+    y -= h + 10;
   } else {
-    text(company.name || 'Company', M, y - 16, 18, bold, BLUE);
-    leftBottom = y - 24;
-  }
-  let cy = leftBottom - 12;
-  for (const line of [company.address, [company.phone, company.email].filter(Boolean).join('   |   '), company.website]) {
-    if (!line) continue;
-    for (const l of wrap(reg, line, 8, 260)) { text(l, M, cy, 8, reg, SOFT); cy -= 10.5; }
+    text(company.name || 'Company', M, y - 22, 24, bold, BLUE);
+    y -= 40;
   }
 
-  const metaX = A4[0] - M - 190;
-  const meta: [string, string][] = [['Invoice No', inv.invoiceNo], ['Invoice Date', niceDate(inv.invoiceDate)]];
+  const metaW = 215;
+  const metaX = A4[0] - M - metaW;
+  const metaKeyW = 82;
+  const meta: [string, string][] = [[vendor ? 'Bill No' : 'Invoice No', inv.invoiceNo], [vendor ? 'Bill Date' : 'Invoice Date', niceDate(inv.invoiceDate)]];
   if (inv.dueDate) meta.push(['Due Date', niceDate(inv.dueDate)]);
-  if (company.ntn) meta.push(['NTN#', company.ntn]);
+  if (!vendor && company.ntn) meta.push(['NTN#', company.ntn]);
   if (inv.reference) meta.push(['Reference', inv.reference]);
-  let my = y - 6;
+  if (inv.crmId) meta.push(['CRM ID', inv.crmId]);
+  if (vendor && inv.queryCode) meta.push(['Query Code', inv.queryCode]);
+  let my = y;
   for (const [k, v] of meta) {
-    page.drawRectangle({ x: metaX, y: my - 16, width: 190, height: 16, borderColor: LINE, borderWidth: 0.7 });
-    page.drawLine({ start: { x: metaX + 70, y: my }, end: { x: metaX + 70, y: my - 16 }, thickness: 0.7, color: LINE });
-    text(k, metaX + 4, my - 11.5, 8.5, reg);
-    center(wrap(bold, v, 9, 112)[0], metaX + 70 + 60, my - 11.5, 9, bold);
-    my -= 16;
+    page.drawRectangle({ x: metaX, y: my - 17, width: metaW, height: 17, borderColor: LINE, borderWidth: 0.8 });
+    page.drawLine({ start: { x: metaX + metaKeyW, y: my }, end: { x: metaX + metaKeyW, y: my - 17 }, thickness: 0.8, color: LINE });
+    text(k, metaX + 4, my - 12, 9, reg);
+    center(wrap(bold, v, 9.5, metaW - metaKeyW - 8)[0], metaX + metaKeyW + (metaW - metaKeyW) / 2, my - 12, 9.5, bold);
+    my -= 17;
   }
 
-  y = Math.min(cy, my) - 14;
-
-  // ----- bill to
-  text('BILL TO', M, y, 7.5, bold, SOFT);
-  y -= 12;
-  text(wrap(bold, inv.customerName, 11, 300)[0], M, y, 11, bold);
-  y -= 13;
+  // customer (or vendor) on the left, level with the meta table
+  let by = y - 4;
+  text(vendor ? 'VENDOR' : 'BILL TO', M, by, 7.5, bold, SOFT);
+  by -= 14;
+  text(wrap(bold, inv.customerName, 12, 280)[0], M, by, 12, bold);
+  by -= 13;
   for (const l of [inv.customerPhone && `Phone: ${inv.customerPhone}`, inv.customerAddress, inv.customerNtn && `NTN: ${inv.customerNtn}`].filter(Boolean) as string[]) {
-    for (const w of wrap(reg, l, 9, 300)) { text(w, M, y, 9, reg); y -= 11.5; }
+    for (const w of wrap(reg, l, 9, 280)) { text(w, M, by, 9, reg); by -= 11.5; }
   }
 
-  y -= 12;
-  center('INVOICE', A4[0] / 2, y, 20, serif);
-  y -= 12;
+  y = Math.min(by, my) - 22;
+  center(vendor ? 'VENDOR PAYABLE' : 'INVOICE', A4[0] / 2, y, 21, serif);
+  y -= 14;
 
   // ----- items table
-  const ROW = 15;
+  const ROW = 19;
   let tableTop = y;
   let tableOpen = true;
   const drawHeader = () => {
     page.drawRectangle({ x: M, y: y - 18, width: W, height: 18, borderColor: LINE, borderWidth: 0.9 });
     center('SN', colX(0) + COLS[0] / 2, y - 12.5, 8.5, bold);
     center('DESCRIPTION', colX(1) + COLS[1] / 2, y - 12.5, 8.5, bold);
-    center('UNIT PRICE', colX(2) + COLS[2] / 2, y - 12.5, 8.5, bold);
+    center(vendor ? 'COST' : 'UNIT PRICE', colX(2) + COLS[2] / 2, y - 12.5, 8.5, bold);
     center('UNITS', colX(3) + COLS[3] / 2, y - 12.5, 8.5, bold);
     center(`AMOUNT ${cur}`, colX(4) + COLS[4] / 2, y - 12.5, 8.5, bold);
     y -= 18;
@@ -173,21 +172,21 @@ export async function buildInvoicePdf(inv: CrmInvoice, company: CompanyProfile, 
       sn++;
       ensure(ROW * 2);
       page.drawRectangle({ x: colX(1), y: y - ROW, width: W - COLS[0], height: ROW, color: GREY });
-      center(String(sn), colX(0) + COLS[0] / 2, y - 10.5, 9, reg);
-      text(wrap(bold, sec.title, 9, COLS[1] + COLS[2] + COLS[3] + COLS[4] - 10)[0], colX(1) + 4, y - 10.5, 9, bold);
+      center(String(sn), colX(0) + COLS[0] / 2, y - 13, 9, reg);
+      text(wrap(bold, sec.title, 9, COLS[1] + COLS[2] + COLS[3] + COLS[4] - 10)[0], colX(1) + 4, y - 13, 9, bold);
       y -= ROW;
     }
     for (const l of sec.lines) {
       const descLines = wrap(l.note ? bold : reg, l.description, 9, COLS[1] - 10);
       const foreign = !l.note && (l.currency || cur) !== cur && Boolean(l.rate);
-      const h = Math.max(foreign ? ROW + 8 : ROW, descLines.length * 11 + 4);
+      const h = Math.max(foreign ? ROW + 8 : ROW, descLines.length * 12 + 7);
       ensure(h);
-      descLines.forEach((dl, i) => text(dl, colX(1) + 4, y - 10.5 - i * 11, 9, l.note ? bold : reg));
+      descLines.forEach((dl, i) => text(dl, colX(1) + 4, y - 13 - i * 12, 9, l.note ? bold : reg));
       if (!l.note) {
-        center(`${l.currency || cur} ${fmtAmount(l.unitPrice || 0)}`, colX(2) + COLS[2] / 2, y - 10.5, 9, reg);
-        center(fmtAmount(l.units ?? 1), colX(3) + COLS[3] / 2, y - 10.5, 9, reg);
-        right(fmtAmount(l.amount || 0), colX(4) + COLS[4] - 6, y - 10.5, 9, reg);
-        if (foreign) center(`1 ${l.currency} = ${fmtAmount(l.rate || 0)} ${cur}`, colX(2) + COLS[2] / 2, y - 19.5, 6.5, reg, SOFT);
+        center(`${l.currency || cur} ${fmtAmount(l.unitPrice || 0)}`, colX(2) + COLS[2] / 2, y - 13, 9, reg);
+        center(fmtAmount(l.units ?? 1), colX(3) + COLS[3] / 2, y - 13, 9, reg);
+        right(fmtAmount(l.amount || 0), colX(4) + COLS[4] - 6, y - 13, 9, reg);
+        if (foreign) center(`1 ${l.currency} = ${fmtAmount(l.rate || 0)} ${cur}`, colX(2) + COLS[2] / 2, y - 22, 6.5, reg, SOFT);
       }
       y -= h;
     }
@@ -198,74 +197,91 @@ export async function buildInvoicePdf(inv: CrmInvoice, company: CompanyProfile, 
   const amountRight = colX(4) + COLS[4] - 6;
   if (inv.taxAmount > 0) {
     ensure(ROW + 2);
-    text(`${inv.taxLabel || 'TAX'}${inv.taxRate ? ` (${fmtAmount(inv.taxRate)}%)` : ''}`.toUpperCase(), colX(1) + 4, y - 10.5, 9, bold);
-    right(fmtAmount(inv.taxAmount), amountRight, y - 10.5, 9, reg);
+    text((inv.taxLabel || 'TAX').toUpperCase(), colX(1) + 4, y - 13, 9, bold);
+    right(fmtAmount(inv.taxAmount), amountRight, y - 13, 9, reg);
     y -= ROW;
   }
   if (inv.discount > 0) {
     ensure(ROW + 2);
-    text('DISCOUNT', colX(1) + 4, y - 10.5, 9, bold);
-    right(`-${fmtAmount(inv.discount)}`, amountRight, y - 10.5, 9, reg);
+    text('DISCOUNT', colX(1) + 4, y - 13, 9, bold);
+    right(`-${fmtAmount(inv.discount)}`, amountRight, y - 13, 9, reg);
     y -= ROW;
   }
-  y -= 4;
+  y -= 6;
   closeTable();
-  y -= 2;
 
-  // Total / advance / balance boxes (like the sample: Total row, then Balance row)
-  const boxRow = (label: string, value: string, strong: boolean) => {
-    ensure(20);
-    page.drawRectangle({ x: M, y: y - 17, width: W, height: 17, borderColor: LINE, borderWidth: 0.9 });
-    page.drawLine({ start: { x: colX(4), y }, end: { x: colX(4), y: y - 17 }, thickness: 0.7, color: LINE });
-    right(label, colX(4) - 8, y - 12, 9.5, bold);
-    right(value, amountRight, y - 12, 9.5, strong ? bold : reg);
-    y -= 17;
-  };
-  boxRow('Total', fmtAmount(inv.total), true);
-  if (inv.advancePaid > 0) boxRow('Advance received', `-${fmtAmount(inv.advancePaid)}`, false);
-  boxRow('Balance', `${cur} ${fmtAmount(inv.balance)}`, true);
-
-  // ----- payment instructions, bank details, notes
-  y -= 16;
-  ensure(60);
-  const payTo = company.payTo || company.name;
-  if (payTo && inv.status !== 'paid') {
-    const prefix = 'KINDLY MAKE CHEQUE OF ';
-    const amt = `${cur} ${fmtAmount(inv.balance)}/-`;
-    const rest = ` IN FAVOR OF ${payTo.toUpperCase()}`;
-    const full = `${prefix}${amt}${rest}`;
-    const lines = wrap(reg, full, 9, W);
-    if (lines.length === 1) {
-      let x = M;
-      text(prefix, x, y, 9, reg); x += reg.widthOfTextAtSize(safe(reg, prefix), 9) + 2;
-      text(amt, x, y, 9, bold); x += bold.widthOfTextAtSize(safe(bold, amt), 9) + 1;
-      text(rest, x, y, 9, reg);
-      y -= 13;
-    } else {
-      for (const l of lines) { text(l, M, y, 9, reg); y -= 12; }
+  // Total row, payment box and Balance row stay inside the same grid, as in the sample invoice
+  const gridRow = (h: number) => {
+    page.drawRectangle({ x: M, y: y - h, width: W, height: h, borderColor: LINE, borderWidth: 0.9 });
+    for (let i = 1; i < COLS.length; i++) {
+      if (i === 2 || i === 3) continue; // the middle columns merge in these rows
+      page.drawLine({ start: { x: colX(i), y }, end: { x: colX(i), y: y - h }, thickness: 0.7, color: LINE });
     }
+  };
+  const totalRow = (label: string, value: string, strong: boolean) => {
+    ensure(24);
+    gridRow(20);
+    center(label, colX(3) + COLS[3] / 2, y - 14, 10, bold);
+    if (strong) right(value, amountRight, y - 14, 10, bold);
+    else center(value, colX(4) + COLS[4] / 2, y - 14, 10, bold);
+    y -= 20;
+  };
+  totalRow('Total', fmtAmount(inv.total), true);
+  if (inv.advancePaid > 0) totalRow(vendor ? 'Paid' : 'Advance', `-${fmtAmount(inv.advancePaid)}`, true);
+
+  // payment instruction box
+  const payTo = company.payTo || company.name;
+  const instr: string[] = [];
+  if (vendor) {
+    instr.push(`TOTAL PAYABLE TO ${inv.customerName.toUpperCase()}: ${cur} ${fmtAmount(inv.balance)}/-`);
+  } else if (payTo && inv.status !== 'paid') {
+    instr.push(`KINDLY MAKE CHEQUE OF ${cur} ${fmtAmount(inv.balance)}/- IN FAVOR OF ${payTo.toUpperCase()}`);
   }
-  if (company.bankDetails) {
-    ensure(40);
-    y -= 6;
-    text('BANK DETAILS', M, y, 8, bold, SOFT); y -= 11;
-    for (const l of wrap(reg, company.bankDetails, 9, W)) { ensure(14); text(l, M, y, 9, reg); y -= 11.5; }
+  if (!vendor && company.bankDetails) instr.push(...company.bankDetails.split('\n'));
+  const instrLines = instr.flatMap((t) => wrap(reg, t, 9.5, COLS[1] - 12));
+  if (instrLines.length) {
+    const boxH = Math.max(56, instrLines.length * 12 + 34);
+    ensure(boxH + 24);
+    gridRow(boxH);
+    let ty = y - boxH + 14 + (instrLines.length - 1) * 12;
+    instrLines.forEach((l, i) => {
+      if (i === 0 && !vendor && l.startsWith('KINDLY')) {
+        // amount in bold like the sample
+        const amt = `${cur} ${fmtAmount(inv.balance)}/-`;
+        const at = l.indexOf(amt);
+        if (at >= 0) {
+          const pre = l.slice(0, at);
+          text(pre, colX(1) + 6, ty, 9.5, reg);
+          const x2 = colX(1) + 6 + reg.widthOfTextAtSize(safe(reg, pre), 9.5) + 1.5;
+          text(amt, x2, ty, 9.5, bold);
+          text(l.slice(at + amt.length), x2 + bold.widthOfTextAtSize(safe(bold, amt), 9.5), ty, 9.5, reg);
+          ty -= 12;
+          return;
+        }
+      }
+      text(l, colX(1) + 6, ty, 9.5, reg);
+      ty -= 12;
+    });
+    y -= boxH;
   }
-  const notes = [inv.notes, company.terms].filter(Boolean).join('\n');
+  totalRow('Balance', `${fmtAmount(inv.balance)}`, false);
+
+  const notes = [inv.notes, vendor ? '' : company.terms].filter(Boolean).join('\n');
+  y -= 14;
   if (notes) {
     ensure(40);
-    y -= 8;
-    text('NOTES & TERMS', M, y, 8, bold, SOFT); y -= 11;
+    text('NOTES', M, y, 8, bold, SOFT); y -= 11;
     for (const l of wrap(reg, notes, 8.5, W)) { ensure(14); text(l, M, y, 8.5, reg, SOFT); y -= 11; }
+    y -= 6;
   }
 
-  // ----- footer
-  ensure(70);
-  y -= 22;
-  if (company.footer) text(company.footer, M, y, 10, bold);
-  hline(A4[0] - M - 150, A4[0] - M, y - 2, 0.6);
-  center('Authorised signature', A4[0] - M - 75, y - 12, 8, reg, SOFT);
-  if (preparedBy) text(`Prepared by ${preparedBy}`, M, y - 14, 7.5, reg, SOFT);
+  // ----- closing line
+  ensure(60);
+  y -= 6;
+  text(vendor ? 'Internal payable record — not for customers' : company.footer || 'Thanking you', M, y, vendor ? 8.5 : 10, vendor ? reg : reg, vendor ? SOFT : INK);
+  hline(A4[0] - M - 150, A4[0] - M, y - 22, 0.6);
+  center('Authorised signature', A4[0] - M - 75, y - 32, 8, reg, SOFT);
+  if (preparedBy) text(`Prepared by ${preparedBy}`, M, y - 18, 7.5, reg, SOFT);
 
   // ----- stamp
   if (inv.status === 'paid' || inv.status === 'cancelled') {
@@ -282,6 +298,8 @@ export async function buildInvoicePdf(inv: CrmInvoice, company: CompanyProfile, 
   pages.forEach((p, i) => {
     const t = `${inv.invoiceNo}  ·  Page ${i + 1} of ${pages.length}`;
     p.drawText(t, { x: A4[0] / 2 - reg.widthOfTextAtSize(t, 7) / 2, y: 20, size: 7, font: reg, color: SOFT });
+    const contact = vendor ? '' : safe(reg, [company.address, company.phone, company.email, company.website].filter(Boolean).join('  |  '));
+    if (contact) p.drawText(contact, { x: A4[0] / 2 - reg.widthOfTextAtSize(contact, 7) / 2, y: 31, size: 7, font: reg, color: SOFT });
   });
 
   return pdf.save();

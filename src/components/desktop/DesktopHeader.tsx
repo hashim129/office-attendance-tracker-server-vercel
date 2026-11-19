@@ -1,3 +1,4 @@
+import { crmCall } from '../../crm/crmApi';
 import React, { useState } from 'react';
 import {
   LogOut,
@@ -34,6 +35,8 @@ interface DesktopHeaderProps {
   onOpenMobileNav?: () => void;
   /** CRM notification history: unread count and a way to open the page. */
   crmUnread?: number;
+  crmLatest?: { id: string; category: string; message: string }[];
+  onCrmRefresh?: () => void;
   onOpenCrmNotifications?: () => void;
 }
 
@@ -50,9 +53,24 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   onRetrySync,
   onOpenMobileNav,
   crmUnread = 0,
+  crmLatest = [],
+  onCrmRefresh,
   onOpenCrmNotifications,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showCrmBell, setShowCrmBell] = useState(false);
+  const [confirmingWork, setConfirmingWork] = useState(false);
+  const confirmWorking = async () => {
+    setConfirmingWork(true);
+    try {
+      await crmCall('work_confirm');
+      onCrmRefresh?.();
+    } catch {
+      // stays visible so it can be tapped again
+    } finally {
+      setConfirmingWork(false);
+    }
+  };
 
   // Filter notifications sent to this employee
   const myNotifications = ceoComments.filter((c) => c.employeeId === currentUser.id);
@@ -167,8 +185,9 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
           </span>
         )}
         {onOpenCrmNotifications && (
+          <div className="relative">
           <button
-            onClick={onOpenCrmNotifications}
+            onClick={() => { setShowCrmBell((v) => !v); setShowNotifications(false); }}
             className="p-2 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative cursor-pointer"
             title="Notifications & history"
             aria-label={`Notifications${crmUnread > 0 ? `, ${crmUnread} unread` : ''}`}
@@ -180,11 +199,40 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
               </span>
             )}
           </button>
+          {showCrmBell && (
+            <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-3 z-50">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider">Notifications</h3>
+                <span className="text-[11px] font-medium text-slate-400">{crmUnread} unread</span>
+              </div>
+              <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                {crmLatest.length === 0 ? (
+                  <p className="py-6 text-center text-xs text-slate-400">You're all caught up.</p>
+                ) : crmLatest.map((n) => (
+                  <div key={n.id} className="py-2 text-xs text-slate-700 dark:text-slate-200">
+                    <p className="leading-relaxed">{n.message}</p>
+                    {String(n.id).includes('-ask-') && (
+                      <button disabled={confirmingWork} onClick={() => void confirmWorking()} className="mt-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-2.5 py-1 cursor-pointer disabled:opacity-60">
+                        {confirmingWork ? '…' : "Yes, I'm working"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => { setShowCrmBell(false); onOpenCrmNotifications?.(); }}
+                className="mt-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                View all notifications & history
+              </button>
+            </div>
+          )}
+          </div>
         )}
         {/* CEO / Executive Notifications Bell */}
         <div className="relative">
           <button
-            onClick={() => setShowNotifications(!showNotifications)}
+            onClick={() => { setShowNotifications(!showNotifications); setShowCrmBell(false); }}
             className="p-2 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative cursor-pointer"
             title="Executive Mentions & Directives"
           >

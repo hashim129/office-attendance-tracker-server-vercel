@@ -119,6 +119,7 @@ function mapDbEmployee(r) {
     r.allow_work_from_home ?? pendingObj?.allowWorkFromHome ?? false
   );
   const crmCustomerAccess = Boolean(pendingObj?.crmCustomerAccess);
+  const salesAccess = Boolean(pendingObj?.salesAccess);
 
   return {
     id: r.id,
@@ -140,6 +141,7 @@ function mapDbEmployee(r) {
     avatarSeed: r.avatar_seed || '',
     allowWorkFromHome,
     crmCustomerAccess,
+    salesAccess,
     registeredDeviceId: r.registered_device_id || undefined,
     registeredDeviceName: r.registered_device_name || undefined,
     registeredAt: r.registered_at || undefined,
@@ -161,6 +163,7 @@ function mapAppEmployeeToDb(e) {
     ...existingPending,
     allowWorkFromHome: Boolean(e.allowWorkFromHome),
     crmCustomerAccess: Boolean(e.crmCustomerAccess),
+    salesAccess: Boolean(e.salesAccess),
   };
 
   return {

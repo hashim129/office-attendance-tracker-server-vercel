@@ -31,13 +31,13 @@ export const CrmPage: React.FC<Props> = ({ section, crm, employees, currentUser,
   }
   return (
     <div className="space-y-4">
-      {section === 'crm-customers' && !(currentUser.role === 'admin' || currentUser.crmCustomerAccess) && (
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center text-xs text-slate-500">The Customers section is only available to employees selected by an administrator.</div>
-      )}
-      {section === 'crm-customers' && (currentUser.role === 'admin' || currentUser.crmCustomerAccess) && <CustomersView crm={crm} employees={employees} currentUser={currentUser} />}
+      {section === 'crm-customers' && <CustomersView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-tasks' && <TasksView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-inventory' && <InventoryView crm={crm} employees={employees} currentUser={currentUser} />}
-      {section === 'crm-sales' && <SalesView crm={crm} employees={employees} currentUser={currentUser} />}
+      {section === 'crm-sales' && !(currentUser.salesAccess || ['admin', 'accounts', 'ceo'].includes(currentUser.role)) && (
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center text-xs text-slate-500">The Sales section is only available to employees selected by an administrator.</div>
+      )}
+      {section === 'crm-sales' && (currentUser.salesAccess || ['admin', 'accounts', 'ceo'].includes(currentUser.role)) && <SalesView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-invoices' && <InvoicesView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-notifications' && <NotificationsView crm={crm} onOpen={onNavigate} />}
       {section === 'crm-meetings' && <MeetingsView crm={crm} employees={employees} currentUser={currentUser} />}
