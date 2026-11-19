@@ -47,13 +47,13 @@ export const WindowsTitleBar: React.FC<WindowsTitleBarProps> = ({
   };
 
   return (
-    <header className="h-10 bg-slate-200/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-300 dark:border-slate-800 flex items-center justify-between px-3 select-none text-xs text-slate-700 dark:text-slate-300 z-50">
+    <header className="h-10 overflow-hidden bg-slate-200/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-300 dark:border-slate-800 flex items-center justify-between px-3 select-none text-xs text-slate-700 dark:text-slate-300 z-50">
       {/* Left: App Icon & Brand Title */}
       <div className="flex items-center gap-2.5 shrink-0">
         <div className="w-5 h-5 rounded bg-blue-600 flex items-center justify-center text-white shadow-xs">
           <Clock className="w-3.5 h-3.5" />
         </div>
-        <span className="font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+        <span className="font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap hidden min-[430px]:inline">
           Office Attendance Tracker
         </span>
         <span className="text-slate-400 dark:text-slate-500 hidden sm:inline">|</span>
@@ -102,12 +102,12 @@ export const WindowsTitleBar: React.FC<WindowsTitleBarProps> = ({
           {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
         </button>
 
-        <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-1" />
+        <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-1 hidden sm:block" />
 
-        {/* Windows Standard Title Bar Buttons */}
+        {/* Windows Standard Title Bar Buttons (not useful on a phone, so hidden there) */}
         <button
           onClick={handleMinimize}
-          className="w-8 h-7 flex items-center justify-center rounded hover:bg-slate-300 dark:hover:bg-slate-800 transition-colors text-slate-600 dark:text-slate-400"
+          className="w-8 h-7 hidden sm:flex items-center justify-center rounded hover:bg-slate-300 dark:hover:bg-slate-800 transition-colors text-slate-600 dark:text-slate-400"
           title="Minimize"
         >
           <Minus className="w-3.5 h-3.5" />
@@ -115,7 +115,7 @@ export const WindowsTitleBar: React.FC<WindowsTitleBarProps> = ({
 
         <button
           onClick={handleMaximize}
-          className="w-8 h-7 flex items-center justify-center rounded hover:bg-slate-300 dark:hover:bg-slate-800 transition-colors text-slate-600 dark:text-slate-400"
+          className="w-8 h-7 hidden sm:flex items-center justify-center rounded hover:bg-slate-300 dark:hover:bg-slate-800 transition-colors text-slate-600 dark:text-slate-400"
           title={isMaximized ? 'Restore Down' : 'Maximize'}
         >
           <Square className="w-3 h-3" />
@@ -127,7 +127,7 @@ export const WindowsTitleBar: React.FC<WindowsTitleBarProps> = ({
               window.location.reload();
             }
           }}
-          className="w-8 h-7 flex items-center justify-center rounded hover:bg-rose-600 hover:text-white transition-colors text-slate-600 dark:text-slate-400"
+          className="w-8 h-7 hidden sm:flex items-center justify-center rounded hover:bg-rose-600 hover:text-white transition-colors text-slate-600 dark:text-slate-400"
           title="Close Window"
         >
           <X className="w-3.5 h-3.5" />
