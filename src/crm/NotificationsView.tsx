@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Bell, CheckCheck, Volume2, VolumeX } from 'lucide-react';
 import { isSoundOn, playAlertSound, setSoundOn } from './sound';
 import { ActiveDesktopTab } from '../types';
-import { CrmCategory } from './crmApi';
+import { CrmCategory, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { Pill, btnGhost, cardCls, fmtDateTime } from './ui';
 
@@ -20,6 +20,21 @@ export const NotificationsView: React.FC<Props> = ({ crm, onOpen }) => {
   useEffect(() => { void crm.refresh(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const unread = history.filter((h) => !h.read).length;
+  const newestAsk = history.find((h) => !h.read && String(h.id).includes('-ask-'))?.id;
+  const [confirming, setConfirming] = useState(false);
+  const [confirmErr, setConfirmErr] = useState('');
+  const confirmWorking = async () => {
+    setConfirming(true);
+    setConfirmErr('');
+    try {
+      await crmCall('work_confirm');
+      await crm.refresh();
+    } catch (e) {
+      setConfirmErr(e instanceof Error ? e.message : 'Could not confirm. Please try again.');
+    } finally {
+      setConfirming(false);
+    }
+  };
   const [sound, setSound] = useState(isSoundOn());
   const [perm, setPerm] = useState<string>(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
   const toggleSound = () => {
@@ -64,6 +79,14 @@ export const NotificationsView: React.FC<Props> = ({ crm, onOpen }) => {
                 </div>
                 <Pill tone={h.read ? 'slate' : 'blue'}>{LABEL[h.category]}</Pill>
               </button>
+              {h.id === newestAsk && (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <button disabled={confirming} onClick={() => void confirmWorking()} className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 cursor-pointer disabled:opacity-60">
+                    {confirming ? 'Confirming…' : "Yes, I'm still working"}
+                  </button>
+                  {confirmErr && <span className="text-[11px] text-red-600">{confirmErr}</span>}
+                </div>
+              )}
             </li>
           ))}
         </ul>

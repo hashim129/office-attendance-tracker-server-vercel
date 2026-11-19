@@ -584,3 +584,21 @@ export function formatSecondsToClock(totalSeconds: number): string {
 }
 
 
+
+
+/**
+ * Text for an auto punched-out record whose last stretch was never confirmed by the employee,
+ * e.g. "System punched out at 7:00 PM · 2h 0m not counted". Returns null when nothing was left out.
+ */
+export function describeUnverifiedTime(rec?: Pick<AttendanceRecord, 'unverifiedMinutes' | 'autoOutAt'> | null): string | null {
+  const mins = Math.round(Number(rec?.unverifiedMinutes) || 0);
+  if (!rec || mins <= 0) return null;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  let at = '';
+  if (rec.autoOutAt) {
+    const [hh, mm] = String(rec.autoOutAt).split(':').map((x) => parseInt(x, 10));
+    if (Number.isFinite(hh) && Number.isFinite(mm)) at = ` at ${hh % 12 || 12}:${String(mm).padStart(2, '0')} ${hh >= 12 ? 'PM' : 'AM'}`;
+  }
+  return `System punched out${at} · ${h}h ${m}m not counted (not confirmed)`;
+}

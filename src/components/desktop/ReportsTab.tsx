@@ -39,6 +39,7 @@ import {
   getDayName,
   getLiveWorkedStats,
   getTodayDateString,
+  describeUnverifiedTime,
 } from '../../lib/attendanceCalculations';
 import { exportAttendanceToCsv } from '../../lib/exportUtils';
 import { downloadOfficialTimesheetPdf } from '../../lib/pdfTimesheet';
@@ -760,6 +761,9 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                               <Sunset className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
                               <span>{formatTime12h(r.timeOut)}</span>
                             </div>
+                            {describeUnverifiedTime(r) && (
+                              <span className="block text-[9px] text-red-600 dark:text-red-400 font-sans font-semibold mt-0.5">{describeUnverifiedTime(r)}</span>
+                            )}
                             {r.isAutoPunchedOut && (
                               <span className="text-[9px] text-amber-600 dark:text-amber-400 font-sans font-semibold mt-0.5">
                                 {r.autoPunchOutReason === 'shift_end_2h'
