@@ -16,6 +16,7 @@ import {
   CalendarClock,
   Package,
   Receipt,
+  ReceiptText,
   FileText,
   BellRing,
 } from 'lucide-react';
@@ -230,6 +231,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             <div className="space-y-1 mb-1">
               {([
                 { tab: 'crm-sales' as const, label: 'Sales', Icon: Receipt, badge: (crmBadges?.salesNew || 0) + (crmBadges?.salesPending || 0) },
+                { tab: 'crm-receipts' as const, label: 'Receipts', Icon: ReceiptText, badge: crmBadges?.receiptNew || 0 },
                 { tab: 'crm-invoices' as const, label: 'Invoices', Icon: FileText, badge: crmBadges?.invoiceNew || 0 },
                 { tab: 'crm-notifications' as const, label: 'Notifications', Icon: BellRing, badge: crmBadges?.unreadTotal || 0 },
               ]).filter((i) => i.tab !== 'crm-sales' || ['admin', 'accounts', 'ceo'].includes(currentUser.role) || Boolean(currentUser.salesAccess)).map(({ tab, label, Icon, badge }) => (

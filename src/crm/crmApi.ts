@@ -91,6 +91,7 @@ export interface CrmBadges {
   inventoryPending: number;
   salesNew: number;
   invoiceNew: number;
+  receiptNew: number;
   salesPending: number;
   unreadTotal: number;
   /** My open deadlines (follow-ups / meetings) within the next 3 days, plus just-missed ones. */
@@ -98,7 +99,7 @@ export interface CrmBadges {
   unreadLatest: { id: string; category: CrmCategory; message: string }[];
 }
 
-export type CrmCategory = 'followup' | 'meeting' | 'inventory' | 'sale' | 'reminder' | 'invoice';
+export type CrmCategory = 'followup' | 'meeting' | 'inventory' | 'sale' | 'reminder' | 'invoice' | 'receipt';
 
 export interface CrmUpcoming {
   kind: 'followup' | 'meeting';
@@ -169,6 +170,11 @@ export interface CrmInvoice {
   customerAddress: string;
   customerNtn: string;
   reference: string;
+  /** Vendors we pay for this invoice: office record only, never printed on the PDF */
+  vendors: InvoiceVendor[];
+  /** NTN printed on this invoice. null = the company NTN (older invoices); '' = none */
+  ntn: string | null;
+  showNtn: boolean;
   invoiceDate: string;
   dueDate: string | null;
   currency: string;
@@ -183,6 +189,36 @@ export interface CrmInvoice {
   balance: number;
   notes: string;
   status: 'unpaid' | 'paid' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InvoiceVendor {
+  name: string;
+  amount: number;
+  currency: string;
+  bank: string;
+}
+
+export const RECEIPT_ITEMS = ['Package', 'Visa Charges', 'Air Tickets', 'Hotel', 'Transfers', 'Insurance', 'Service Charges'] as const;
+
+export interface CrmReceipt {
+  id: string;
+  receiptNo: string;
+  createdBy: string;
+  queryCode: string;
+  clientName: string;
+  items: string[];
+  otherItem: string;
+  paymentType: 'full' | 'partial';
+  currency: string;
+  totalAmount: number;
+  amountReceived: number;
+  method: 'cash' | 'bank';
+  bankName: string;
+  referenceNo: string;
+  hasProof: boolean;
+  purpose: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -228,6 +264,7 @@ export interface CrmData {
   inventoryItems: string[];
   sales: CrmSale[];
   invoices: CrmInvoice[];
+  receipts: CrmReceipt[];
   company: CompanyProfile;
   history: CrmHistoryItem[];
   saleTypes: Record<string, string>;
@@ -235,7 +272,7 @@ export interface CrmData {
   badges: CrmBadges;
 }
 
-export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0, salesNew: 0, invoiceNew: 0, salesPending: 0, unreadTotal: 0, upcoming: [], unreadLatest: [] };
+export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0, salesNew: 0, invoiceNew: 0, receiptNew: 0, salesPending: 0, unreadTotal: 0, upcoming: [], unreadLatest: [] };
 
 export class CrmError extends Error {
   code?: string;

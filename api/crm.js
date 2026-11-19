@@ -76,7 +76,15 @@ const mapInvoice = (r) => ({
   invoiceDate: r.invoice_date, dueDate: r.due_date || null, currency: r.currency, sections: Array.isArray(r.sections) ? r.sections : [],
   taxLabel: r.tax_label || 'Tax', taxRate: num(r.tax_rate), discount: num(r.discount), advancePaid: num(r.advance_paid),
   subtotal: num(r.subtotal), taxAmount: num(r.tax_amount), total: num(r.total), balance: num(r.balance), notes: r.notes || '',
+  vendors: asArray(r.vendors), ntn: r.ntn === null || r.ntn === undefined ? null : String(r.ntn), showNtn: r.show_ntn !== false,
   status: r.status, createdAt: r.created_at, updatedAt: r.updated_at,
+});
+const RECEIPT_ITEMS = ['Package', 'Visa Charges', 'Air Tickets', 'Hotel', 'Transfers', 'Insurance', 'Service Charges'];
+const mapReceipt = (r) => ({
+  id: r.id, receiptNo: r.receipt_no, createdBy: r.created_by, queryCode: r.query_code, clientName: r.client_name, items: asArray(r.items), otherItem: r.other_item || '',
+  paymentType: r.payment_type === 'partial' ? 'partial' : 'full', currency: r.currency, totalAmount: num(r.total_amount), amountReceived: num(r.amount_received),
+  method: r.method === 'bank' ? 'bank' : 'cash', bankName: r.bank_name || '', referenceNo: r.reference_no || '', hasProof: Boolean(r.has_proof), purpose: r.purpose || '',
+  createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const mapSale = (r) => ({
   id: r.id, couponNo: r.coupon_no, createdBy: r.created_by, saleType: r.sale_type, otherType: r.other_type || '',
@@ -110,6 +118,7 @@ async function notify(employeeIds, category, refId, message, exceptId) {
   await upsert('crm_notifications', ids.map((e) => ({ id: id('ntf'), employee_id: e, category, ref_id: refId, message, created_at: at, read_at: null })));
 }
 const salesStaffIds = async () => (await activeEmployees()).filter((e) => e.role === 'admin' || e.role === 'accounts').map((e) => e.id);
+const accountsIds = async () => (await activeEmployees()).filter((e) => e.role === 'accounts').map((e) => e.id);
 const adminIds = async () => (await activeEmployees()).filter((e) => e.role === 'admin').map((e) => e.id);
 
 async function assertEmployee(empId, label = 'Employee') {
@@ -194,6 +203,7 @@ export default async function handler(req, res) {
         inventoryPending: inventory.filter((r) => r.assigned_to === me.id && r.status === 'pending').length,
         salesNew: mine.filter((n) => n.category === 'sale').length,
         invoiceNew: mine.filter((n) => n.category === 'invoice').length,
+        receiptNew: mine.filter((n) => n.category === 'receipt').length,
         salesPending: (isAdmin || me.role === 'accounts') ? salesRows.filter((x) => x.status === 'pending').length : 0,
         unreadTotal: mine.length,
         unreadLatest: [...mine].sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))).slice(0, 5).map((n) => ({ id: n.id, category: n.category, message: n.message })),
@@ -211,9 +221,12 @@ export default async function handler(req, res) {
       const history = notifs.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 200)
         .map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at, read: Boolean(n.read_at) }));
       let invoices = [];
+      let receipts = [];
       let company = DEFAULT_COMPANY;
       if (action === 'list') {
-        const [invRows, companyRow] = await Promise.all([getAll('crm_invoices'), getOne('crm_company', 'main')]);
+        const [invRows, companyRow, receiptRows] = await Promise.all([getAll('crm_invoices'), getOne('crm_company', 'main'), supabaseFetch(`/crm_receipts?select=id,receipt_no,created_by,query_code,client_name,items,other_item,payment_type,currency,total_amount,amount_received,method,bank_name,reference_no,has_proof,purpose,created_at,updated_at&order=created_at.desc&limit=${LIMIT}`)]);
+        // Receipts go to Accounts (and Admin / CEO); everyone else only sees the receipts they made themselves.
+        receipts = (receiptRows || []).filter((x) => salesViewer || x.created_by === me.id).map(mapReceipt);
         invoices = invRows.filter((x) => salesViewer || x.created_by === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapInvoice);
         company = { ...DEFAULT_COMPANY, ...(companyRow?.data || {}) };
       }
@@ -223,13 +236,13 @@ export default async function handler(req, res) {
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS, sales, history, invoices, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
+        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS, sales, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
     }
 
     if (action === 'notifications_read') {
-      const cat = ['followup', 'meeting', 'inventory', 'sale', 'reminder', 'invoice'].includes(body.category) ? body.category : null;
+      const cat = ['followup', 'meeting', 'inventory', 'sale', 'reminder', 'invoice', 'receipt'].includes(body.category) ? body.category : null;
       const rows = (await myNotifications(me.id)).filter((n) => !n.read_at && (!cat || n.category === cat));
       if (rows.length) await upsert('crm_notifications', rows.map((n) => ({ ...n, read_at: nowIso() })));
       return res.status(200).json({ ok: true, marked: rows.length });
@@ -659,10 +672,24 @@ export default async function handler(req, res) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(d))) throw bad(`${name} is not a valid date.`);
         return d;
       };
+      const crmQuery = str(x.crmId || x.queryCode, 80, { name: 'CRM ID / Query Code' });
+      // Vendors we pay for this invoice: office record only, never printed on the customer's PDF.
+      const vendors = vendorBill ? [] : (Array.isArray(x.vendors) ? x.vendors.slice(0, 20) : []).map((v, vi) => {
+        const name = str(v?.name, 160, { name: `Vendor ${vi + 1} name` });
+        const bank = str(v?.bank, 600, { name: `Vendor ${vi + 1} bank account details` });
+        const hasAmount = !(v?.amount === '' || v?.amount === null || v?.amount === undefined);
+        if (!name && !bank && !hasAmount) return null;
+        if (!name) throw bad(`Enter the name of vendor ${vi + 1}.`);
+        const vCur = String(v?.currency || currency).toUpperCase();
+        if (!/^[A-Z]{3}$/.test(vCur)) throw bad(`Currency of vendor ${name} is not valid.`);
+        return { name, amount: money(v?.amount, `Payable to ${name}`), currency: vCur, bank };
+      }).filter(Boolean);
       const base = {
         customer_name: str(x.customerName, 160, { required: true, name: vendorBill ? 'Vendor name' : 'Customer name' }), customer_phone: str(x.customerPhone, 60, { name: 'Phone' }),
         customer_address: str(x.customerAddress, 400, { name: 'Address' }), customer_ntn: str(x.customerNtn, 60, { name: 'Customer NTN' }),
-        reference: str(x.reference, 120, { name: 'Reference' }), crm_id: str(x.crmId, 60, { name: 'CRM ID' }), query_code: str(x.queryCode, 80, { name: 'Query code' }), invoice_date: dateOnly(x.invoiceDate, 'Invoice date', true), due_date: dateOnly(x.dueDate, 'Due date', false),
+        // one box on the form: "CRM ID / Query Code" (kept in both columns so searches and reports find it either way)
+        reference: str(x.reference, 120, { name: 'Reference' }), crm_id: crmQuery, query_code: crmQuery,
+        ntn: str(x.ntn, 60, { name: 'NTN' }), show_ntn: x.showNtn !== false, vendors, invoice_date: dateOnly(x.invoiceDate, 'Invoice date', true), due_date: dateOnly(x.dueDate, 'Due date', false),
         currency, sections, tax_label: str(x.taxLabel, 40, { name: 'Tax label' }) || 'Tax', tax_rate: taxRate, discount, advance_paid: advancePaid,
         subtotal: r2(subtotal), tax_amount: taxAmount, total, balance, notes: str(x.notes, 1500, { name: 'Notes' }),
       };
@@ -699,6 +726,76 @@ export default async function handler(req, res) {
       const existing = await getOne('crm_invoices', body.id);
       if (!existing) throw notFound('Invoice not found.');
       await supabaseFetch(`/crm_invoices?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ---------------------------------------------------------------- receipts
+    if (action === 'receipt_save') {
+      const x = body.receipt || {};
+      const existing = x.id ? await getOne('crm_receipts', x.id) : null;
+      if (x.id && !existing) throw notFound('Receipt not found.');
+      if (existing && !(isAdmin || me.role === 'accounts' || existing.created_by === me.id)) throw forbidden('You can only edit your own receipts.');
+      const money = (v, label) => {
+        const n = Number(v);
+        if (v === '' || v === null || v === undefined || !Number.isFinite(n) || n < 0 || n > 9999999999) throw bad(`${label} is not a valid amount.`);
+        return r2(n);
+      };
+      const currency = String(x.currency || '').toUpperCase();
+      if (!/^[A-Z]{3}$/.test(currency)) throw bad('Choose the currency.');
+      const items = [...new Set(asArray(x.items).map(String))].filter((i) => RECEIPT_ITEMS.includes(i));
+      const otherItem = str(x.otherItem, 120, { name: 'Other item' });
+      const paymentType = x.paymentType === 'partial' ? 'partial' : 'full';
+      const totalAmount = money(x.totalAmount, 'Total payment sold for');
+      if (totalAmount <= 0) throw bad('Enter the total payment this was sold for.');
+      let amountReceived = totalAmount;
+      if (paymentType === 'partial') {
+        amountReceived = money(x.amountReceived, 'Amount received');
+        if (amountReceived <= 0) throw bad('Enter the amount received.');
+        if (amountReceived >= totalAmount) throw bad('For a partial payment the amount received must be less than the total. Choose Full payment if everything was received.');
+      }
+      const method = x.method === 'bank' ? 'bank' : 'cash';
+      let proof = existing ? existing.proof_image || null : null;
+      if (x.removeProof) proof = null;
+      if (x.proofImage) {
+        const data = String(x.proofImage);
+        if (!/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(data)) throw bad('The screenshot must be a JPG, JPEG or PNG image.');
+        if (data.length > 2_500_000) throw bad('The screenshot is too large. Please upload a smaller image.');
+        proof = data;
+      }
+      const base = {
+        query_code: str(x.queryCode, 80, { required: true, name: 'Query code' }), client_name: str(x.clientName, 160, { required: true, name: 'Client name' }),
+        items, other_item: otherItem, payment_type: paymentType, currency, total_amount: totalAmount, amount_received: amountReceived, method,
+        bank_name: method === 'bank' ? str(x.bankName, 120, { name: 'Bank name' }) : '', reference_no: str(x.referenceNo, 160, { name: 'Reference No / Transaction ID' }),
+        proof_image: proof, has_proof: Boolean(proof), purpose: str(x.purpose, 400, { name: 'On account of' }),
+      };
+      const at = nowIso();
+      const describe = (r) => `${r.client_name} (query ${r.query_code}): ${r.currency} ${r.amount_received} received ${r.method === 'bank' ? 'by bank transfer' : 'in cash'}, ${r.payment_type === 'partial' ? `partial payment of ${r.total_amount}` : 'full payment'}.`;
+      const accounts = await accountsIds();
+      if (existing) {
+        const row = { ...existing, ...base, updated_at: at };
+        await upsert('crm_receipts', row);
+        await notify(accounts, 'receipt', row.id, `${me.name || 'Someone'} updated receipt ${row.receipt_no} - ${describe(row)}`, me.id);
+        return res.status(200).json({ ok: true, receipt: mapReceipt(row) });
+      }
+      const receiptNo = await supabaseFetch('/rpc/crm_next_receipt_no', { method: 'POST', body: '{}' });
+      const row = { id: id('rcp'), receipt_no: String(receiptNo), created_by: me.id, created_at: at, updated_at: at, ...base };
+      await upsert('crm_receipts', row);
+      await notify(accounts, 'receipt', row.id, `${me.name || 'An employee'} created receipt ${row.receipt_no} - ${describe(row)}`, me.id);
+      return res.status(200).json({ ok: true, receipt: mapReceipt(row) });
+    }
+
+    if (action === 'receipt_proof') {
+      const existing = await getOne('crm_receipts', body.id);
+      if (!existing) throw notFound('Receipt not found.');
+      if (!(isAdmin || me.role === 'accounts' || me.role === 'ceo' || existing.created_by === me.id)) throw forbidden();
+      return res.status(200).json({ ok: true, image: existing.proof_image || null });
+    }
+
+    if (action === 'receipt_delete') {
+      if (!isAdmin) throw forbidden('Only an administrator can delete a receipt.');
+      const existing = await getOne('crm_receipts', body.id);
+      if (!existing) throw notFound('Receipt not found.');
+      await supabaseFetch(`/crm_receipts?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
       return res.status(200).json({ ok: true });
     }
 
