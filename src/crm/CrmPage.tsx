@@ -8,10 +8,11 @@ import { MeetingsView } from './MeetingsView';
 import { InventoryView } from './InventoryView';
 import { SalesView } from './SalesView';
 import { InvoicesView } from './InvoicesView';
+import { ReceiptsView } from './ReceiptsView';
 import { NotificationsView } from './NotificationsView';
 import { ActiveDesktopTab } from '../types';
 
-export type CrmSection = 'crm-customers' | 'crm-tasks' | 'crm-meetings' | 'crm-inventory' | 'crm-sales' | 'crm-invoices' | 'crm-notifications';
+export type CrmSection = 'crm-customers' | 'crm-tasks' | 'crm-meetings' | 'crm-inventory' | 'crm-sales' | 'crm-invoices' | 'crm-receipts' | 'crm-notifications';
 
 interface Props {
   section: CrmSection;
@@ -39,6 +40,7 @@ export const CrmPage: React.FC<Props> = ({ section, crm, employees, currentUser,
       )}
       {section === 'crm-sales' && (currentUser.salesAccess || ['admin', 'accounts', 'ceo'].includes(currentUser.role)) && <SalesView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-invoices' && <InvoicesView crm={crm} employees={employees} currentUser={currentUser} />}
+      {section === 'crm-receipts' && <ReceiptsView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-notifications' && <NotificationsView crm={crm} onOpen={onNavigate} />}
       {section === 'crm-meetings' && <MeetingsView crm={crm} employees={employees} currentUser={currentUser} />}
     </div>

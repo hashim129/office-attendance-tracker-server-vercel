@@ -1,6 +1,7 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, degrees, rgb } from 'pdf-lib';
 import { CompanyProfile, CrmInvoice } from './crmApi';
 import { fmtAmount } from './currencies';
+import { crmQueryOf, ntnShown } from './invoiceHelpers';
 
 const A4: [number, number] = [595.28, 841.89];
 const M = 40; // page margin
@@ -100,15 +101,16 @@ export async function buildInvoicePdf(inv: CrmInvoice, company: CompanyProfile, 
     y -= 40;
   }
 
-  const metaW = 215;
-  const metaX = A4[0] - M - metaW;
-  const metaKeyW = 82;
   const meta: [string, string][] = [[vendor ? 'Bill No' : 'Invoice No', inv.invoiceNo], [vendor ? 'Bill Date' : 'Invoice Date', niceDate(inv.invoiceDate)]];
   if (inv.dueDate) meta.push(['Due Date', niceDate(inv.dueDate)]);
-  if (!vendor && company.ntn) meta.push(['NTN#', company.ntn]);
+  // rows that are empty (or switched off, like the NTN) are simply left out, so the table always fits what is there
+  const ntn = ntnShown(inv, company);
+  if (ntn) meta.push(['NTN#', ntn]);
   if (inv.reference) meta.push(['Reference', inv.reference]);
-  if (inv.crmId) meta.push(['CRM ID', inv.crmId]);
-  if (vendor && inv.queryCode) meta.push(['Query Code', inv.queryCode]);
+  if (crmQueryOf(inv)) meta.push(['CRM ID / Query Code', crmQueryOf(inv)]);
+  const metaKeyW = Math.max(82, ...meta.map(([k]) => reg.widthOfTextAtSize(k, 9) + 10));
+  const metaW = Math.max(215, metaKeyW + 118);
+  const metaX = A4[0] - M - metaW;
   let my = y;
   for (const [k, v] of meta) {
     page.drawRectangle({ x: metaX, y: my - 17, width: metaW, height: 17, borderColor: LINE, borderWidth: 0.8 });
@@ -124,7 +126,7 @@ export async function buildInvoicePdf(inv: CrmInvoice, company: CompanyProfile, 
   by -= 14;
   text(wrap(bold, inv.customerName, 12, 280)[0], M, by, 12, bold);
   by -= 13;
-  for (const l of [inv.customerPhone && `Phone: ${inv.customerPhone}`, inv.customerAddress, inv.customerNtn && `NTN: ${inv.customerNtn}`].filter(Boolean) as string[]) {
+  for (const l of [inv.customerPhone && `Phone: ${inv.customerPhone}`, inv.customerAddress].filter(Boolean) as string[]) {
     for (const w of wrap(reg, l, 9, 280)) { text(w, M, by, 9, reg); by -= 11.5; }
   }
 
