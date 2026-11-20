@@ -8,8 +8,21 @@ import { getSessionEmployee } from './_session.js';
 
 const KINDS = ['meeting', 'corporate', 'internal', 'regular'];
 const KIND_LABEL = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up', regular: 'Regular customers follow-up' };
-// Fixed inventory list: requests can only use these items (typing other items is not allowed).
-const INVENTORY_ITEMS = ['Laptop', 'Keyboard', 'Mouse', 'Mouse Pad', 'Pen', 'Headphones', 'Writing Pads'];
+// Default inventory list + dynamic catalog managed by Admin & Accounts in Supabase
+const DEFAULT_INVENTORY_ITEMS = [
+  'Laptop',
+  'Keyboard',
+  'Mouse',
+  'Mouse Pad',
+  'Pen',
+  'Headphones',
+  'Writing Pads',
+  'Tissues',
+  'SIMs',
+  'Laptop Charger',
+  'Mobile Charger',
+  'Mobile Package',
+];
 const INVENTORY_STATUSES = ['approved', 'rejected', 'delivered'];
 const SALE_TYPES = { visa: 'Visa', ticket: 'Ticket', hotel: 'Hotel', transfers: 'Transfers', insurance: 'Insurance', others: 'Others' };
 const CURRENCIES = ['PKR', 'USD', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'KWD', 'OMR', 'BHD', 'TRY', 'INR', 'BDT', 'LKR', 'NPR', 'AFN', 'CAD', 'AUD', 'NZD', 'CNY', 'JPY', 'KRW', 'HKD', 'SGD', 'MYR', 'THB', 'IDR', 'PHP', 'VND', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'RUB', 'UAH', 'GEL', 'AZN', 'AMD', 'KZT', 'UZS', 'EGP', 'JOD', 'LBP', 'IQD', 'IRR', 'MAD', 'TND', 'DZD', 'ZAR', 'KES', 'NGN', 'GHS', 'ETB', 'TZS', 'MXN', 'BRL', 'ARS'];
@@ -119,6 +132,25 @@ const upsert = (table, rows) => supabaseFetch(`/${table}`, {
 const getAll = async (table) => (await supabaseFetch(`/${table}?select=*&limit=${LIMIT}`)) || [];
 const myNotifications = async (empId) => (await supabaseFetch(`/crm_notifications?employee_id=eq.${encodeURIComponent(empId)}&order=created_at.desc&limit=300&select=*`)) || [];
 const getOne = async (table, rowId) => (await supabaseFetch(`/${table}?id=eq.${encodeURIComponent(rowId)}&select=*`))?.[0] || null;
+
+async function getInventoryCatalog() {
+  try {
+    const row = await getOne('crm_company', 'inventory_catalog');
+    const custom = asArray(row?.data?.customItems).map((x) => String(x || '').trim()).filter(Boolean);
+    const removed = new Set(asArray(row?.data?.removedItems).map((x) => String(x || '').trim().toLowerCase()));
+    const combined = [];
+    const seen = new Set();
+    for (const item of [...DEFAULT_INVENTORY_ITEMS, ...custom]) {
+      const key = item.toLowerCase();
+      if (!key || seen.has(key) || removed.has(key)) continue;
+      seen.add(key);
+      combined.push(item);
+    }
+    return combined;
+  } catch {
+    return [...DEFAULT_INVENTORY_ITEMS];
+  }
+}
 
 async function activeEmployees() {
   return (await supabaseFetch('/employees?deleted_at=is.null&is_active=eq.true&select=id,name,role')) || [];
@@ -236,12 +268,19 @@ export default async function handler(req, res) {
       let invoices = [];
       let receipts = [];
       let company = DEFAULT_COMPANY;
+      let inventoryItems = DEFAULT_INVENTORY_ITEMS;
       if (action === 'list') {
-        const [invRows, companyRow, receiptRows] = await Promise.all([getAll('crm_invoices'), getOne('crm_company', 'main'), supabaseFetch(`/crm_receipts?select=id,receipt_no,created_by,query_code,client_name,items,other_item,payment_type,currency,total_amount,amount_received,method,bank_name,reference_no,has_proof,purpose,created_at,updated_at&order=created_at.desc&limit=${LIMIT}`)]);
+        const [invRows, companyRow, receiptRows, catalogItems] = await Promise.all([
+          getAll('crm_invoices'),
+          getOne('crm_company', 'main'),
+          supabaseFetch(`/crm_receipts?select=id,receipt_no,created_by,query_code,client_name,items,other_item,payment_type,currency,total_amount,amount_received,method,bank_name,reference_no,has_proof,purpose,created_at,updated_at&order=created_at.desc&limit=${LIMIT}`),
+          getInventoryCatalog(),
+        ]);
         // Receipts go to Accounts (and Admin / CEO); everyone else only sees the receipts they made themselves.
         receipts = (receiptRows || []).filter((x) => salesViewer || x.created_by === me.id).map(mapReceipt);
         invoices = invRows.filter((x) => salesViewer || x.created_by === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapInvoice);
         company = { ...DEFAULT_COMPANY, ...(companyRow?.data || {}) };
+        inventoryItems = catalogItems;
       }
       const since = Date.now() - 45 * 24 * 3600 * 1000;
       const visibleMeetings = meetings
@@ -249,7 +288,7 @@ export default async function handler(req, res) {
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems: INVENTORY_ITEMS, sales, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
+        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems, sales, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
     }
@@ -481,16 +520,47 @@ export default async function handler(req, res) {
     }
 
     // ---------------------------------------------------------------- inventory requests
-    // Any employee requests items from the fixed list (with quantities) and assigns it to an Accounts or Admin employee.
+    if (action === 'inventory_item_add') {
+      if (!isAdmin && me.role !== 'accounts') throw forbidden('Only Admin or Accounts can add inventory products.');
+      const newItem = str(body.item, 80, { required: true, name: 'Product name' });
+      const row = await getOne('crm_company', 'inventory_catalog');
+      const custom = asArray(row?.data?.customItems).map((x) => String(x || '').trim()).filter(Boolean);
+      const removed = asArray(row?.data?.removedItems).map((x) => String(x || '').trim()).filter((x) => x.toLowerCase() !== newItem.toLowerCase());
+      if (![...DEFAULT_INVENTORY_ITEMS, ...custom].some((x) => x.toLowerCase() === newItem.toLowerCase())) {
+        custom.push(newItem);
+      }
+      await upsert('crm_company', { id: 'inventory_catalog', data: { customItems: custom, removedItems: removed }, updated_at: nowIso() });
+      const inventoryItems = await getInventoryCatalog();
+      return res.status(200).json({ ok: true, inventoryItems });
+    }
+
+    if (action === 'inventory_item_remove') {
+      if (!isAdmin && me.role !== 'accounts') throw forbidden('Only Admin or Accounts can remove inventory products.');
+      const target = str(body.item, 80, { required: true, name: 'Product name' });
+      const row = await getOne('crm_company', 'inventory_catalog');
+      const custom = asArray(row?.data?.customItems).map((x) => String(x || '').trim()).filter((x) => x && x.toLowerCase() !== target.toLowerCase());
+      const removed = asArray(row?.data?.removedItems).map((x) => String(x || '').trim()).filter(Boolean);
+      if (DEFAULT_INVENTORY_ITEMS.some((x) => x.toLowerCase() === target.toLowerCase()) && !removed.some((x) => x.toLowerCase() === target.toLowerCase())) {
+        removed.push(target);
+      }
+      await upsert('crm_company', { id: 'inventory_catalog', data: { customItems: custom, removedItems: removed }, updated_at: nowIso() });
+      const inventoryItems = await getInventoryCatalog();
+      return res.status(200).json({ ok: true, inventoryItems });
+    }
+
+    // Any employee requests items from the catalog (with quantities) and assigns it to an Accounts or Admin employee.
     if (action === 'inventory_save') {
       const r = body.request || {};
+      const catalog = await getInventoryCatalog();
+      const catalogByLower = new Map(catalog.map((x) => [x.toLowerCase(), x]));
       const merged = new Map();
       for (const line of asArray(r.items)) {
-        const item = String(line?.item || '');
-        if (!INVENTORY_ITEMS.includes(item)) throw bad('Only items from the inventory list can be requested.');
+        const rawItem = String(line?.item || '').trim();
+        const canonical = catalogByLower.get(rawItem.toLowerCase());
+        if (!canonical) throw bad('Only items from the inventory list can be requested.');
         const qty = Number(line?.qty);
         if (!Number.isInteger(qty) || qty < 1 || qty > 999) throw bad('Each quantity must be a whole number from 1 to 999.');
-        merged.set(item, (merged.get(item) || 0) + qty);
+        merged.set(canonical, (merged.get(canonical) || 0) + qty);
       }
       if (!merged.size) throw bad('Add at least one item.');
       const items = [...merged].map(([item, qty]) => ({ item, qty: Math.min(999, qty) }));

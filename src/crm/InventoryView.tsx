@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Package, X, Check } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmInventoryRequest, InventoryStatus, crmCall } from './crmApi';
@@ -12,13 +12,43 @@ interface Props {
   currentUser: Employee;
 }
 
+const DEFAULT_PRESET_ITEMS = [
+  'Laptop',
+  'Keyboard',
+  'Mouse',
+  'Mouse Pad',
+  'Pen',
+  'Headphones',
+  'Writing Pads',
+  'Tissues',
+  'SIMs',
+  'Laptop Charger',
+  'Mobile Charger',
+  'Mobile Package',
+];
+
 const STATUS_LABEL: Record<InventoryStatus, string> = { pending: 'Pending', approved: 'Approved', rejected: 'Rejected', delivered: 'Delivered' };
+const DECIDE_TITLE: Record<InventoryStatus, string> = { pending: 'Update', approved: 'Approve', rejected: 'Reject', delivered: 'Mark as delivered:' };
 const statusTone = (s: InventoryStatus) => (s === 'delivered' ? 'green' : s === 'approved' ? 'blue' : s === 'rejected' ? 'red' : 'amber');
 
 export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   const isAdmin = currentUser.role === 'admin';
   const canReview = isAdmin || currentUser.role === 'accounts';
-  const { inventory, inventoryItems, unread } = crm.data;
+  const { inventory, inventoryItems: rawInventoryItems, unread } = crm.data;
+
+  const inventoryItems = useMemo(() => {
+    const merged: string[] = [];
+    const seen = new Set<string>();
+    const source = rawInventoryItems && rawInventoryItems.length > 0 ? rawInventoryItems : DEFAULT_PRESET_ITEMS;
+    for (const item of source) {
+      const k = item.trim().toLowerCase();
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      merged.push(item.trim());
+    }
+    return merged;
+  }, [rawInventoryItems]);
+
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const approvers = employees.filter((e) => e.isActive !== false && (e.role === 'accounts' || e.role === 'admin'));
 
@@ -29,6 +59,12 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  // Live product catalog bar state (for Admin & Accounts)
+  const [newProduct, setNewProduct] = useState('');
+  const [productBusy, setProductBusy] = useState(false);
+  const [productNotice, setProductNotice] = useState('');
+  const [productError, setProductError] = useState('');
 
   const [deciding, setDeciding] = useState<{ r: CrmInventoryRequest; status: InventoryStatus } | null>(null);
   const [remarks, setRemarks] = useState('');
@@ -50,6 +86,40 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
     setAssignee('');
     setError('');
     setFormOpen(true);
+  };
+
+  const handleAddProduct = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = newProduct.trim();
+    if (!trimmed || productBusy) return;
+    setProductBusy(true);
+    setProductError('');
+    setProductNotice('');
+    try {
+      await crmCall('inventory_item_add', { item: trimmed });
+      setNewProduct('');
+      await crm.refresh();
+      setProductNotice(`Added "${trimmed}" to live inventory list for all employees.`);
+      window.setTimeout(() => setProductNotice(''), 3500);
+    } catch (err: any) {
+      setProductError(err?.message || 'Could not add product.');
+    } finally {
+      setProductBusy(false);
+    }
+  };
+
+  const handleRemoveProduct = async (item: string) => {
+    if (!window.confirm(`Remove "${item}" from the inventory request list?`)) return;
+    setProductBusy(true);
+    setProductError('');
+    try {
+      await crmCall('inventory_item_remove', { item });
+      await crm.refresh();
+    } catch (err: any) {
+      setProductError(err?.message || 'Could not remove product.');
+    } finally {
+      setProductBusy(false);
+    }
   };
 
   const chosen = inventoryItems.map((item) => ({ item, qty: Math.floor(Number(qty[item] || 0)) })).filter((l) => l.qty > 0);
@@ -115,6 +185,70 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
         <button className={btnPrimary} onClick={openForm}><Plus className="w-4 h-4" /> New inventory request</button>
       </div>
 
+      {/* Live Inventory Product Catalog Bar (Admins & Accounts Only) */}
+      {canReview && (
+        <div className={`${cardCls} p-4 space-y-3 border-blue-200 dark:border-blue-900/60`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 inline-flex items-center gap-1.5">
+                <Package className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span>Live Inventory Product Catalog (Admin &amp; Accounts)</span>
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Add any new inventory product below — it saves to the database immediately and becomes available to all employees.
+              </p>
+            </div>
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Live · {inventoryItems.length} products
+            </span>
+          </div>
+
+          <form onSubmit={handleAddProduct} className="flex flex-col sm:flex-row gap-2">
+            <input
+              className={`${inputCls} flex-1`}
+              value={newProduct}
+              onChange={(e) => setNewProduct(e.target.value)}
+              placeholder="Type new inventory product name (e.g. Tissues, SIMs, Laptop Charger, USB Hub)…"
+              maxLength={80}
+              disabled={productBusy}
+            />
+            <button type="submit" className={btnPrimary} disabled={productBusy || !newProduct.trim()}>
+              <Plus className="w-3.5 h-3.5" />
+              <span>{productBusy ? 'Adding…' : 'Add product to database'}</span>
+            </button>
+          </form>
+
+          {productNotice && (
+            <p className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+              <Check className="w-3.5 h-3.5" /> {productNotice}
+            </p>
+          )}
+          <ErrorNote message={productError} />
+
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {inventoryItems.map((item) => (
+              <span
+                key={item}
+                className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700"
+              >
+                <span>{item}</span>
+                <button
+                  type="button"
+                  disabled={productBusy}
+                  onClick={() => void handleRemoveProduct(item)}
+                  className="p-0.5 rounded-full text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 cursor-pointer"
+                  title={`Remove ${item} from catalog`}
+                  aria-label={`Remove ${item}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       <ErrorNote message={crm.error} />
 
       {crm.loading && !inventory.length ? (
@@ -163,7 +297,34 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
 
       <Modal isOpen={formOpen} onClose={() => setFormOpen(false)} title="New inventory request" subtitle="Choose from the list and enter how many you need." maxWidth="lg">
         <form onSubmit={submit} className="space-y-4">
-          <div className="rounded-lg border border-slate-300 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-800">
+          {canReview && (
+            <div className="p-2.5 rounded-lg bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 space-y-2">
+              <span className="block text-[11px] font-bold text-blue-800 dark:text-blue-200">
+                Quick Add New Product to Catalog (Admin &amp; Accounts)
+              </span>
+              <div className="flex gap-2">
+                <input
+                  className={inputCls}
+                  value={newProduct}
+                  onChange={(e) => setNewProduct(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddProduct(); } }}
+                  placeholder="Type product name and press Add…"
+                  maxLength={80}
+                  disabled={productBusy}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleAddProduct()}
+                  disabled={productBusy || !newProduct.trim()}
+                  className={btnPrimary}
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-lg border border-slate-300 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-800 max-h-[46vh] overflow-y-auto">
             {inventoryItems.map((item) => (
               <div key={item} className="flex items-center justify-between gap-3 px-3 py-2">
                 <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">{item}</span>
@@ -196,7 +357,7 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
         </form>
       </Modal>
 
-      <Modal isOpen={Boolean(deciding)} onClose={() => setDeciding(null)} title={deciding ? `${{ approved: 'Approve', rejected: 'Reject', delivered: 'Mark as delivered:' }[deciding.status]} request` : ''} subtitle={deciding ? deciding.r.items.map((l) => `${l.qty} × ${l.item}`).join(', ') : undefined} maxWidth="md">
+      <Modal isOpen={Boolean(deciding)} onClose={() => setDeciding(null)} title={deciding ? `${DECIDE_TITLE[deciding.status]} request` : ''} subtitle={deciding ? deciding.r.items.map((l) => `${l.qty} × ${l.item}`).join(', ') : undefined} maxWidth="md">
         <form onSubmit={decide} className="space-y-4">
           <Field label="Remarks (optional)"><textarea className={`${inputCls} min-h-[70px]`} value={remarks} onChange={(e) => setRemarks(e.target.value)} maxLength={1000} /></Field>
           <ErrorNote message={error} />
