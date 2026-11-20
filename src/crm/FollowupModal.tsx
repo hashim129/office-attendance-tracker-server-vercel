@@ -33,6 +33,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
   const [newCompany, setNewCompany] = useState('');
   const [newNumber, setNewNumber] = useState('');
   const [newDest, setNewDest] = useState('');
+  const [newDescription, setNewDescription] = useState('');
   const [kind, setKind] = useState<FollowupKind>('meeting');
   const [assignedTo, setAssignedTo] = useState('');
   const [participants, setParticipants] = useState<string[]>([]);
@@ -42,12 +43,13 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
   const [error, setError] = useState('');
 
   const staff = employees.filter((e) => e.isActive !== false);
+  const selectedCustomer = customers.find((c) => c.id === customerId);
 
   useEffect(() => {
     if (!open) return;
     setError('');
     setBusy(false);
-    setNewName(''); setNewCompany(''); setNewNumber(''); setNewDest('');
+    setNewName(''); setNewCompany(''); setNewNumber(''); setNewDest(''); setNewDescription('');
     if (editing) {
       setMode(editing.customerId ? 'existing' : 'none');
       setCustomerId(editing.customerId || '');
@@ -94,6 +96,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
           customerName: newName,
           companyName: newCompany,
           customerNumber: newNumber,
+          description: newDescription,
           destinations: newDest.split(';').map((d) => d.trim()).filter(Boolean),
         };
       }
@@ -121,12 +124,20 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
             {!editing && hasCustomerAccess && <button type="button" className={chip(mode === 'new')} onClick={() => setMode('new')}>＋ Add new customer</button>}
           </div>
           {mode === 'existing' && (
-            <select className={inputCls} value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={Boolean(editing)} aria-label="Customer">
-              <option value="">Select a customer…</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>{c.customerName}{c.companyName ? ` — ${c.companyName}` : ''}</option>
-              ))}
-            </select>
+            <div className="space-y-2">
+              <select className={inputCls} value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={Boolean(editing)} aria-label="Customer">
+                <option value="">Select a customer…</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>{c.customerName}{c.companyName ? ` — ${c.companyName}` : ''}</option>
+                ))}
+              </select>
+              {selectedCustomer?.description && (
+                <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300">
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">Customer description: </span>
+                  <span className="whitespace-pre-wrap break-words">{selectedCustomer.description}</span>
+                </div>
+              )}
+            </div>
           )}
           {mode === 'new' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-lg border border-dashed border-slate-300 dark:border-slate-700">
@@ -134,6 +145,11 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
               <Field label="Company name (optional)"><input className={inputCls} value={newCompany} onChange={(e) => setNewCompany(e.target.value)} maxLength={160} /></Field>
               <Field label="Customer number (optional)"><input className={inputCls} value={newNumber} onChange={(e) => setNewNumber(e.target.value)} maxLength={60} /></Field>
               <Field label="Desired countries / cities (optional)" hint="Separate several with a semicolon ( ; )"><input className={inputCls} value={newDest} onChange={(e) => setNewDest(e.target.value)} placeholder="Istanbul, Turkey; Dubai, UAE" /></Field>
+              <div className="sm:col-span-2">
+                <Field label="Customer description (optional)">
+                  <textarea className={`${inputCls} min-h-[64px]`} value={newDescription} onChange={(e) => setNewDescription(e.target.value)} placeholder="Type customer background, requirements or notes…" maxLength={2000} />
+                </Field>
+              </div>
             </div>
           )}
           {mode === 'none' && <p className="text-[11px] text-slate-400">This follow-up is not linked to a customer.</p>}
@@ -186,8 +202,8 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
           </div>
         </div>
 
-        <Field label="Follow-up remarks">
-          <textarea className={`${inputCls} min-h-[90px]`} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Type the details of what has to be followed up…" maxLength={4000} />
+        <Field label="Follow-up reason / description">
+          <textarea className={`${inputCls} min-h-[90px]`} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Type the reason and details of what has to be followed up…" maxLength={4000} />
         </Field>
 
         <ErrorNote message={error} />

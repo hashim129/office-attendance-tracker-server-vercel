@@ -43,10 +43,23 @@ const isoOrNull = (v, name, { required = false } = {}) => {
 };
 const asArray = (v) => (Array.isArray(v) ? v : typeof v === 'string' ? (() => { try { return JSON.parse(v); } catch { return []; } })() : []);
 
+const DESC_PREFIX = '__desc__:';
+const extractCustDesc = (r) => {
+  const raw = asArray(r?.shared_with);
+  const token = raw.find((x) => typeof x === 'string' && x.startsWith(DESC_PREFIX));
+  return r?.description ? String(r.description) : token ? token.slice(DESC_PREFIX.length) : '';
+};
+const cleanSharedIds = (arr) => asArray(arr).filter((x) => typeof x === 'string' && !x.startsWith(DESC_PREFIX));
+const packSharedWith = (ids, description) => {
+  const clean = cleanSharedIds(ids);
+  const desc = String(description || '').trim();
+  return desc ? [...clean, `${DESC_PREFIX}${desc}`] : clean;
+};
+
 const mapCustomer = (r) => ({
-  id: r.id, customerName: r.customer_name, companyName: r.company_name || '', destinations: asArray(r.destinations),
+  id: r.id, customerName: r.customer_name, companyName: r.company_name || '', description: extractCustDesc(r), destinations: asArray(r.destinations),
   customerNumber: r.customer_number || '', acquiredThrough: r.acquired_through || '', acquiredBy: r.acquired_by || '',
-  sharedWith: asArray(r.shared_with), createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+  sharedWith: cleanSharedIds(r.shared_with), createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const mapFollowup = (r) => ({
   id: r.id, customerId: r.customer_id || null, participantIds: asArray(r.participant_ids), kind: r.kind, assignedTo: r.assigned_to, remarks: r.remarks || '', dueAt: r.due_at,
@@ -268,6 +281,7 @@ export default async function handler(req, res) {
       const c = body.customer || {};
       const destinations = asArray(c.destinations).map((d) => str(d, 100)).filter(Boolean);
       if (destinations.length > 30) throw bad('Too many destinations (max 30).');
+      const description = str(c.description, 2000, { name: 'Customer description' });
       const fields = {
         customer_name: str(c.customerName, 120, { required: true, name: 'Customer name' }),
         company_name: str(c.companyName, 160, { name: 'Company name' }),
@@ -279,20 +293,23 @@ export default async function handler(req, res) {
       };
       // Only the person who added the customer (or Admin / CEO / Accounts) decides who else may see it.
       const staffList = await activeEmployees();
-      const sharedWith = [...new Set(asArray(c.sharedWith).map(String))].slice(0, 100);
+      const sharedWith = [...new Set(cleanSharedIds(c.sharedWith).map(String))].slice(0, 100);
       for (const sid of sharedWith) if (!staffList.some((e) => e.id === sid)) throw bad('One of the employees chosen to see this customer was not found or is no longer active.');
       if (c.id) {
         const existing = await getOne('crm_customers', c.id);
         if (!existing || existing.deleted_at) throw notFound('Customer not found.');
         if (!seeAllCust && existing.created_by !== me.id) throw forbidden('You can only change customers you added.');
-        const upd = { ...existing, ...fields, shared_with: sharedWith.filter((x) => x !== existing.created_by) };
+        const cleanNewShared = sharedWith.filter((x) => x !== existing.created_by);
+        const upd = { ...existing, ...fields, shared_with: packSharedWith(cleanNewShared, description) };
         await upsert('crm_customers', upd);
-        const newlyShared = upd.shared_with.filter((x) => !asArray(existing.shared_with).includes(x) && x !== me.id);
+        const prevShared = cleanSharedIds(existing.shared_with);
+        const newlyShared = cleanNewShared.filter((x) => !prevShared.includes(x) && x !== me.id);
         if (newlyShared.length) await notify(newlyShared, 'followup', existing.id, `${me.name || 'A colleague'} shared customer ${fields.customer_name} with you.`, me.id);
         return res.status(200).json({ ok: true, customer: mapCustomer(upd) });
       }
-      const row = { id: id('cus'), ...fields, shared_with: sharedWith.filter((x) => x !== me.id), created_by: me.id, created_at: nowIso(), deleted_at: null };
-      if (row.shared_with.length) await notify(row.shared_with, 'followup', row.id, `${me.name || 'A colleague'} shared customer ${fields.customer_name} with you.`, me.id);
+      const cleanNewShared = sharedWith.filter((x) => x !== me.id);
+      const row = { id: id('cus'), ...fields, shared_with: packSharedWith(cleanNewShared, description), created_by: me.id, created_at: nowIso(), deleted_at: null };
+      if (cleanNewShared.length) await notify(cleanNewShared, 'followup', row.id, `${me.name || 'A colleague'} shared customer ${fields.customer_name} with you.`, me.id);
       await upsert('crm_customers', row);
       return res.status(200).json({ ok: true, customer: mapCustomer(row) });
     }
@@ -322,10 +339,11 @@ export default async function handler(req, res) {
       } else if (f.newCustomer && String(f.newCustomer.customerName || '').trim()) {
         const c = f.newCustomer;
         const destinations = asArray(c.destinations).map((d) => str(d, 100)).filter(Boolean).slice(0, 30);
+        const newDesc = str(c.description, 2000, { name: 'Customer description' });
         newCustomerRow = {
           id: id('cus'), customer_name: str(c.customerName, 120, { required: true, name: 'Customer name' }), company_name: str(c.companyName, 160, { name: 'Company name' }),
           destinations, customer_number: str(c.customerNumber, 60, { name: 'Customer number' }), acquired_through: str(c.acquiredThrough, 120, { name: 'Acquired through' }),
-          acquired_by: str(c.acquiredBy, 80, { name: 'Acquired by' }), created_by: me.id, created_at: nowIso(), updated_at: nowIso(), deleted_at: null,
+          acquired_by: str(c.acquiredBy, 80, { name: 'Acquired by' }), shared_with: packSharedWith([], newDesc), created_by: me.id, created_at: nowIso(), updated_at: nowIso(), deleted_at: null,
         };
         customer = newCustomerRow;
       }
@@ -676,13 +694,20 @@ export default async function handler(req, res) {
       // Vendors we pay for this invoice: office record only, never printed on the customer's PDF.
       const vendors = vendorBill ? [] : (Array.isArray(x.vendors) ? x.vendors.slice(0, 20) : []).map((v, vi) => {
         const name = str(v?.name, 160, { name: `Vendor ${vi + 1} name` });
+        const description = str(v?.description, 300, { name: `Vendor ${vi + 1} description` });
         const bank = str(v?.bank, 600, { name: `Vendor ${vi + 1} bank account details` });
+        const hasUnitPrice = !(v?.unitPrice === '' || v?.unitPrice === null || v?.unitPrice === undefined);
+        const hasUnits = !(v?.units === '' || v?.units === null || v?.units === undefined);
         const hasAmount = !(v?.amount === '' || v?.amount === null || v?.amount === undefined);
-        if (!name && !bank && !hasAmount) return null;
+        if (!name && !description && !bank && !hasAmount && !hasUnitPrice && !hasUnits) return null;
         if (!name) throw bad(`Enter the name of vendor ${vi + 1}.`);
         const vCur = String(v?.currency || currency).toUpperCase();
         if (!/^[A-Z]{3}$/.test(vCur)) throw bad(`Currency of vendor ${name} is not valid.`);
-        return { name, amount: money(v?.amount, `Payable to ${name}`), currency: vCur, bank };
+        const unitPrice = hasUnitPrice ? money(v.unitPrice, `Unit price for ${name}`) : null;
+        const units = hasUnits ? money(v.units, `Units for ${name}`) : null;
+        const computedAmt = unitPrice !== null ? r2(unitPrice * (units ?? 1)) : 0;
+        const amount = hasAmount ? money(v.amount, `Payable to ${name}`) : computedAmt;
+        return { name, description, unitPrice, units, amount, currency: vCur, bank };
       }).filter(Boolean);
       const base = {
         customer_name: str(x.customerName, 160, { required: true, name: vendorBill ? 'Vendor name' : 'Customer name' }), customer_phone: str(x.customerPhone, 60, { name: 'Phone' }),

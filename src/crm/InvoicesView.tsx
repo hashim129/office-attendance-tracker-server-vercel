@@ -16,7 +16,7 @@ interface Props {
 
 interface FormLine { description: string; unitPrice: string; units: string; currency: string; rate: string; taxable: boolean; note: boolean; key: string; locked: boolean }
 interface FormSection { title: string; key: string; locked: boolean; lines: FormLine[] }
-interface FormVendor { name: string; amount: string; currency: string; bank: string }
+interface FormVendor { name: string; description: string; unitPrice: string; units: string; amount: string; currency: string; bank: string }
 interface FormState {
   id?: string;
   kind: 'customer' | 'vendor';
@@ -36,7 +36,7 @@ const isServiceTitle = (t: string) => /service/i.test(t);
 const uid = () => `k${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
 const blankLine = (currency: string, taxable = false): FormLine => ({ description: '', unitPrice: '', units: '1', currency, rate: '', taxable, note: false, key: uid(), locked: false });
 const newSection = (title: string, currency: string): FormSection => ({ title, key: uid(), locked: false, lines: [blankLine(currency, isServiceTitle(title))] });
-const blankVendor = (currency: string): FormVendor => ({ name: '', amount: '', currency, bank: '' });
+const blankVendor = (currency: string): FormVendor => ({ name: '', description: '', unitPrice: '', units: '', amount: '', currency, bank: '' });
 const blankForm = (kind: 'customer' | 'vendor' = 'customer', companyNtn = ''): FormState => ({
   kind, crmId: '', customerName: '', customerPhone: '', reference: '', ntn: companyNtn, showNtn: true, vendors: kind === 'customer' ? [blankVendor('PKR')] : [], invoiceDate: today(), dueDate: '', currency: 'PKR',
   sections: [{ title: '', key: uid(), locked: false, lines: [blankLine('PKR')] }], taxLabel: 'Tax', taxRate: kind === 'vendor' ? '' : '6', discount: '', advancePaid: '', notes: '',
@@ -71,7 +71,15 @@ function toForm(inv: CrmInvoice, companyNtn = ''): FormState {
   return {
     id: inv.id, kind, invoiceNo: inv.invoiceNo, crmId: crmQueryOf(inv), customerName: inv.customerName, customerPhone: inv.customerPhone,
     ntn: inv.ntn === null || inv.ntn === undefined ? companyNtn : inv.ntn, showNtn: inv.showNtn !== false,
-    vendors: kind === 'customer' ? ((inv.vendors || []).length ? inv.vendors.map((v) => ({ name: v.name, amount: String(v.amount ?? ''), currency: v.currency || inv.currency, bank: v.bank || '' })) : [blankVendor(inv.currency)]) : [],
+    vendors: kind === 'customer' ? ((inv.vendors || []).length ? inv.vendors.map((v) => ({
+      name: v.name,
+      description: v.description || '',
+      unitPrice: v.unitPrice !== null && v.unitPrice !== undefined ? String(v.unitPrice) : '',
+      units: v.units !== null && v.units !== undefined ? String(v.units) : '',
+      amount: String(v.amount ?? ''),
+      currency: v.currency || inv.currency,
+      bank: v.bank || '',
+    })) : [blankVendor(inv.currency)]) : [],
     reference: inv.reference, invoiceDate: inv.invoiceDate, dueDate: inv.dueDate || '', currency: inv.currency,
     sections: inv.sections.map((s) => ({
       title: s.title, key: s.key || uid(), locked: Boolean(s.locked),
@@ -207,19 +215,49 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
   useEffect(() => { if (view) setView(allInvoices.find((i) => i.id === view.id) || null); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allInvoices]);
 
-  const counts = useMemo(() => ({
-    unpaid: invoices.filter((i) => i.status === 'unpaid').length,
-    paid: invoices.filter((i) => i.status === 'paid').length,
-    cancelled: invoices.filter((i) => i.status === 'cancelled').length,
-  }), [invoices]);
-  const outstanding = useMemo(() => {
+  const customerInvoices = useMemo(() => allInvoices.filter((i) => (i.kind || 'customer') === 'customer'), [allInvoices]);
+  const vendorInvoices = useMemo(() => allInvoices.filter((i) => i.kind === 'vendor'), [allInvoices]);
+
+  const receivableCounts = useMemo(() => ({
+    unpaid: customerInvoices.filter((i) => i.status === 'unpaid').length,
+    paid: customerInvoices.filter((i) => i.status === 'paid').length,
+    cancelled: customerInvoices.filter((i) => i.status === 'cancelled').length,
+  }), [customerInvoices]);
+
+  const payableCounts = useMemo(() => {
+    const inlineUnpaid = customerInvoices.filter((i) => i.status === 'unpaid').reduce((acc, i) => acc + (i.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0).length, 0);
+    const inlinePaid = customerInvoices.filter((i) => i.status === 'paid').reduce((acc, i) => acc + (i.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0).length, 0);
+    const inlineCancelled = customerInvoices.filter((i) => i.status === 'cancelled').reduce((acc, i) => acc + (i.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0).length, 0);
+    return {
+      unpaid: vendorInvoices.filter((i) => i.status === 'unpaid').length + inlineUnpaid,
+      paid: vendorInvoices.filter((i) => i.status === 'paid').length + inlinePaid,
+      cancelled: vendorInvoices.filter((i) => i.status === 'cancelled').length + inlineCancelled,
+    };
+  }, [vendorInvoices, customerInvoices]);
+
+  const receivablesOutstanding = useMemo(() => {
     const m = new Map<string, number>();
-    invoices.filter((i) => i.status === 'unpaid').forEach((i) => m.set(i.currency, (m.get(i.currency) || 0) + i.balance));
+    customerInvoices.filter((i) => i.status === 'unpaid').forEach((i) => m.set(i.currency, (m.get(i.currency) || 0) + i.balance));
     return [...m.entries()];
-  }, [invoices]);
+  }, [customerInvoices]);
+
+  const payablesOutstanding = useMemo(() => {
+    const m = new Map<string, number>();
+    vendorInvoices.filter((i) => i.status === 'unpaid').forEach((i) => m.set(i.currency, (m.get(i.currency) || 0) + i.balance));
+    customerInvoices.filter((i) => i.status === 'unpaid').forEach((i) => {
+      (i.vendors || []).forEach((v) => {
+        if ((v.amount ?? 0) > 0) {
+          const cur = v.currency || i.currency;
+          m.set(cur, (m.get(cur) || 0) + v.amount);
+        }
+      });
+    });
+    return [...m.entries()];
+  }, [vendorInvoices, customerInvoices]);
+
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return invoices.filter((i) => (filter === 'all' || i.status === filter) && (!q || [i.invoiceNo, i.customerName, i.reference, i.crmId || '', i.queryCode || '', i.customerPhone, empName.get(i.createdBy) || '', ...(i.vendors || []).map((v) => v.name)].some((v) => v.toLowerCase().includes(q))));
+    return invoices.filter((i) => (filter === 'all' || i.status === filter) && (!q || [i.invoiceNo, i.customerName, i.reference, i.crmId || '', i.queryCode || '', i.customerPhone, empName.get(i.createdBy) || '', ...(i.vendors || []).flatMap((v) => [v.name, v.description || ''])].some((v) => v.toLowerCase().includes(q))));
   }, [invoices, filter, query, empName]);
 
   const canEdit = (i: CrmInvoice) => isStaff || (i.createdBy === currentUser.id && i.status === 'unpaid');
@@ -248,9 +286,26 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
     patch({ currency: code, vendors: form!.vendors.map((v) => (v.currency === form!.currency ? { ...v, currency: code } : v)), sections: form!.sections.map((s) => ({ ...s, lines: s.lines.map((l) => (l.currency === form!.currency ? { ...l, currency: code, rate: '' } : l)) })) });
   };
 
+  const updateVendor = (vi: number, p: Partial<FormVendor>) => {
+    if (!form) return;
+    const nextVendors = form.vendors.map((v, i) => {
+      if (i !== vi) return v;
+      const updated = { ...v, ...p };
+      if ('unitPrice' in p || 'units' in p) {
+        const up = num(updated.unitPrice);
+        const un = updated.units.trim() === '' ? 1 : num(updated.units);
+        if (Number.isFinite(up) && Number.isFinite(un)) {
+          updated.amount = String(Math.round(up * un * 100) / 100);
+        }
+      }
+      return updated;
+    });
+    patch({ vendors: nextVendors });
+  };
+
   const buildPayload = (lockIdx: number | null) => ({
     ...form,
-    vendors: (form!.vendors || []).filter((v) => v.name.trim() || v.amount.trim() || v.bank.trim()),
+    vendors: (form!.vendors || []).filter((v) => v.name.trim() || v.description.trim() || v.unitPrice.trim() || v.units.trim() || v.amount.trim() || v.bank.trim()),
     sections: form!.sections.map((s, si) => {
       const lockThis = si === lockIdx;
       return {
@@ -352,20 +407,56 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
         ))}
       </div>
 
-      <StatBar
-        title={`${seesAll ? 'All' : 'Your'} ${vendorSide ? 'vendor payables' : 'invoices'}`}
-        segments={[
-          { label: 'Unpaid', count: counts.unpaid, tone: 'amber' },
-          { label: 'Paid', count: counts.paid, tone: 'green' },
-          { label: 'Cancelled', count: counts.cancelled, tone: 'slate' },
-        ]}
-      />
-      {outstanding.length > 0 && (
-        <div className={`${cardCls} p-3 flex flex-wrap gap-x-6 gap-y-1 text-xs`}>
-          <span className="font-semibold text-slate-600 dark:text-slate-300">{vendorSide ? 'Still to be paid to vendors:' : 'Still to be received:'}</span>
-          {outstanding.map(([c, v]) => <span key={c} className="font-mono font-bold text-blue-600 dark:text-blue-400">{c} {fmtAmount(v)}</span>)}
+      {/* Divided 50/50 Invoice Bar: Left = Receivables, Right = Vendor Payables */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div
+          onClick={() => { if (side !== 'customer') { setSide('customer'); setFilter('all'); setQuery(''); } }}
+          className={`space-y-2 rounded-xl p-1 transition-all cursor-pointer ${side === 'customer' ? 'ring-2 ring-blue-500/40' : 'opacity-90 hover:opacity-100'}`}
+        >
+          <StatBar
+            title={`${seesAll ? 'All' : 'Your'} Customer Receivables`}
+            segments={[
+              { label: 'Unpaid', count: receivableCounts.unpaid, tone: 'amber' },
+              { label: 'Paid', count: receivableCounts.paid, tone: 'green' },
+              { label: 'Cancelled', count: receivableCounts.cancelled, tone: 'slate' },
+            ]}
+          />
+          <div className={`${cardCls} p-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs`}>
+            <span className="font-semibold text-slate-600 dark:text-slate-300">Still to be received (Receivables):</span>
+            <div className="flex flex-wrap gap-3">
+              {receivablesOutstanding.length > 0 ? (
+                receivablesOutstanding.map(([c, v]) => <span key={c} className="font-mono font-bold text-blue-600 dark:text-blue-400">{c} {fmtAmount(v)}</span>)
+              ) : (
+                <span className="font-mono font-semibold text-slate-400">PKR 0</span>
+              )}
+            </div>
+          </div>
         </div>
-      )}
+
+        <div
+          onClick={() => { if (side !== 'vendor') { setSide('vendor'); setFilter('all'); setQuery(''); } }}
+          className={`space-y-2 rounded-xl p-1 transition-all cursor-pointer ${side === 'vendor' ? 'ring-2 ring-amber-500/40' : 'opacity-90 hover:opacity-100'}`}
+        >
+          <StatBar
+            title={`${seesAll ? 'All' : 'Your'} Vendor Payables`}
+            segments={[
+              { label: 'Unpaid', count: payableCounts.unpaid, tone: 'amber' },
+              { label: 'Paid', count: payableCounts.paid, tone: 'green' },
+              { label: 'Cancelled', count: payableCounts.cancelled, tone: 'slate' },
+            ]}
+          />
+          <div className={`${cardCls} p-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs`}>
+            <span className="font-semibold text-slate-600 dark:text-slate-300">Still to be paid (Vendor Payables):</span>
+            <div className="flex flex-wrap gap-3">
+              {payablesOutstanding.length > 0 ? (
+                payablesOutstanding.map(([c, v]) => <span key={c} className="font-mono font-bold text-amber-600 dark:text-amber-400">{c} {fmtAmount(v)}</span>)
+              ) : (
+                <span className="font-mono font-semibold text-slate-400">PKR 0</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className={`${cardCls} p-4 flex flex-col md:flex-row gap-2 md:items-center justify-between`}>
         <div className="flex flex-wrap gap-1.5">
@@ -385,14 +476,21 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
             <div key={i.id} className={`${cardCls} p-4`}>
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                 <div className="min-w-0 space-y-1">
+                  {/* Ordered: 1. Invoice No -> 2. CRM ID / Query Code -> 3. Customer Name */}
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs font-bold text-blue-700 dark:text-blue-300">{i.invoiceNo}</span>
+                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                      {i.invoiceNo}
+                    </span>
+                    <Pill tone="blue">CRM / Query: {crmQueryOf(i) || '—'}</Pill>
+                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{i.customerName}</span>
                     <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? 'Paid' : i.status === 'cancelled' ? 'Cancelled' : 'Unpaid'}</Pill>
                     {i.reference && <Pill tone="slate">Ref {i.reference}</Pill>}
-                    {crmQueryOf(i) && <Pill tone="blue">CRM / Query {crmQueryOf(i)}</Pill>}
                   </div>
-                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{i.customerName}</p>
-                  {(i.vendors || []).length > 0 && <p className="text-[11px] text-amber-700 dark:text-amber-400 break-words">Vendors (office only): {i.vendors.map((v) => `${v.name}${v.amount ? ` — ${v.currency} ${fmtAmount(v.amount)}` : ''}`).join('; ')}</p>}
+                  {(i.vendors || []).length > 0 && (
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400 break-words">
+                      Vendors (office only): {i.vendors.map((v) => `${v.name}${v.description ? ` (${v.description})` : ''}${v.unitPrice ? ` [${fmtAmount(v.unitPrice)} × ${v.units ?? 1}]` : ''}${v.amount ? ` — ${v.currency} ${fmtAmount(v.amount)}` : ''}`).join('; ')}
+                    </p>
+                  )}
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">{niceDate(i.invoiceDate)}{i.dueDate ? ` · due ${niceDate(i.dueDate)}` : ''} · created by <b className="text-slate-700 dark:text-slate-200">{by(i) || 'Former employee'}</b></p>
                 </div>
                 <div className="lg:text-right shrink-0">
@@ -431,7 +529,10 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                 <p className="font-bold text-amber-800 dark:text-amber-300 inline-flex items-center gap-1.5"><Info className="w-3.5 h-3.5" /> Vendor details — office record only, not on the PDF</p>
                 {view.vendors.map((v, i) => (
                   <div key={i} className="text-slate-700 dark:text-slate-200">
-                    <b>{v.name}</b>{v.amount ? <> — payable <span className="font-mono font-bold">{v.currency} {fmtAmount(v.amount)}</span></> : null}
+                    <b>{v.name}</b>
+                    {v.description ? <span> — {v.description}</span> : null}
+                    {v.unitPrice !== null && v.unitPrice !== undefined ? <span className="text-slate-500"> (Unit price: {v.currency} {fmtAmount(v.unitPrice)} × Units: {fmtAmount(v.units ?? 1)})</span> : null}
+                    {v.amount ? <> — payable <span className="font-mono font-bold">{v.currency} {fmtAmount(v.amount)}</span></> : null}
                     {v.bank && <span className="block whitespace-pre-wrap text-slate-500 dark:text-slate-400">Bank: {v.bank}</span>}
                   </div>
                 ))}
@@ -447,16 +548,24 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
         {form && calc && draft && (
           <div className="flex flex-col xl:flex-row gap-5 xl:items-start">
           <form onSubmit={save} className="space-y-5 min-w-0 xl:flex-1">
+            {/* 1. Customer Details First (Ordered: Invoice No -> CRM ID / Query Code -> Customer Name) */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Field label={form.kind === 'vendor' ? 'Bill No' : 'Invoice No'}>
+                <input
+                  className={`${inputCls} font-mono font-bold bg-slate-100 dark:bg-slate-800/80 text-blue-700 dark:text-blue-300`}
+                  value={form.invoiceNo || (form.kind === 'vendor' ? 'PAY-(auto on save)' : 'INV-(auto on save)')}
+                  readOnly
+                />
+              </Field>
+              <Field label="CRM ID / Query Code (optional)"><input className={inputCls} value={form.crmId} onChange={(e) => patch({ crmId: e.target.value })} maxLength={80} /></Field>
               <Field label={form.kind === 'vendor' ? 'Vendor name *' : 'Customer name *'}><input className={inputCls} value={form.customerName} onChange={(e) => patch({ customerName: e.target.value })} maxLength={160} required /></Field>
               <Field label="Phone"><input className={inputCls} value={form.customerPhone} onChange={(e) => patch({ customerPhone: e.target.value })} maxLength={60} /></Field>
+              <Field label="Reference"><input className={inputCls} value={form.reference} onChange={(e) => patch({ reference: e.target.value })} maxLength={120} /></Field>
               <Field label="Invoice currency *">
                 <select className={inputCls} value={form.currency} onChange={(e) => changeInvoiceCurrency(e.target.value)}>
                   {currencies.map((c) => <option key={c.code} value={c.code}>{currencyLabel(c)}</option>)}
                 </select>
               </Field>
-              <Field label="Reference"><input className={inputCls} value={form.reference} onChange={(e) => patch({ reference: e.target.value })} maxLength={120} /></Field>
-              <Field label="CRM ID / Query Code (optional)"><input className={inputCls} value={form.crmId} onChange={(e) => patch({ crmId: e.target.value })} maxLength={80} /></Field>
               <Field label={form.kind === 'vendor' ? 'Bill date *' : 'Invoice date *'}><input className={inputCls} type="date" value={form.invoiceDate} onChange={(e) => patch({ invoiceDate: e.target.value })} required /></Field>
               {form.kind === 'customer' && (
                 <div>
@@ -466,24 +575,6 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
               )}
               <Field label="Due date (optional)"><input className={inputCls} type="date" value={form.dueDate} onChange={(e) => patch({ dueDate: e.target.value })} /></Field>
             </div>
-
-            {form.kind === 'customer' && (
-              <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50/70 dark:bg-amber-950/20 p-3 space-y-2">
-                <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300 inline-flex items-center gap-1.5"><Info className="w-3.5 h-3.5 shrink-0" /> Vendor details — for office record and use only. Never printed on the customer’s invoice PDF.</p>
-                {form.vendors.map((v, vi) => (
-                  <div key={vi} className="grid grid-cols-2 md:grid-cols-12 gap-2 items-end">
-                    <div className="col-span-2 md:col-span-3"><Field label="Vendor name"><input className={inputCls} value={v.name} maxLength={160} onChange={(e) => patch({ vendors: form.vendors.map((x, i) => (i === vi ? { ...x, name: e.target.value } : x)) })} /></Field></div>
-                    <div className="col-span-1 md:col-span-3"><Field label="Payable to vendor / Price"><input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={v.amount} onChange={(e) => patch({ vendors: form.vendors.map((x, i) => (i === vi ? { ...x, amount: e.target.value } : x)) })} /></Field></div>
-                    <div className="col-span-1 md:col-span-2"><Field label="Currency"><select className={inputCls} value={v.currency} onChange={(e) => patch({ vendors: form.vendors.map((x, i) => (i === vi ? { ...x, currency: e.target.value } : x)) })}>{currencies.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}</select></Field></div>
-                    <div className="col-span-2 md:col-span-3"><Field label="Bank Acc Details (optional)"><input className={inputCls} value={v.bank} maxLength={600} placeholder="Bank, account title, account no. / IBAN" onChange={(e) => patch({ vendors: form.vendors.map((x, i) => (i === vi ? { ...x, bank: e.target.value } : x)) })} /></Field></div>
-                    <div className="col-span-2 md:col-span-1 md:pb-2 flex md:justify-end">
-                      {form.vendors.length > 1 && <button type="button" aria-label="Remove vendor" className="text-slate-400 hover:text-red-600 cursor-pointer" onClick={() => patch({ vendors: form.vendors.filter((_, i) => i !== vi) })}><X className="w-4 h-4" /></button>}
-                    </div>
-                  </div>
-                ))}
-                <button type="button" className={btnGhost} onClick={() => patch({ vendors: [...form.vendors, blankVendor(form.currency)] })}><Plus className="w-3.5 h-3.5" /> Add another vendor</button>
-              </div>
-            )}
 
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-1.5">
@@ -546,6 +637,32 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                 </div>
               ))}
             </div>
+
+            {/* Vendor Details Bar at the Bottom of the Form (with optional Description, Unit Price, Units) */}
+            {form.kind === 'customer' && (
+              <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50/70 dark:bg-amber-950/20 p-3.5 space-y-3">
+                <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300 inline-flex items-center gap-1.5"><Info className="w-3.5 h-3.5 shrink-0" /> Vendor details — for office record and use only. Never printed on the customer’s invoice PDF.</p>
+                {form.vendors.map((v, vi) => (
+                  <div key={vi} className="p-2.5 rounded-lg bg-white/70 dark:bg-slate-900/50 border border-amber-200/80 dark:border-amber-800/50 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-2 items-end">
+                      <div className="md:col-span-3"><Field label="Vendor name (optional)"><input className={inputCls} value={v.name} maxLength={160} placeholder="e.g. MEEZAB AIR" onChange={(e) => updateVendor(vi, { name: e.target.value })} /></Field></div>
+                      <div className="md:col-span-4"><Field label="Description (optional)"><input className={inputCls} value={v.description} maxLength={300} placeholder="e.g. Ticket / Hotel / Visa details" onChange={(e) => updateVendor(vi, { description: e.target.value })} /></Field></div>
+                      <div className="md:col-span-2"><Field label="Unit price (optional)"><input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" placeholder="0.00" value={v.unitPrice} onChange={(e) => updateVendor(vi, { unitPrice: e.target.value })} /></Field></div>
+                      <div className="md:col-span-1"><Field label="Units (opt.)"><input className={inputCls} type="number" inputMode="decimal" step="any" min="0" placeholder="1" value={v.units} onChange={(e) => updateVendor(vi, { units: e.target.value })} /></Field></div>
+                      <div className="md:col-span-2"><Field label="Payable / Total (opt.)"><input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" placeholder="0.00" value={v.amount} onChange={(e) => updateVendor(vi, { amount: e.target.value })} /></Field></div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                      <div className="sm:col-span-3 md:col-span-2"><Field label="Currency"><select className={inputCls} value={v.currency} onChange={(e) => updateVendor(vi, { currency: e.target.value })}>{currencies.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}</select></Field></div>
+                      <div className="sm:col-span-8 md:col-span-9"><Field label="Bank Acc Details (optional)"><input className={inputCls} value={v.bank} maxLength={600} placeholder="Bank, account title, account no. / IBAN" onChange={(e) => updateVendor(vi, { bank: e.target.value })} /></Field></div>
+                      <div className="sm:col-span-1 md:pb-2 flex sm:justify-end">
+                        {form.vendors.length > 1 && <button type="button" aria-label="Remove vendor" className="text-slate-400 hover:text-red-600 cursor-pointer" onClick={() => patch({ vendors: form.vendors.filter((_, i) => i !== vi) })}><X className="w-4 h-4" /></button>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <button type="button" className={btnGhost} onClick={() => patch({ vendors: [...form.vendors, blankVendor(form.currency)] })}><Plus className="w-3.5 h-3.5" /> Add another vendor</button>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="grid grid-cols-2 gap-3">

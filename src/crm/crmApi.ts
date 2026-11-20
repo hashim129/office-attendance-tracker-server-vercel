@@ -9,6 +9,7 @@ export interface CrmCustomer {
   id: string;
   customerName: string;
   companyName: string;
+  description?: string;
   destinations: string[];
   customerNumber: string;
   acquiredThrough: string;
@@ -195,6 +196,9 @@ export interface CrmInvoice {
 
 export interface InvoiceVendor {
   name: string;
+  description?: string;
+  unitPrice?: number | null;
+  units?: number | null;
   amount: number;
   currency: string;
   bank: string;

@@ -27,6 +27,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
 
   const [name, setName] = useState('');
   const [company, setCompany] = useState('');
+  const [description, setDescription] = useState('');
   const [number, setNumber] = useState('');
   const [through, setThrough] = useState('');
   const [by, setBy] = useState('');
@@ -40,6 +41,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
     setEditing(c || null);
     setName(c?.customerName || '');
     setCompany(c?.companyName || '');
+    setDescription(c?.description || '');
     setNumber(c?.customerNumber || '');
     setThrough(c?.acquiredThrough || '');
     setBy(c?.acquiredBy || '');
@@ -66,7 +68,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
     const pending = dest.split(';').map((d) => d.trim()).filter(Boolean);
     const destinations = [...dests, ...pending.filter((p) => !dests.some((c) => c.toLowerCase() === p.toLowerCase()))];
     try {
-      await crmCall('customer_save', { customer: { id: editing?.id, customerName: name, companyName: company, customerNumber: number, acquiredThrough: through, acquiredBy: by, destinations, sharedWith: shared } });
+      await crmCall('customer_save', { customer: { id: editing?.id, customerName: name, companyName: company, description, customerNumber: number, acquiredThrough: through, acquiredBy: by, destinations, sharedWith: shared } });
       await crm.refresh();
       setFormOpen(false);
     } catch (err: any) {
@@ -90,7 +92,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
   const rows = useMemo(
     () =>
       customers
-        .filter((c) => !q || [c.customerName, c.companyName, c.customerNumber, c.acquiredThrough, empName.get(c.acquiredBy) || c.acquiredBy, ...c.destinations].join(' ').toLowerCase().includes(q))
+        .filter((c) => !q || [c.customerName, c.companyName, c.description || '', c.customerNumber, c.acquiredThrough, empName.get(c.acquiredBy) || c.acquiredBy, ...c.destinations].join(' ').toLowerCase().includes(q))
         .sort((a, b) => a.customerName.localeCompare(b.customerName)),
     [customers, q, empName]
   );
@@ -131,7 +133,10 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {rows.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">{c.customerName}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-slate-900 dark:text-slate-100">{c.customerName}</div>
+                      {c.description && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 max-w-xs whitespace-pre-wrap break-words">{c.description}</p>}
+                    </td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{c.companyName || '—'}</td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{c.customerNumber || '—'}</td>
                     <td className="px-4 py-3">
@@ -175,6 +180,9 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
             <Field label="Customer name"><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoFocus /></Field>
             <Field label="Company name"><input className={inputCls} value={company} onChange={(e) => setCompany(e.target.value)} maxLength={160} /></Field>
           </div>
+          <Field label="Customer description (optional)">
+            <textarea className={`${inputCls} min-h-[68px]`} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Type customer background, preferences, travel requirements or notes…" maxLength={2000} />
+          </Field>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Customer number (optional)"><input className={inputCls} value={number} onChange={(e) => setNumber(e.target.value)} maxLength={60} inputMode="tel" /></Field>
             <Field label="Customer acquired through (optional)"><input className={inputCls} value={through} onChange={(e) => setThrough(e.target.value)} maxLength={120} placeholder="e.g. Facebook, referral" /></Field>
