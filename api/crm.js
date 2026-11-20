@@ -977,12 +977,16 @@ export default async function handler(req, res) {
         const category = PURCHASE_CATEGORIES.includes(it?.category) ? it.category : 'other';
         const catTitle = { ticket: 'Ticket', hotel: 'Hotel', visa: 'Visa', tour: 'Tours & Transfers', insurance: 'Insurance', other: 'Other' }[category];
         const vendorName = str(it?.vendorName, 160, { required: true, name: `${catTitle} #${idx + 1} Vendor / Issued By` });
-        const payable = moneyOpt(it?.payable, `${catTitle} #${idx + 1} Payable Price`, { required: true }) ?? 0;
+        const quantity = it?.quantity !== '' && it?.quantity !== null && it?.quantity !== undefined ? Math.max(1, Number(it.quantity) || 1) : 1;
+        const unitPayable = moneyOpt(it?.unitPayable, `${catTitle} #${idx + 1} Unit Payable`, { required: false });
+        const rawPayable = moneyOpt(it?.payable, `${catTitle} #${idx + 1} Payable Price`, { required: unitPayable === null });
+        const payable = rawPayable !== null ? rawPayable : r2((unitPayable || 0) * quantity);
         const receivable = moneyOpt(it?.receivable, `${catTitle} #${idx + 1} Receivable`, { required: false });
         const itemCurrency = /^[A-Z]{3}$/.test(String(it?.currency || '').toUpperCase()) ? String(it.currency).toUpperCase() : currency;
         const paymentDueDate = it?.paymentDueDate ? String(it.paymentDueDate).slice(0, 10) : null;
 
-        const paidByMethod = ['unpaid', 'card', 'cash', 'bank_transfer', 'other'].includes(it?.paidByMethod) ? it.paidByMethod : 'unpaid';
+        const VALID_PAID_METHODS = ['unpaid', 'faiq_card', 'ali_card', 'third_party', 'other', 'card', 'cash', 'bank_transfer'];
+        const paidByMethod = VALID_PAID_METHODS.includes(it?.paidByMethod) ? it.paidByMethod : 'unpaid';
         const cardOption = ['faiq_card', 'ali_card', 'third_party', 'other', ''].includes(it?.cardOption) ? (it.cardOption || '') : '';
         const cardBank = str(it?.cardBank, 160, { name: 'Card bank' });
         const paidBySpecify = str(it?.paidBySpecify, 200, { name: 'Paid by details' });
@@ -1016,6 +1020,8 @@ export default async function handler(req, res) {
           id: it?.id || id('pit'),
           category,
           vendorName,
+          quantity,
+          unitPayable: unitPayable ?? payable,
           payable,
           receivable,
           currency: itemCurrency,

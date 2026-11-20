@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Eye, Pencil, ShoppingBag, X, Check, Plane, Building2, Stamp, Bus, ShieldCheck, Package, CreditCard, Search, Columns3 } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
-import { CrmPurchase, CrmPurchaseItem, PurchaseCategory, PurchaseCustomField, crmCall } from './crmApi';
+import { CompanyProfile, CrmPurchase, CrmPurchaseItem, PurchaseCategory, PurchaseCustomField, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
@@ -13,15 +13,27 @@ interface Props {
   currentUser: Employee;
 }
 
+type PaidByMethodType =
+  | 'unpaid'
+  | 'faiq_card'
+  | 'ali_card'
+  | 'third_party'
+  | 'other'
+  | 'card'
+  | 'cash'
+  | 'bank_transfer';
+
 interface FormItem {
   id: string;
   category: PurchaseCategory;
   vendorName: string;
+  quantity: string;
+  unitPayable: string;
   payable: string;
   receivable: string;
   currency: string;
   paymentDueDate: string;
-  paidByMethod: 'unpaid' | 'card' | 'cash' | 'bank_transfer' | 'other';
+  paidByMethod: PaidByMethodType;
   cardOption: 'faiq_card' | 'ali_card' | 'third_party' | 'other' | '';
   cardBank: string;
   paidBySpecify: string;
@@ -72,16 +84,31 @@ const CATEGORY_META: Record<PurchaseCategory, { label: string; badgeTone: 'blue'
   other: { label: 'Other Service', badgeTone: 'slate', Icon: Package },
 };
 
+function normalizePaidByMethod(
+  it: Pick<CrmPurchaseItem, 'paidByMethod' | 'cardOption'>
+): PaidByMethodType {
+  const m = it.paidByMethod || 'unpaid';
+  if (m === 'card') {
+    if (it.cardOption === 'ali_card') return 'ali_card';
+    if (it.cardOption === 'third_party') return 'third_party';
+    if (it.cardOption === 'other') return 'other';
+    return 'faiq_card';
+  }
+  return m;
+}
+
 const blankItem = (category: PurchaseCategory, currency = 'PKR'): FormItem => ({
   id: uid(),
   category,
   vendorName: '',
+  quantity: '1',
+  unitPayable: '',
   payable: '',
   receivable: '',
   currency,
   paymentDueDate: '',
   paidByMethod: 'unpaid',
-  cardOption: 'faiq_card',
+  cardOption: '',
   cardBank: '',
   paidBySpecify: '',
   ticketNumber: '',
@@ -121,54 +148,74 @@ function toForm(p: CrmPurchase): PurchaseFormState {
     currency: p.currency || 'PKR',
     notes: p.notes || '',
     items: (p.items || []).length
-      ? p.items.map((it) => ({
-          id: it.id || uid(),
-          category: it.category || 'ticket',
-          vendorName: it.vendorName || '',
-          payable: it.payable !== null && it.payable !== undefined ? String(it.payable) : '',
-          receivable: it.receivable !== null && it.receivable !== undefined ? String(it.receivable) : '',
-          currency: it.currency || p.currency || 'PKR',
-          paymentDueDate: it.paymentDueDate || '',
-          paidByMethod: it.paidByMethod || 'unpaid',
-          cardOption: it.cardOption || 'faiq_card',
-          cardBank: it.cardBank || '',
-          paidBySpecify: it.paidBySpecify || '',
-          ticketNumber: it.ticketNumber || '',
-          hotelName: it.hotelName || '',
-          rooms: it.rooms || '',
-          checkInDate: it.checkInDate || '',
-          checkOutDate: it.checkOutDate || '',
-          countries: it.countries || '',
-          visaType: it.visaType || '',
-          tourDescription: it.tourDescription || '',
-          tourDate: it.tourDate || '',
-          persons: it.persons !== null && it.persons !== undefined ? String(it.persons) : '',
-          insuranceType: it.insuranceType || '',
-          insuranceDays: it.insuranceDays !== null && it.insuranceDays !== undefined ? String(it.insuranceDays) : '',
-          description: it.description || '',
-          customValues: { ...(it.customValues || {}) },
-        }))
+      ? p.items.map((it) => {
+          const qty = it.quantity !== null && it.quantity !== undefined && Number(it.quantity) > 0 ? Number(it.quantity) : 1;
+          const totalPayable = it.payable !== null && it.payable !== undefined ? Number(it.payable) : 0;
+          const unitPay =
+            it.unitPayable !== null && it.unitPayable !== undefined
+              ? Number(it.unitPayable)
+              : qty > 0
+                ? totalPayable / qty
+                : totalPayable;
+          const normMethod = normalizePaidByMethod(it);
+          return {
+            id: it.id || uid(),
+            category: it.category || 'ticket',
+            vendorName: it.vendorName || '',
+            quantity: String(qty),
+            unitPayable: totalPayable || unitPay ? String(unitPay) : '',
+            payable: it.payable !== null && it.payable !== undefined ? String(it.payable) : '',
+            receivable: it.receivable !== null && it.receivable !== undefined ? String(it.receivable) : '',
+            currency: it.currency || p.currency || 'PKR',
+            paymentDueDate: it.paymentDueDate || '',
+            paidByMethod: normMethod,
+            cardOption:
+              normMethod === 'faiq_card' || normMethod === 'ali_card' || normMethod === 'third_party' || normMethod === 'other'
+                ? normMethod
+                : it.cardOption || '',
+            cardBank: it.cardBank || '',
+            paidBySpecify: it.paidBySpecify || '',
+            ticketNumber: it.ticketNumber || '',
+            hotelName: it.hotelName || '',
+            rooms: it.rooms || '',
+            checkInDate: it.checkInDate || '',
+            checkOutDate: it.checkOutDate || '',
+            countries: it.countries || '',
+            visaType: it.visaType || '',
+            tourDescription: it.tourDescription || '',
+            tourDate: it.tourDate || '',
+            persons: it.persons !== null && it.persons !== undefined ? String(it.persons) : '',
+            insuranceType: it.insuranceType || '',
+            insuranceDays: it.insuranceDays !== null && it.insuranceDays !== undefined ? String(it.insuranceDays) : '',
+            description: it.description || '',
+            customValues: { ...(it.customValues || {}) },
+          };
+        })
       : [blankItem('ticket', p.currency || 'PKR')],
   };
 }
 
-export function formatPaidByLabel(it: Pick<CrmPurchaseItem, 'paidByMethod' | 'cardOption' | 'cardBank' | 'paidBySpecify'>): string {
-  if (!it.paidByMethod || it.paidByMethod === 'unpaid') return 'Unpaid (Credit / Due)';
-  if (it.paidByMethod === 'cash') return 'Paid by Cash';
-  if (it.paidByMethod === 'bank_transfer') return `Bank Transfer${it.cardBank ? ` (${it.cardBank})` : ''}`;
-  if (it.paidByMethod === 'other') return `Paid by: ${it.paidBySpecify || 'Other'}`;
-  if (it.paidByMethod === 'card') {
-    if (it.cardOption === 'faiq_card') return `Paid by Faiq Card${it.cardBank ? ` (${it.cardBank})` : ''}`;
-    if (it.cardOption === 'ali_card') return `Paid by Ali's Card${it.cardBank ? ` (${it.cardBank})` : ''}`;
-    if (it.cardOption === 'third_party') return `Paid by Third Party Card${it.paidBySpecify ? ` (${it.paidBySpecify})` : ''}`;
-    if (it.cardOption === 'other') return `Paid by Card — ${it.paidBySpecify || 'Other'}`;
-    return 'Paid by Card';
-  }
+export function formatPaidByLabel(
+  it: Pick<CrmPurchaseItem, 'paidByMethod' | 'cardOption' | 'cardBank' | 'paidBySpecify'>
+): string {
+  const method = normalizePaidByMethod(it);
+  if (!method || method === 'unpaid') return 'Unpaid (Credit / Due)';
+  if (method === 'faiq_card') return `Option A: Paid by Faiq Card${it.cardBank ? ` (${it.cardBank})` : ''}`;
+  if (method === 'ali_card') return `Option B: Paid by Ali's Card${it.cardBank ? ` (${it.cardBank})` : ''}`;
+  if (method === 'third_party') return `Option C: Third Party${it.paidBySpecify ? ` (${it.paidBySpecify})` : ''}`;
+  if (method === 'other') return `Option D: Others${it.paidBySpecify ? ` (${it.paidBySpecify})` : ''}`;
+  if (method === 'cash') return 'Paid by Cash';
+  if (method === 'bank_transfer') return `Bank Transfer${it.cardBank ? ` (${it.cardBank})` : ''}`;
   return 'Unpaid';
 }
 
 const niceDate = (iso?: string | null) =>
   iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+
+const getCustomFieldValue = (it: Pick<CrmPurchaseItem, 'customValues'>, cf: PurchaseCustomField): string => {
+  if (!it.customValues) return '';
+  return it.customValues[cf.id] ?? it.customValues[cf.label] ?? '';
+};
 
 export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   const isAdmin = currentUser.role === 'admin';
@@ -192,6 +239,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
   // Live Custom Column Manager (Admin & Accounts)
   const [newColLabel, setNewColLabel] = useState('');
   const [newColCategory, setNewColCategory] = useState<PurchaseCategory | 'all'>('all');
+  const [showInlineColAdder, setShowInlineColAdder] = useState(false);
   const [colBusy, setColBusy] = useState(false);
   const [colNotice, setColNotice] = useState('');
   const [colError, setColError] = useState('');
@@ -257,18 +305,19 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
     });
   }, [purchases, filter, catFilter, query, empName]);
 
-  const handleAddCustomColumn = async (e?: React.FormEvent) => {
+  const handleAddCustomColumn = async (e?: React.FormEvent, overrideCategory?: PurchaseCategory | 'all') => {
     if (e) e.preventDefault();
     const trimmed = newColLabel.trim();
+    const targetCat = overrideCategory ?? newColCategory;
     if (!trimmed || colBusy) return;
     setColBusy(true);
     setColError('');
     setColNotice('');
     try {
-      await crmCall('purchase_field_add', { label: trimmed, category: newColCategory });
+      await crmCall('purchase_field_add', { label: trimmed, category: targetCat });
       setNewColLabel('');
       await crm.refresh();
-      setColNotice(`Added column "${trimmed}" live to ${newColCategory === 'all' ? 'all purchase categories' : CATEGORY_META[newColCategory].label}.`);
+      setColNotice(`Added column "${trimmed}" live to ${targetCat === 'all' ? 'all purchase categories' : CATEGORY_META[targetCat].label}.`);
       window.setTimeout(() => setColNotice(''), 3500);
     } catch (err: any) {
       setColError(err?.message || 'Could not add custom column.');
@@ -299,188 +348,358 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
   const patchItem = (idx: number, p: Partial<FormItem>) => {
     setForm((cur) => {
       if (!cur) return cur;
-      return {
-        ...cur,
-        items: cur.items.map((it, i) => (i === idx ? { ...it, ...p } : it)),
-      };
+      const items = cur.items.map((it, i) => {
+        if (i !== idx) return it;
+        const next = { ...it, ...p };
+        // Auto-calculate total payable when quantity or unitPayable changes
+        if ('quantity' in p || 'unitPayable' in p) {
+          const q = Math.max(1, Number(next.quantity) || 1);
+          const u = Number(next.unitPayable);
+          if (next.unitPayable !== '' && Number.isFinite(u)) {
+            next.payable = String(Math.round(q * u * 100) / 100);
+          } else if (next.unitPayable === '') {
+            next.payable = '';
+          }
+        } else if ('payable' in p) {
+          const q = Math.max(1, Number(next.quantity) || 1);
+          const tot = Number(next.payable);
+          if (next.payable !== '' && Number.isFinite(tot)) {
+            next.unitPayable = String(Math.round((tot / q) * 100) / 100);
+          } else {
+            next.unitPayable = '';
+          }
+        }
+        return next;
+      });
+      return { ...cur, items };
     });
     setError('');
   };
 
-  const patchItemCustom = (idx: number, label: string, val: string) => {
+  const patchItemCustom = (idx: number, key: string, val: string) => {
     setForm((cur) => {
       if (!cur) return cur;
-      return {
-        ...cur,
-        items: cur.items.map((it, i) =>
-          i === idx ? { ...it, customValues: { ...it.customValues, [label]: val } } : it
-        ),
-      };
+      const items = cur.items.map((it, i) =>
+        i === idx ? { ...it, customValues: { ...(it.customValues || {}), [key]: val } } : it
+      );
+      return { ...cur, items };
     });
   };
 
-  const addCategoryItem = (cat: PurchaseCategory) => {
-    if (!form) return;
-    patchForm({ items: [...form.items, blankItem(cat, form.currency)] });
+  const addItem = (category: PurchaseCategory) => {
+    setForm((cur) =>
+      cur ? { ...cur, items: [...cur.items, blankItem(category, cur.currency || 'PKR')] } : cur
+    );
   };
 
   const removeItem = (idx: number) => {
-    if (!form || form.items.length <= 1) return;
-    patchForm({ items: form.items.filter((_, i) => i !== idx) });
+    setForm((cur) => {
+      if (!cur) return cur;
+      const next = cur.items.filter((_, i) => i !== idx);
+      return { ...cur, items: next.length ? next : [blankItem('ticket', cur.currency || 'PKR')] };
+    });
   };
 
-  const savePurchase = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form || busy) return;
+  const formTotals = useMemo(() => {
+    if (!form) return { payables: [] as [string, number][], receivables: [] as [string, number][] };
+    const payMap = new Map<string, number>();
+    const recMap = new Map<string, number>();
+    form.items.forEach((it) => {
+      const cur = it.currency || form.currency || 'PKR';
+      const p = Number(it.payable) || 0;
+      const r = Number(it.receivable) || 0;
+      payMap.set(cur, (payMap.get(cur) || 0) + p);
+      if (it.receivable.trim() !== '') {
+        recMap.set(cur, (recMap.get(cur) || 0) + r);
+      }
+    });
+    return { payables: [...payMap.entries()], receivables: [...recMap.entries()] };
+  }, [form]);
+
+  // Convert current form state into a live CrmPurchase object for the Live Preview panel
+  const livePreviewPurchase = useMemo<CrmPurchase | null>(() => {
+    if (!form) return null;
+    const mappedItems: CrmPurchaseItem[] = form.items.map((it) => {
+      const qty = Math.max(1, Number(it.quantity) || 1);
+      const unitPay = Number(it.unitPayable) || 0;
+      const pay = it.payable !== '' ? Number(it.payable) || 0 : Math.round(qty * unitPay * 100) / 100;
+      const rec = it.receivable.trim() !== '' ? Number(it.receivable) || 0 : null;
+      const cardOpt: 'faiq_card' | 'ali_card' | 'third_party' | 'other' | '' =
+        it.paidByMethod === 'faiq_card' ||
+        it.paidByMethod === 'ali_card' ||
+        it.paidByMethod === 'third_party' ||
+        it.paidByMethod === 'other'
+          ? it.paidByMethod
+          : '';
+      return {
+        id: it.id,
+        category: it.category,
+        vendorName: it.vendorName.trim() || '—',
+        quantity: qty,
+        unitPayable: unitPay,
+        payable: pay,
+        receivable: rec,
+        currency: it.currency || form.currency || 'PKR',
+        paymentDueDate: it.paymentDueDate || null,
+        paidByMethod: it.paidByMethod,
+        cardOption: cardOpt,
+        cardBank: it.cardBank.trim() || undefined,
+        paidBySpecify: it.paidBySpecify.trim() || undefined,
+        ticketNumber: it.ticketNumber.trim() || undefined,
+        hotelName: it.hotelName.trim() || undefined,
+        rooms: it.rooms.trim() || undefined,
+        checkInDate: it.checkInDate || null,
+        checkOutDate: it.checkOutDate || null,
+        countries: it.countries.trim() || undefined,
+        visaType: it.visaType.trim() || undefined,
+        tourDescription: it.tourDescription.trim() || undefined,
+        tourDate: it.tourDate || null,
+        persons: it.persons.trim() !== '' ? Number(it.persons) || null : null,
+        insuranceType: it.insuranceType.trim() || undefined,
+        insuranceDays: it.insuranceDays.trim() !== '' ? Number(it.insuranceDays) || null : null,
+        description: it.description.trim() || undefined,
+        customValues: it.customValues || {},
+      };
+    });
+    const totalPayable = mappedItems.reduce((s, it) => s + (Number(it.payable) || 0), 0);
+    const totalReceivable = mappedItems.reduce((s, it) => s + (Number(it.receivable) || 0), 0);
+    const paidCount = mappedItems.filter((it) => it.paidByMethod && it.paidByMethod !== 'unpaid').length;
+    const status: 'unpaid' | 'paid' | 'partial' =
+      paidCount === 0 ? 'unpaid' : paidCount === mappedItems.length ? 'paid' : 'partial';
+    return {
+      id: form.id || 'preview',
+      purchaseNo: form.purchaseNo || 'PUR-(auto)',
+      customerName: form.customerName.trim() || '—',
+      careOf: form.careOf.trim(),
+      crmId: form.crmId.trim(),
+      purchaseDate: form.purchaseDate || today(),
+      currency: form.currency || 'PKR',
+      items: mappedItems,
+      totalPayable,
+      totalReceivable,
+      status,
+      notes: form.notes.trim(),
+      createdBy: currentUser.id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }, [form, currentUser.id]);
+
+  const submitForm = async () => {
+    if (!form) return;
+    if (!form.customerName.trim()) {
+      setError('Customer Name is required.');
+      return;
+    }
+    const validItems = form.items.filter((it) => it.vendorName.trim() || Number(it.payable) > 0 || Number(it.unitPayable) > 0);
+    if (!validItems.length) {
+      setError('Please enter Vendor / Issued From and Payable amount for at least one product.');
+      return;
+    }
+    for (let i = 0; i < validItems.length; i++) {
+      const it = validItems[i];
+      if (!it.vendorName.trim()) {
+        setError(`Item #${i + 1} (${CATEGORY_META[it.category].label}): Vendor / Issued From is required.`);
+        return;
+      }
+    }
+
     setBusy(true);
     setError('');
     try {
-      await crmCall('purchase_save', { purchase: form });
+      const matchingCustomer = customers.find(
+        (c) => c.customerName.trim().toLowerCase() === form.customerName.trim().toLowerCase()
+      );
+      const payload = {
+        id: form.id,
+        customerId: matchingCustomer?.id || null,
+        customerName: form.customerName.trim(),
+        careOf: form.careOf.trim() || null,
+        crmId: form.crmId.trim() || null,
+        purchaseDate: form.purchaseDate || today(),
+        currency: form.currency || 'PKR',
+        notes: form.notes.trim() || null,
+        items: validItems.map((it) => {
+          const qty = Math.max(1, Number(it.quantity) || 1);
+          const unitPay = Number(it.unitPayable) || 0;
+          const totalPay = it.payable !== '' ? Number(it.payable) || 0 : Math.round(qty * unitPay * 100) / 100;
+          return {
+            id: it.id,
+            category: it.category,
+            vendorName: it.vendorName.trim(),
+            quantity: qty,
+            unitPayable: unitPay || totalPay / qty,
+            payable: totalPay,
+            receivable: it.receivable.trim() !== '' ? Number(it.receivable) || 0 : null,
+            currency: it.currency || form.currency || 'PKR',
+            paymentDueDate: it.paymentDueDate || null,
+            paidByMethod: it.paidByMethod,
+            cardOption:
+              it.paidByMethod === 'faiq_card' ||
+              it.paidByMethod === 'ali_card' ||
+              it.paidByMethod === 'third_party' ||
+              it.paidByMethod === 'other'
+                ? it.paidByMethod
+                : null,
+            cardBank:
+              it.paidByMethod === 'faiq_card' ||
+              it.paidByMethod === 'ali_card' ||
+              it.paidByMethod === 'bank_transfer'
+                ? it.cardBank.trim() || null
+                : null,
+            paidBySpecify:
+              it.paidByMethod === 'third_party' || it.paidByMethod === 'other'
+                ? it.paidBySpecify.trim() || null
+                : null,
+            ticketNumber: it.ticketNumber.trim() || null,
+            hotelName: it.hotelName.trim() || null,
+            rooms: it.rooms.trim() || null,
+            checkInDate: it.checkInDate || null,
+            checkOutDate: it.checkOutDate || null,
+            countries: it.countries.trim() || null,
+            visaType: it.visaType.trim() || null,
+            tourDescription: it.tourDescription.trim() || null,
+            tourDate: it.tourDate || null,
+            persons: it.persons.trim() !== '' ? Number(it.persons) || null : null,
+            insuranceType: it.insuranceType.trim() || null,
+            insuranceDays: it.insuranceDays.trim() !== '' ? Number(it.insuranceDays) || null : null,
+            description: it.description.trim() || null,
+            customValues: it.customValues || {},
+          };
+        }),
+      };
+
+      const saved = await crmCall<CrmPurchase>('purchase_save', payload);
       await crm.refresh();
       setForm(null);
-    } catch (err: any) {
-      setError(err?.message || 'Could not save the vendor purchase.');
+      setViewing(saved);
+    } catch (e: any) {
+      setError(e?.message || 'Could not save vendor purchase.');
     } finally {
       setBusy(false);
     }
   };
 
-  const updateStatus = async (id: string, status: 'unpaid' | 'paid' | 'partial') => {
-    try {
-      await crmCall('purchase_status', { id, status });
-      await crm.refresh();
-    } catch (err: any) {
-      setError(err?.message || 'Could not update status.');
-    }
-  };
-
-  const deletePurchase = async (p: CrmPurchase) => {
-    if (!window.confirm(`Delete vendor purchase ${p.purchaseNo} permanently?`)) return;
+  const removePurchase = async (p: CrmPurchase) => {
+    if (!window.confirm(`Delete vendor purchase ${p.purchaseNo} for ${p.customerName}?`)) return;
     try {
       await crmCall('purchase_delete', { id: p.id });
-      if (viewing?.id === p.id) setViewing(null);
       await crm.refresh();
-    } catch (err: any) {
-      setError(err?.message || 'Could not delete purchase.');
+      if (viewing?.id === p.id) setViewing(null);
+    } catch (e: any) {
+      window.alert(e?.message || 'Could not delete purchase.');
     }
   };
-
-  const formTotals = useMemo(() => {
-    if (!form) return { payable: 0, receivable: 0 };
-    let payable = 0;
-    let receivable = 0;
-    form.items.forEach((it) => {
-      const p = Number(it.payable);
-      const r = Number(it.receivable);
-      if (Number.isFinite(p) && p > 0) payable += p;
-      if (it.receivable.trim() !== '' && Number.isFinite(r) && r > 0) receivable += r;
-    });
-    return { payable: Math.round(payable * 100) / 100, receivable: Math.round(receivable * 100) / 100 };
-  }, [form]);
-
-  const fieldsForCategory = (cat: PurchaseCategory) =>
-    customFields.filter((f) => f.category === 'all' || f.category === cat);
 
   return (
     <div className="space-y-4">
-      {/* Top Header */}
-      <div className={`${cardCls} p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3`}>
-        <div>
-          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 inline-flex items-center gap-2">
-            <ShoppingBag className="w-4 h-4 text-blue-600" />
-            <span>Purchases · Vendor Bookings &amp; Payables</span>
-          </h2>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-            Record vendor purchases for Tickets, Hotels, Visas, Tours &amp; Transfers, and Insurance with required vendor details, payable/receivable amounts, and Paid By tracking.
-          </p>
+      {/* Header Card */}
+      <div className={`${cardCls} p-4 flex flex-wrap items-center justify-between gap-3`}>
+        <div className="flex items-center gap-2.5">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
+            <ShoppingBag className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Purchases — Vendor Entries</h2>
+            <p className="text-xs text-slate-500">
+              Record multi-product vendor purchases (Ticket, Hotel, Visa, Tours & Transfers, Insurance) with Customer, C/O, Query Code / CRM ID, and payment method.
+            </p>
+          </div>
         </div>
-        <button className={btnPrimary} onClick={() => { setForm(blankForm()); setError(''); }}>
-          <Plus className="w-4 h-4" /> + Add Vendor Purchase
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setForm(blankForm());
+              setError('');
+            }}
+            className={btnPrimary}
+          >
+            <Plus className="w-4 h-4" /> +Add Vendor
+          </button>
+        </div>
       </div>
 
-      {/* Live Custom Column Manager Bar (Admin & Accounts) */}
+      {/* Live Custom Column Bar for Admin / Accounts */}
       {isStaff && (
-        <div className={`${cardCls} p-4 space-y-3 border-blue-200 dark:border-blue-900/60`}>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 inline-flex items-center gap-1.5">
-                <Columns3 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                <span>Live Custom Entry Columns (Admin &amp; Accounts)</span>
-              </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Add any new entry field/column to all purchase categories or a specific category — it updates live in the database for all employees.
-              </p>
+        <div className={`${cardCls} p-4 border-blue-200 bg-gradient-to-r from-blue-50/70 via-white to-indigo-50/50`}>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-blue-600 text-white">
+                <Columns3 className="w-4 h-4" />
+              </span>
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                  Live Vendor Purchase Column Manager (Admin & Accounts)
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Add a new custom column for entry right here — it updates in the database immediately and appears in all vendor purchase forms & live previews.
+                </p>
+              </div>
             </div>
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 shrink-0">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Live · {customFields.length} custom {customFields.length === 1 ? 'column' : 'columns'}
+            <span className="text-[11px] font-semibold text-blue-700 bg-blue-100/80 px-2.5 py-0.5 rounded-full">
+              {customFields.length} custom {customFields.length === 1 ? 'column' : 'columns'} active
             </span>
           </div>
 
-          <form onSubmit={handleAddCustomColumn} className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-            <div className="sm:col-span-4">
-              <select
-                className={inputCls}
-                value={newColCategory}
-                onChange={(e) => setNewColCategory(e.target.value as PurchaseCategory | 'all')}
-                disabled={colBusy}
-                aria-label="Category for new column"
-              >
-                <option value="all">All Categories (Every Purchase Item)</option>
-                <option value="ticket">Ticket Purchase Only</option>
-                <option value="hotel">Hotel Purchase Only</option>
-                <option value="visa">Visa Purchase Only</option>
-                <option value="tour">Tours &amp; Transfers Only</option>
-                <option value="insurance">Insurance Only</option>
-                <option value="other">Other Service Only</option>
-              </select>
-            </div>
-            <div className="sm:col-span-5">
-              <input
-                className={inputCls}
-                value={newColLabel}
-                onChange={(e) => setNewColLabel(e.target.value)}
-                placeholder="Type new column name (e.g. PNR Code, Airline, Passport No, Room Board)…"
-                maxLength={80}
-                disabled={colBusy}
-              />
-            </div>
-            <div className="sm:col-span-3">
-              <button type="submit" className={`${btnPrimary} w-full`} disabled={colBusy || !newColLabel.trim()}>
-                <Plus className="w-3.5 h-3.5" />
-                <span>{colBusy ? 'Adding…' : 'Add column live'}</span>
-              </button>
-            </div>
+          <form onSubmit={(e) => handleAddCustomColumn(e)} className="flex flex-wrap items-center gap-2">
+            <select
+              className={`${inputCls} !w-auto min-w-[175px] bg-white`}
+              value={newColCategory}
+              onChange={(e) => setNewColCategory(e.target.value as PurchaseCategory | 'all')}
+              disabled={colBusy}
+            >
+              <option value="all">All Product Categories</option>
+              <option value="ticket">Ticket Purchase Only</option>
+              <option value="hotel">Hotel Purchase Only</option>
+              <option value="visa">Visa Purchase Only</option>
+              <option value="tour">Tours & Transfers Only</option>
+              <option value="insurance">Insurance Only</option>
+              <option value="other">Other Service Only</option>
+            </select>
+            <input
+              type="text"
+              className={`${inputCls} flex-1 min-w-[220px] bg-white`}
+              placeholder="Enter new column name (e.g. PNR / GDS Code, Supplier Invoice #, ROE, Confirmation Code)..."
+              value={newColLabel}
+              onChange={(e) => setNewColLabel(e.target.value)}
+              disabled={colBusy}
+            />
+            <button
+              type="submit"
+              disabled={colBusy || !newColLabel.trim()}
+              className={btnPrimary}
+            >
+              <Plus className="w-4 h-4" /> {colBusy ? 'Adding...' : 'Add Live Column'}
+            </button>
           </form>
 
-          {colNotice && (
-            <p className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-              <Check className="w-3.5 h-3.5" /> {colNotice}
-            </p>
-          )}
-          <ErrorNote message={colError} />
+          {colNotice && <div className="mt-2 text-xs font-semibold text-emerald-700">{colNotice}</div>}
+          {colError && <div className="mt-2 text-xs font-semibold text-rose-600">{colError}</div>}
 
           {customFields.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {customFields.map((f) => (
+            <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-medium text-slate-400 mr-1">Active live columns:</span>
+              {customFields.map((cf) => (
                 <span
-                  key={f.id}
-                  className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700"
+                  key={cf.id}
+                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-white text-slate-700 border-slate-200 shadow-2xs"
                 >
-                  <span className="text-[10px] uppercase font-bold text-blue-600 dark:text-blue-400">
-                    [{f.category === 'all' ? 'All' : CATEGORY_META[f.category]?.label || f.category}]
+                  <span className="font-semibold">{cf.label}</span>
+                  <span className="text-[10px] uppercase px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                    {cf.category === 'all' ? 'All' : CATEGORY_META[cf.category as PurchaseCategory]?.label || cf.category}
                   </span>
-                  <span>{f.label}</span>
-                  <button
-                    type="button"
-                    disabled={colBusy}
-                    onClick={() => void handleRemoveCustomColumn(f)}
-                    className="p-0.5 rounded-full text-slate-400 hover:text-red-600 cursor-pointer"
-                    title={`Remove ${f.label}`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveCustomColumn(cf)}
+                      disabled={colBusy}
+                      className="text-slate-400 hover:text-rose-600 transition-colors"
+                      title={`Remove "${cf.label}" column`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
                 </span>
               ))}
             </div>
@@ -488,38 +707,70 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
         </div>
       )}
 
-      {/* Status Bar + Payable / Receivable Summary */}
+      {/* Summary StatBars */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <StatBar
-          title={`${seesAll ? 'All' : 'Your'} Vendor Purchases`}
-          segments={[
-            { label: 'Unpaid', count: counts.unpaid, tone: 'amber' },
-            { label: 'Partial', count: counts.partial, tone: 'violet' },
-            { label: 'Paid', count: counts.paid, tone: 'green' },
-          ]}
-        />
-        <div className={`${cardCls} p-4 flex flex-col justify-between gap-2 text-xs`}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-semibold text-slate-600 dark:text-slate-300">Total Vendor Payables:</span>
+        <div className="space-y-2">
+          <StatBar
+            title={seesAll ? 'All Vendor Purchases (Payables Status)' : 'Your Vendor Purchases'}
+            segments={[
+              { label: 'Unpaid / On Credit', count: counts.unpaid, tone: 'amber' },
+              { label: 'Partially Paid', count: counts.partial, tone: 'blue' },
+              { label: 'Paid', count: counts.paid, tone: 'green' },
+            ]}
+          />
+          <div className={`${cardCls} px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs`}>
+            <span className="font-semibold text-slate-600">Total Vendor Payables:</span>
             <div className="flex flex-wrap gap-3">
-              {totalsByCurrency.payables.length > 0 ? (
-                totalsByCurrency.payables.map(([c, v]) => (
-                  <span key={c} className="font-mono font-bold text-amber-600 dark:text-amber-400">{c} {fmtAmount(v)}</span>
+              {totalsByCurrency.payables.length ? (
+                totalsByCurrency.payables.map(([cur, amt]) => (
+                  <span key={cur} className="font-mono font-bold text-amber-700">
+                    {cur} {fmtAmount(amt)}
+                  </span>
                 ))
               ) : (
-                <span className="font-mono text-slate-400">PKR 0</span>
+                <span className="font-mono font-bold text-slate-400">PKR 0</span>
               )}
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <span className="font-semibold text-slate-600 dark:text-slate-300">Total Customer Receivables (Optional):</span>
+        </div>
+
+        <div className="space-y-2">
+          <div className={`${cardCls} p-4`}>
+            <div className="text-xs font-bold text-slate-800 mb-2">Category Breakdown</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {(['ticket', 'hotel', 'visa', 'tour', 'insurance', 'other'] as PurchaseCategory[]).map((cat) => {
+                const meta = CATEGORY_META[cat];
+                const count = purchases.reduce(
+                  (acc, p) => acc + (p.items || []).filter((it) => it.category === cat).length,
+                  0
+                );
+                const Icon = meta.Icon;
+                return (
+                  <div
+                    key={cat}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200/80 bg-slate-50/60 text-xs"
+                  >
+                    <span className="inline-flex items-center gap-1.5 font-medium text-slate-700">
+                      <Icon className="w-3.5 h-3.5 text-blue-600" />
+                      {meta.label}
+                    </span>
+                    <span className="font-mono font-bold text-slate-900">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className={`${cardCls} px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs`}>
+            <span className="font-semibold text-slate-600">Total Optional Receivables Linked:</span>
             <div className="flex flex-wrap gap-3">
-              {totalsByCurrency.receivables.length > 0 ? (
-                totalsByCurrency.receivables.map(([c, v]) => (
-                  <span key={c} className="font-mono font-bold text-blue-600 dark:text-blue-400">{c} {fmtAmount(v)}</span>
+              {totalsByCurrency.receivables.length ? (
+                totalsByCurrency.receivables.map(([cur, amt]) => (
+                  <span key={cur} className="font-mono font-bold text-blue-700">
+                    {cur} {fmtAmount(amt)}
+                  </span>
                 ))
               ) : (
-                <span className="font-mono text-slate-400">PKR 0</span>
+                <span className="font-mono font-bold text-slate-400">PKR 0</span>
               )}
             </div>
           </div>
@@ -527,732 +778,1215 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
       </div>
 
       {/* Filters & Search */}
-      <div className={`${cardCls} p-4 flex flex-col lg:flex-row gap-3 lg:items-center justify-between`}>
+      <div className={`${cardCls} p-3 flex flex-wrap items-center justify-between gap-2`}>
         <div className="flex flex-wrap items-center gap-1.5">
-          {([['all', 'All'], ['unpaid', 'Unpaid'], ['partial', 'Partial'], ['paid', 'Paid']] as const).map(([id, label]) => (
+          {(['all', 'unpaid', 'partial', 'paid'] as const).map((k) => (
             <button
-              key={id}
-              onClick={() => setFilter(id)}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border cursor-pointer ${
-                filter === id ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+              key={k}
+              type="button"
+              onClick={() => setFilter(k)}
+              className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${
+                filter === k
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
               }`}
             >
-              {label}
+              {k}
             </button>
           ))}
-          <span className="mx-1 text-slate-300 dark:text-slate-700">|</span>
-          {(['all', 'ticket', 'hotel', 'visa', 'tour', 'insurance'] as const).map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setCatFilter(cat)}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border cursor-pointer ${
-                catFilter === cat ? 'bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900 border-slate-800' : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              {cat === 'all' ? 'All Products' : CATEGORY_META[cat].label}
-            </button>
-          ))}
+          <span className="mx-1 text-slate-300">|</span>
+          <select
+            className={`${inputCls} !w-auto !py-1 text-xs`}
+            value={catFilter}
+            onChange={(e) => setCatFilter(e.target.value as 'all' | PurchaseCategory)}
+          >
+            <option value="all">All Categories</option>
+            <option value="ticket">Ticket Purchase</option>
+            <option value="hotel">Hotel Purchase</option>
+            <option value="visa">Visa Purchase</option>
+            <option value="tour">Tours & Transfers</option>
+            <option value="insurance">Insurance</option>
+            <option value="other">Other Service</option>
+          </select>
         </div>
-        <div className="relative w-full lg:max-w-xs">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+
+        <div className="relative w-full sm:w-80">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
-            className={`${inputCls} pl-8`}
-            placeholder="Search customer, C/O, CRM ID, vendor, ticket…"
+            className={`${inputCls} !pl-8`}
+            placeholder="Search vendor, ticket #, hotel, customer, C/O, CRM ID..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
       </div>
 
-      {error && !form && <ErrorNote message={error} />}
-
       {/* Purchases List */}
-      {shown.length === 0 ? (
-        <div className={`${cardCls} p-8 text-center text-xs text-slate-500`}>
-          {purchases.length === 0
-            ? 'No vendor purchases recorded yet. Click “+ Add Vendor Purchase” to add your first Ticket, Hotel, Visa, Tour, or Insurance purchase.'
-            : 'No vendor purchases match your current filter.'}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {shown.map((p) => {
-            const canEdit = isStaff || p.createdBy === currentUser.id;
-            const statusTone = p.status === 'paid' ? 'green' : p.status === 'partial' ? 'violet' : 'amber';
-            const statusLabel = p.status === 'paid' ? 'Paid' : p.status === 'partial' ? 'Partially Paid' : 'Unpaid';
-
-            return (
-              <div key={p.id} className={`${cardCls} p-4 space-y-3`}>
-                {/* Card Header: Purchase No -> CRM ID / Query Code -> Customer Name -> C/O */}
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                        {p.purchaseNo}
+      <div className="space-y-2.5">
+        {shown.map((p) => {
+          const items = p.items || [];
+          return (
+            <div key={p.id} className={`${cardCls} p-4`}>
+              <div className="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-slate-100">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-200">
+                      {p.purchaseNo}
+                    </span>
+                    {p.crmId && (
+                      <span className="font-mono text-[11px] font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">
+                        Query / CRM ID: {p.crmId}
                       </span>
-                      <Pill tone="blue">CRM / Query: {p.crmId || '—'}</Pill>
-                      <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{p.customerName}</span>
-                      {p.careOf && <Pill tone="slate">C/O: {p.careOf}</Pill>}
-                      <Pill tone={statusTone}>{statusLabel}</Pill>
-                    </div>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Date: {niceDate(p.purchaseDate)} · Recorded by <b className="text-slate-700 dark:text-slate-200">{empName.get(p.createdBy) || 'Staff'}</b> · {(p.items || []).length} product {(p.items || []).length === 1 ? 'item' : 'items'}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-3 shrink-0">
-                    <div className="px-3 py-1.5 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-xs">
-                      <span className="text-slate-500 mr-1.5">Total Payable:</span>
-                      <b className="font-mono text-amber-700 dark:text-amber-300">{p.currency} {fmtAmount(p.totalPayable)}</b>
-                    </div>
-                    {p.totalReceivable > 0 && (
-                      <div className="px-3 py-1.5 rounded-lg bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/50 text-xs">
-                        <span className="text-slate-500 mr-1.5">Total Receivable:</span>
-                        <b className="font-mono text-blue-700 dark:text-blue-300">{p.currency} {fmtAmount(p.totalReceivable)}</b>
-                      </div>
                     )}
+                    <span className="font-bold text-slate-900 text-sm">Customer: {p.customerName}</span>
+                    {p.careOf && <Pill tone="slate">C/O: {p.careOf}</Pill>}
+                    <Pill tone={p.status === 'paid' ? 'green' : p.status === 'partial' ? 'blue' : 'amber'}>
+                      {p.status === 'paid' ? 'Paid' : p.status === 'partial' ? 'Partially Paid' : 'Unpaid / Credit'}
+                    </Pill>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    Purchase Date: <b>{niceDate(p.purchaseDate)}</b> · {items.length}{' '}
+                    {items.length === 1 ? 'product entry' : 'product entries'} · recorded by{' '}
+                    <b>{empName.get(p.createdBy) || 'Employee'}</b>
                   </div>
                 </div>
 
-                {/* Product Items Breakdown Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                  {(p.items || []).map((it, idx) => {
-                    const meta = CATEGORY_META[it.category] || CATEGORY_META.other;
-                    const Icon = meta.Icon;
-                    return (
-                      <div key={it.id || idx} className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 text-xs space-y-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button type="button" onClick={() => setViewing(p)} className={btnGhost}>
+                    <Eye className="w-3.5 h-3.5" /> View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForm(toForm(p));
+                      setError('');
+                    }}
+                    className={btnGhost}
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> Edit
+                  </button>
+                  {isAdmin && (
+                    <button type="button" onClick={() => removePurchase(p)} className={btnDanger}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Split 50/50 Product & Vendor Breakdown inside each Purchase Card */}
+              <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {items.map((it, idx) => {
+                  const meta = CATEGORY_META[it.category || 'ticket'] || CATEGORY_META.other;
+                  const Icon = meta.Icon;
+                  const cur = it.currency || p.currency || 'PKR';
+                  const qty = it.quantity && Number(it.quantity) > 0 ? Number(it.quantity) : 1;
+                  const unitPay =
+                    it.unitPayable !== null && it.unitPayable !== undefined
+                      ? Number(it.unitPayable)
+                      : qty > 0
+                        ? (Number(it.payable) || 0) / qty
+                        : Number(it.payable) || 0;
+                  return (
+                    <div
+                      key={it.id || idx}
+                      className="rounded-xl border border-slate-200/90 bg-slate-50/60 p-3 flex flex-col justify-between gap-2"
+                    >
+                      <div className="space-y-1.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="inline-flex items-center gap-1.5 font-bold text-slate-900 dark:text-slate-100">
-                            <Icon className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                            <span>{meta.label}</span>
+                          <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                            <Icon className="w-3.5 h-3.5 text-blue-600" />
+                            #{idx + 1} · {meta.label}
                           </span>
-                          <Pill tone={it.paidByMethod === 'unpaid' ? 'amber' : 'green'}>
-                            <CreditCard className="w-2.5 h-2.5 mr-1" />
-                            {formatPaidByLabel(it)}
-                          </Pill>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100/80 text-amber-900 border border-amber-200">
+                            Vendor: {it.vendorName}
+                          </span>
                         </div>
 
-                        <div className="text-[11px] text-slate-700 dark:text-slate-200 space-y-0.5">
-                          <p>
-                            <span className="text-slate-500">Vendor / Issued By:</span>{' '}
-                            <b className="text-amber-700 dark:text-amber-300">{it.vendorName}</b>
-                          </p>
-                          {it.category === 'ticket' && it.ticketNumber && (
-                            <p><span className="text-slate-500">Ticket Number:</span> <b className="font-mono">{it.ticketNumber}</b></p>
+                        {/* Category specific details */}
+                        <div className="text-xs text-slate-700 space-y-0.5">
+                          {it.category === 'ticket' && (
+                            <div>
+                              Ticket Number: <b className="font-mono">{it.ticketNumber || '—'}</b>
+                            </div>
                           )}
                           {it.category === 'hotel' && (
-                            <p>
-                              <span className="text-slate-500">Hotel:</span> <b>{it.hotelName}</b>
+                            <div>
+                              Hotel: <b>{it.hotelName || '—'}</b>
                               {it.rooms ? ` · Rooms: ${it.rooms}` : ''}
-                              {it.checkInDate ? ` · Check-in: ${niceDate(it.checkInDate)}` : ''}
-                              {it.checkOutDate ? ` → Check-out: ${niceDate(it.checkOutDate)}` : ''}
-                            </p>
+                              {it.checkInDate ? ` · Check-In: ${niceDate(it.checkInDate)}` : ''}
+                              {it.checkOutDate ? ` · Check-Out: ${niceDate(it.checkOutDate)}` : ''}
+                            </div>
                           )}
                           {it.category === 'visa' && (
-                            <p>
-                              <span className="text-slate-500">Countries:</span> <b>{it.countries}</b>
-                              {it.visaType ? ` · Visa Type: ${it.visaType}` : ''}
-                            </p>
+                            <div>
+                              Countries: <b>{it.countries || '—'}</b> · Visa Type: <b>{it.visaType || '—'}</b>
+                            </div>
                           )}
                           {it.category === 'tour' && (
-                            <p>
-                              <span className="text-slate-500">Tour:</span> <b>{it.tourDescription}</b>
+                            <div>
+                              Tour: <b>{it.tourDescription || '—'}</b>
                               {it.tourDate ? ` · Date: ${niceDate(it.tourDate)}` : ''}
-                              {it.persons ? ` · Persons: ${it.persons}` : ''}
-                            </p>
+                              {it.persons !== null && it.persons !== undefined ? ` · Persons: ${it.persons}` : ''}
+                            </div>
                           )}
                           {it.category === 'insurance' && (
-                            <p>
-                              <span className="text-slate-500">Insurance Type:</span> <b>{it.insuranceType}</b>
-                              {it.insuranceDays ? ` · Days: ${it.insuranceDays}` : ''}
-                            </p>
+                            <div>
+                              Insurance Type: <b>{it.insuranceType || '—'}</b>
+                              {it.insuranceDays !== null && it.insuranceDays !== undefined
+                                ? ` · Days: ${it.insuranceDays}`
+                                : ''}
+                            </div>
                           )}
                           {it.category === 'other' && it.description && (
-                            <p><span className="text-slate-500">Description:</span> <b>{it.description}</b></p>
+                            <div>
+                              Details: <b>{it.description}</b>
+                            </div>
                           )}
-                          {it.paymentDueDate && (
-                            <p><span className="text-slate-500">Payment Due Date:</span> <b>{niceDate(it.paymentDueDate)}</b></p>
-                          )}
-                          {it.customValues && Object.entries(it.customValues).map(([k, v]) => (
-                            <p key={k}><span className="text-slate-500">{k}:</span> <b>{v}</b></p>
-                          ))}
-                        </div>
 
-                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-200/70 dark:border-slate-700/70 text-[11px]">
-                          <span>
-                            Payable: <b className="font-mono text-amber-700 dark:text-amber-300">{it.currency || p.currency} {fmtAmount(it.payable)}</b>
-                          </span>
+                          {/* Custom Live Columns */}
+                          {customFields.map((cf) => {
+                            const val = getCustomFieldValue(it, cf);
+                            if (!val) return null;
+                            return (
+                              <div key={cf.id} className="text-[11px] text-slate-600">
+                                {cf.label}: <b className="text-slate-800">{val}</b>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-200/70 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="space-y-0.5">
+                          <div className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600">
+                            <CreditCard className="w-3 h-3 text-slate-400" />
+                            <span>{formatPaidByLabel(it)}</span>
+                          </div>
+                          {it.paymentDueDate && (
+                            <div className="text-[11px] text-rose-600 font-medium">
+                              Due: {niceDate(it.paymentDueDate)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right font-mono">
+                          <div className="text-[11px] text-slate-500">
+                            {cur} {fmtAmount(unitPay)} × {qty} {qty === 1 ? 'unit' : 'units'}
+                          </div>
+                          <div className="font-bold text-amber-800">
+                            Payable: {cur} {fmtAmount(it.payable || 0)}
+                          </div>
                           {it.receivable !== null && it.receivable !== undefined && (
-                            <span>
-                              Receivable: <b className="font-mono text-blue-700 dark:text-blue-300">{it.currency || p.currency} {fmtAmount(it.receivable)}</b>
-                            </span>
+                            <div className="text-[11px] text-blue-700 font-semibold">
+                              Receivable: {cur} {fmtAmount(it.receivable)}
+                            </div>
                           )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-
-                {/* Action Bar */}
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <button className={btnGhost} onClick={() => setViewing(p)}><Eye className="w-3.5 h-3.5" /> View Details</button>
-                  {canEdit && <button className={btnGhost} onClick={() => { setForm(toForm(p)); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
-                  {isStaff && p.status !== 'paid' && <button className={btnGhost} onClick={() => void updateStatus(p.id, 'paid')}>Mark Paid</button>}
-                  {isStaff && p.status === 'paid' && <button className={btnGhost} onClick={() => void updateStatus(p.id, 'unpaid')}>Mark Unpaid</button>}
-                  {isAdmin && <button className={btnDanger} onClick={() => void deletePurchase(p)}><Trash2 className="w-3.5 h-3.5" /></button>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ---------- Detailed View Modal ---------- */}
-      <Modal
-        isOpen={Boolean(viewing)}
-        onClose={() => setViewing(null)}
-        title={viewing ? `Vendor Purchase ${viewing.purchaseNo}` : 'Vendor Purchase'}
-        subtitle={viewing ? `Customer: ${viewing.customerName}${viewing.careOf ? ` · C/O: ${viewing.careOf}` : ''}${viewing.crmId ? ` · CRM/Query: ${viewing.crmId}` : ''}` : undefined}
-        maxWidth="4xl"
-      >
-        {viewing && (
-          <div className="space-y-4 text-xs">
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-              <div>
-                <span className="text-[10px] text-slate-400 block uppercase font-bold">Customer</span>
-                <span className="font-bold text-slate-900 dark:text-slate-100">{viewing.customerName}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block uppercase font-bold">C/O</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">{viewing.careOf || '—'}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block uppercase font-bold">Query Code / CRM ID</span>
-                <span className="font-mono font-bold text-blue-700 dark:text-blue-300">{viewing.crmId || '—'}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block uppercase font-bold">Total Payable / Receivable</span>
-                <span className="font-mono font-bold text-amber-700 dark:text-amber-300">{viewing.currency} {fmtAmount(viewing.totalPayable)}</span>
-                {viewing.totalReceivable > 0 && (
-                  <span className="block font-mono text-blue-700 dark:text-blue-300">Rec: {viewing.currency} {fmtAmount(viewing.totalReceivable)}</span>
-                )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
+          );
+        })}
 
-            <div className="space-y-2.5">
-              {(viewing.items || []).map((it, idx) => {
-                const meta = CATEGORY_META[it.category] || CATEGORY_META.other;
-                return (
-                  <div key={it.id || idx} className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                        #{idx + 1} · {meta.label} — <span className="text-amber-700 dark:text-amber-300">{it.vendorName}</span>
-                      </span>
-                      <Pill tone={it.paidByMethod === 'unpaid' ? 'amber' : 'green'}>{formatPaidByLabel(it)}</Pill>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-slate-700 dark:text-slate-300">
-                      {it.ticketNumber && <div><span className="text-slate-400">Ticket Number:</span> <b className="font-mono">{it.ticketNumber}</b></div>}
-                      {it.hotelName && <div><span className="text-slate-400">Hotel Name:</span> <b>{it.hotelName}</b></div>}
-                      {it.rooms && <div><span className="text-slate-400">Rooms:</span> <b>{it.rooms}</b></div>}
-                      {it.checkInDate && <div><span className="text-slate-400">Check In:</span> <b>{niceDate(it.checkInDate)}</b></div>}
-                      {it.checkOutDate && <div><span className="text-slate-400">Check Out:</span> <b>{niceDate(it.checkOutDate)}</b></div>}
-                      {it.countries && <div><span className="text-slate-400">Countries:</span> <b>{it.countries}</b></div>}
-                      {it.visaType && <div><span className="text-slate-400">Visa Type:</span> <b>{it.visaType}</b></div>}
-                      {it.tourDescription && <div className="sm:col-span-2"><span className="text-slate-400">Tour Description:</span> <b>{it.tourDescription}</b></div>}
-                      {it.tourDate && <div><span className="text-slate-400">Tour Date:</span> <b>{niceDate(it.tourDate)}</b></div>}
-                      {it.persons !== null && it.persons !== undefined && <div><span className="text-slate-400">Persons:</span> <b>{it.persons}</b></div>}
-                      {it.insuranceType && <div><span className="text-slate-400">Insurance Type:</span> <b>{it.insuranceType}</b></div>}
-                      {it.insuranceDays !== null && it.insuranceDays !== undefined && <div><span className="text-slate-400">Days:</span> <b>{it.insuranceDays}</b></div>}
-                      {it.description && <div className="sm:col-span-2"><span className="text-slate-400">Description:</span> <b>{it.description}</b></div>}
-                      {it.paymentDueDate && <div><span className="text-slate-400">Payment Due Date:</span> <b>{niceDate(it.paymentDueDate)}</b></div>}
-                      <div><span className="text-slate-400">Payable:</span> <b className="font-mono text-amber-700 dark:text-amber-300">{it.currency} {fmtAmount(it.payable)}</b></div>
-                      {it.receivable !== null && it.receivable !== undefined && (
-                        <div><span className="text-slate-400">Receivable:</span> <b className="font-mono text-blue-700 dark:text-blue-300">{it.currency} {fmtAmount(it.receivable)}</b></div>
+        {!shown.length && (
+          <div className={`${cardCls} p-8 text-center text-xs text-slate-400`}>
+            No vendor purchases recorded yet. Click <b>+Add Vendor</b> to add your first Ticket, Hotel, Visa, Tour, or Insurance purchase.
+          </div>
+        )}
+      </div>
+
+      {/* +Add Vendor / Edit Purchase Modal with Side-by-Side Live Preview */}
+      <Modal
+        isOpen={Boolean(form)}
+        title={form?.id ? `Edit Vendor Purchase ${form.purchaseNo || ''}` : 'New Vendor Purchase (+Add Vendor)'}
+        subtitle="Fill in Customer, C/O, and Query Code / CRM ID, then add one or multiple vendor product purchases below."
+        onClose={() => setForm(null)}
+        maxWidth="full"
+      >
+        {form && (
+          <div className="flex flex-col xl:flex-row gap-5 items-start">
+            {/* LEFT COLUMN: Entry Form */}
+            <div className="flex-1 w-full space-y-4 min-w-0">
+              <ErrorNote message={error} />
+
+              {/* Top Required Context: 1. Customer, 2. C/O, 3. Query Code / CRM ID */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <Field label="1. Customer *">
+                    <input
+                      list="purchase-customers-list"
+                      className={`${inputCls} bg-white`}
+                      value={form.customerName}
+                      onChange={(e) => patchForm({ customerName: e.target.value })}
+                      placeholder="Type or select customer name..."
+                    />
+                    <datalist id="purchase-customers-list">
+                      {customers.map((c) => (
+                        <option key={c.id} value={c.customerName}>
+                          {c.customerNumber ? `${c.customerName} (${c.customerNumber})` : c.customerName}
+                        </option>
+                      ))}
+                    </datalist>
+                  </Field>
+
+                  <Field label="2. C/O (Care Of / Reference)">
+                    <input
+                      className={`${inputCls} bg-white`}
+                      value={form.careOf}
+                      onChange={(e) => patchForm({ careOf: e.target.value })}
+                      placeholder="e.g. Asad Ali / Direct"
+                    />
+                  </Field>
+
+                  <Field label="3. Query Code / CRM ID">
+                    <input
+                      className={`${inputCls} bg-white font-mono`}
+                      value={form.crmId}
+                      onChange={(e) => patchForm({ crmId: e.target.value })}
+                      placeholder="e.g. 17562336"
+                    />
+                  </Field>
+
+                  <Field label="Default Currency">
+                    <select
+                      className={`${inputCls} bg-white`}
+                      value={form.currency}
+                      onChange={(e) => patchForm({ currency: e.target.value })}
+                    >
+                      {currencies.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {currencyLabel(c)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+              </div>
+
+              {/* Add Multiple Products Bar + Admin "+ Add Live Column" button right in the bar */}
+              <div className="rounded-xl border border-blue-200/80 bg-blue-50/40 p-3 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-slate-700 mr-1">Add Product / Vendor Entry:</span>
+                    {(['ticket', 'hotel', 'visa', 'tour', 'insurance', 'other'] as PurchaseCategory[]).map((cat) => {
+                      const meta = CATEGORY_META[cat];
+                      const Icon = meta.Icon;
+                      return (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => addItem(cat)}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-blue-200 bg-white text-blue-700 hover:bg-blue-600 hover:text-white transition-colors shadow-2xs"
+                        >
+                          <Icon className="w-3.5 h-3.5" /> + {meta.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {isStaff && (
+                    <button
+                      type="button"
+                      onClick={() => setShowInlineColAdder((v) => !v)}
+                      className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors shadow-2xs ${
+                        showInlineColAdder
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-600 hover:text-white'
+                      }`}
+                    >
+                      <Columns3 className="w-3.5 h-3.5" /> + Add Live Column
+                    </button>
+                  )}
+                </div>
+
+                {/* Inline Live Column Adder inside the New Vendor Purchase Modal */}
+                {isStaff && (
+                  <div
+                    className={`rounded-xl border border-dashed border-indigo-300 bg-white/90 p-2.5 flex flex-wrap items-center gap-2 ${
+                      showInlineColAdder ? 'ring-2 ring-indigo-500/20' : ''
+                    }`}
+                  >
+                    <span className="text-[11px] font-bold text-indigo-900 inline-flex items-center gap-1">
+                      <Columns3 className="w-3.5 h-3.5 text-indigo-600" /> Live Add Column:
+                    </span>
+                    <select
+                      className={`${inputCls} !w-auto !py-1 text-xs bg-white`}
+                      value={newColCategory}
+                      onChange={(e) => setNewColCategory(e.target.value as PurchaseCategory | 'all')}
+                      disabled={colBusy}
+                    >
+                      <option value="all">All Categories</option>
+                      <option value="ticket">Ticket Purchase</option>
+                      <option value="hotel">Hotel Purchase</option>
+                      <option value="visa">Visa Purchase</option>
+                      <option value="tour">Tours & Transfers</option>
+                      <option value="insurance">Insurance</option>
+                      <option value="other">Other Service</option>
+                    </select>
+                    <input
+                      className={`${inputCls} !py-1 text-xs flex-1 min-w-[200px] bg-white`}
+                      placeholder="Type new column name to add live right now (updates preview as you type)..."
+                      value={newColLabel}
+                      onChange={(e) => setNewColLabel(e.target.value)}
+                      disabled={colBusy}
+                    />
+                    <button
+                      type="button"
+                      disabled={colBusy || !newColLabel.trim()}
+                      onClick={() => handleAddCustomColumn()}
+                      className={`${btnPrimary} !py-1 !px-3 text-xs`}
+                    >
+                      <Plus className="w-3.5 h-3.5" /> {colBusy ? 'Adding...' : '+ Add Field Live'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Product Entry Blocks */}
+              <div className="space-y-4">
+                {form.items.map((it, idx) => {
+                  const meta = CATEGORY_META[it.category] || CATEGORY_META.other;
+                  const Icon = meta.Icon;
+                  const applicableCustomFields = customFields.filter(
+                    (cf) => cf.category === 'all' || cf.category === it.category
+                  );
+
+                  return (
+                    <div
+                      key={it.id}
+                      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs space-y-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold">
+                            {idx + 1}
+                          </span>
+                          <Icon className="w-4 h-4 text-blue-600" />
+                          <span className="text-sm font-bold text-slate-900">{meta.label}</span>
+                          <select
+                            className={`${inputCls} !w-auto !py-1 text-xs font-semibold`}
+                            value={it.category}
+                            onChange={(e) => patchItem(idx, { category: e.target.value as PurchaseCategory })}
+                          >
+                            <option value="ticket">Ticket Purchase</option>
+                            <option value="hotel">Hotel Purchase</option>
+                            <option value="visa">Visa Purchase</option>
+                            <option value="tour">Tours & Transfers</option>
+                            <option value="insurance">Insurance</option>
+                            <option value="other">Other Service</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {isStaff && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewColCategory(it.category);
+                                setShowInlineColAdder(true);
+                              }}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200"
+                              title={`Add a live custom column to ${meta.label}`}
+                            >
+                              <Columns3 className="w-3 h-3" /> + Add Column
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeItem(idx)}
+                            className="inline-flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 rounded-lg hover:bg-rose-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Remove
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Category-Specific Fields */}
+                      {it.category === 'ticket' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          <Field label="Ticket Number *">
+                            <input
+                              className={`${inputCls} font-mono`}
+                              value={it.ticketNumber}
+                              onChange={(e) => patchItem(idx, { ticketNumber: e.target.value })}
+                              placeholder="e.g. 214-4829104921"
+                            />
+                          </Field>
+                          <Field label="Issued From / Vendor *">
+                            <input
+                              className={inputCls}
+                              value={it.vendorName}
+                              onChange={(e) => patchItem(idx, { vendorName: e.target.value })}
+                              placeholder="e.g. MEEZAB AIR / Travelport"
+                            />
+                          </Field>
+                          <Field label="Currency">
+                            <select
+                              className={inputCls}
+                              value={it.currency}
+                              onChange={(e) => patchItem(idx, { currency: e.target.value })}
+                            >
+                              {currencies.map((c) => (
+                                <option key={c.code} value={c.code}>
+                                  {currencyLabel(c)}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="Payment Due Date">
+                            <input
+                              type="date"
+                              className={inputCls}
+                              value={it.paymentDueDate}
+                              onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })}
+                            />
+                          </Field>
+                        </div>
                       )}
-                      {it.customValues && Object.entries(it.customValues).map(([k, v]) => (
-                        <div key={k}><span className="text-slate-400">{k}:</span> <b>{v}</b></div>
+
+                      {it.category === 'hotel' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          <Field label="Hotel Name *">
+                            <input
+                              className={inputCls}
+                              value={it.hotelName}
+                              onChange={(e) => patchItem(idx, { hotelName: e.target.value })}
+                              placeholder="e.g. Pullman Zamzam"
+                            />
+                          </Field>
+                          <Field label="Rooms">
+                            <input
+                              className={inputCls}
+                              value={it.rooms}
+                              onChange={(e) => patchItem(idx, { rooms: e.target.value })}
+                              placeholder="e.g. 2 Double / 1 Quad"
+                            />
+                          </Field>
+                          <Field label="Check In Date">
+                            <input
+                              type="date"
+                              className={inputCls}
+                              value={it.checkInDate}
+                              onChange={(e) => patchItem(idx, { checkInDate: e.target.value })}
+                            />
+                          </Field>
+                          <Field label="Check Out Date">
+                            <input
+                              type="date"
+                              className={inputCls}
+                              value={it.checkOutDate}
+                              onChange={(e) => patchItem(idx, { checkOutDate: e.target.value })}
+                            />
+                          </Field>
+                          <Field label="Vendor / Issued By *">
+                            <input
+                              className={inputCls}
+                              value={it.vendorName}
+                              onChange={(e) => patchItem(idx, { vendorName: e.target.value })}
+                              placeholder="Vendor name"
+                            />
+                          </Field>
+                          <Field label="Currency">
+                            <select
+                              className={inputCls}
+                              value={it.currency}
+                              onChange={(e) => patchItem(idx, { currency: e.target.value })}
+                            >
+                              {currencies.map((c) => (
+                                <option key={c.code} value={c.code}>
+                                  {currencyLabel(c)}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="Payment Due Date">
+                            <input
+                              type="date"
+                              className={inputCls}
+                              value={it.paymentDueDate}
+                              onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })}
+                            />
+                          </Field>
+                        </div>
+                      )}
+
+                      {it.category === 'visa' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          <Field label="Countries *">
+                            <input
+                              className={inputCls}
+                              value={it.countries}
+                              onChange={(e) => patchItem(idx, { countries: e.target.value })}
+                              placeholder="e.g. Saudi Arabia, UAE, UK"
+                            />
+                          </Field>
+                          <Field label="Visa Type *">
+                            <input
+                              className={inputCls}
+                              value={it.visaType}
+                              onChange={(e) => patchItem(idx, { visaType: e.target.value })}
+                              placeholder="e.g. Umrah Visa / 30 Days Tourist"
+                            />
+                          </Field>
+                          <Field label="Vendor *">
+                            <input
+                              className={inputCls}
+                              value={it.vendorName}
+                              onChange={(e) => patchItem(idx, { vendorName: e.target.value })}
+                              placeholder="Vendor name"
+                            />
+                          </Field>
+                          <Field label="Currency">
+                            <select
+                              className={inputCls}
+                              value={it.currency}
+                              onChange={(e) => patchItem(idx, { currency: e.target.value })}
+                            >
+                              {currencies.map((c) => (
+                                <option key={c.code} value={c.code}>
+                                  {currencyLabel(c)}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="Payment Due Date">
+                            <input
+                              type="date"
+                              className={inputCls}
+                              value={it.paymentDueDate}
+                              onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })}
+                            />
+                          </Field>
+                        </div>
+                      )}
+
+                      {it.category === 'tour' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          <Field label="Description of Tour *">
+                            <input
+                              className={inputCls}
+                              value={it.tourDescription}
+                              onChange={(e) => patchItem(idx, { tourDescription: e.target.value })}
+                              placeholder="e.g. Baku City Tour + Airport Transfers"
+                            />
+                          </Field>
+                          <Field label="Date">
+                            <input
+                              type="date"
+                              className={inputCls}
+                              value={it.tourDate}
+                              onChange={(e) => patchItem(idx, { tourDate: e.target.value })}
+                            />
+                          </Field>
+                          <Field label="Number of Persons">
+                            <input
+                              type="number"
+                              min="1"
+                              className={inputCls}
+                              value={it.persons}
+                              onChange={(e) => patchItem(idx, { persons: e.target.value })}
+                              placeholder="e.g. 4"
+                            />
+                          </Field>
+                          <Field label="Vendor / Issued From *">
+                            <input
+                              className={inputCls}
+                              value={it.vendorName}
+                              onChange={(e) => patchItem(idx, { vendorName: e.target.value })}
+                              placeholder="Vendor name"
+                            />
+                          </Field>
+                          <Field label="Currency">
+                            <select
+                              className={inputCls}
+                              value={it.currency}
+                              onChange={(e) => patchItem(idx, { currency: e.target.value })}
+                            >
+                              {currencies.map((c) => (
+                                <option key={c.code} value={c.code}>
+                                  {currencyLabel(c)}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="Payment Due Date">
+                            <input
+                              type="date"
+                              className={inputCls}
+                              value={it.paymentDueDate}
+                              onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })}
+                            />
+                          </Field>
+                        </div>
+                      )}
+
+                      {it.category === 'insurance' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          <Field label="Insurance Type *">
+                            <input
+                              className={inputCls}
+                              value={it.insuranceType}
+                              onChange={(e) => patchItem(idx, { insuranceType: e.target.value })}
+                              placeholder="e.g. Schengen Travel Insurance / Gold"
+                            />
+                          </Field>
+                          <Field label="Days">
+                            <input
+                              type="number"
+                              min="1"
+                              className={inputCls}
+                              value={it.insuranceDays}
+                              onChange={(e) => patchItem(idx, { insuranceDays: e.target.value })}
+                              placeholder="e.g. 15"
+                            />
+                          </Field>
+                          <Field label="Vendor / Issued From *">
+                            <input
+                              className={inputCls}
+                              value={it.vendorName}
+                              onChange={(e) => patchItem(idx, { vendorName: e.target.value })}
+                              placeholder="Vendor name"
+                            />
+                          </Field>
+                          <Field label="Currency">
+                            <select
+                              className={inputCls}
+                              value={it.currency}
+                              onChange={(e) => patchItem(idx, { currency: e.target.value })}
+                            >
+                              {currencies.map((c) => (
+                                <option key={c.code} value={c.code}>
+                                  {currencyLabel(c)}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="Payment Due Date">
+                            <input
+                              type="date"
+                              className={inputCls}
+                              value={it.paymentDueDate}
+                              onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })}
+                            />
+                          </Field>
+                        </div>
+                      )}
+
+                      {it.category === 'other' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          <Field label="Service Description *">
+                            <input
+                              className={inputCls}
+                              value={it.description}
+                              onChange={(e) => patchItem(idx, { description: e.target.value })}
+                              placeholder="Describe service..."
+                            />
+                          </Field>
+                          <Field label="Vendor / Issued From *">
+                            <input
+                              className={inputCls}
+                              value={it.vendorName}
+                              onChange={(e) => patchItem(idx, { vendorName: e.target.value })}
+                              placeholder="Vendor name"
+                            />
+                          </Field>
+                          <Field label="Currency">
+                            <select
+                              className={inputCls}
+                              value={it.currency}
+                              onChange={(e) => patchItem(idx, { currency: e.target.value })}
+                            >
+                              {currencies.map((c) => (
+                                <option key={c.code} value={c.code}>
+                                  {currencyLabel(c)}
+                                </option>
+                              ))}
+                            </select>
+                          </Field>
+                          <Field label="Payment Due Date">
+                            <input
+                              type="date"
+                              className={inputCls}
+                              value={it.paymentDueDate}
+                              onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })}
+                            />
+                          </Field>
+                        </div>
+                      )}
+
+                      {/* Quantity, Unit Payable, Total Payable & Optional Receivable Row */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-slate-100">
+                        <Field label={`Unit Payable (${it.currency}) *`}>
+                          <input
+                            type="number"
+                            step="any"
+                            className={`${inputCls} font-mono`}
+                            value={it.unitPayable}
+                            onChange={(e) => patchItem(idx, { unitPayable: e.target.value })}
+                            placeholder="0.00"
+                          />
+                        </Field>
+                        <Field label="Quantity / Units">
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            className={`${inputCls} font-mono`}
+                            value={it.quantity}
+                            onChange={(e) => patchItem(idx, { quantity: e.target.value })}
+                            placeholder="1"
+                          />
+                        </Field>
+                        <Field label={`Total Payable (${it.currency}) *`}>
+                          <input
+                            type="number"
+                            step="any"
+                            className={`${inputCls} font-mono font-bold bg-amber-50/40`}
+                            value={it.payable}
+                            onChange={(e) => patchItem(idx, { payable: e.target.value })}
+                            placeholder="0.00"
+                          />
+                        </Field>
+                        <Field label={`Receivable (${it.currency}) (optional)`}>
+                          <input
+                            type="number"
+                            step="any"
+                            className={`${inputCls} font-mono`}
+                            value={it.receivable}
+                            onChange={(e) => patchItem(idx, { receivable: e.target.value })}
+                            placeholder="Optional"
+                          />
+                        </Field>
+                      </div>
+
+                      {/* Paid By Section — Present in EVERY Category with Separate Faiq Card & Ali Card Options */}
+                      <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 p-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          <Field label="Paid By (Payment Method)">
+                            <select
+                              className={`${inputCls} bg-white font-semibold`}
+                              value={it.paidByMethod}
+                              onChange={(e) =>
+                                patchItem(idx, {
+                                  paidByMethod: e.target.value as PaidByMethodType,
+                                })
+                              }
+                            >
+                              <option value="unpaid">Unpaid / On Credit (Payable Due)</option>
+                              <option value="faiq_card">Option A: Paid by Faiq Card (Which Bank)</option>
+                              <option value="ali_card">Option B: Paid by Ali's Card</option>
+                              <option value="third_party">Option C: Third Party</option>
+                              <option value="other">Option D: Others (Specify)</option>
+                              <option value="bank_transfer">Paid by Bank Transfer</option>
+                              <option value="cash">Paid by Cash</option>
+                            </select>
+                          </Field>
+
+                          {(it.paidByMethod === 'faiq_card' ||
+                            it.paidByMethod === 'ali_card' ||
+                            it.paidByMethod === 'bank_transfer') && (
+                            <Field label="Which Bank (Optional)">
+                              <input
+                                className={`${inputCls} bg-white`}
+                                value={it.cardBank}
+                                onChange={(e) => patchItem(idx, { cardBank: e.target.value })}
+                                placeholder="e.g. Meezan Bank / HBL / Alfalah (Optional)"
+                              />
+                            </Field>
+                          )}
+
+                          {(it.paidByMethod === 'third_party' || it.paidByMethod === 'other') && (
+                            <Field
+                              label={
+                                it.paidByMethod === 'third_party'
+                                  ? 'Specify Third Party Name / Details'
+                                  : 'Specify Payment Details'
+                              }
+                            >
+                              <input
+                                className={`${inputCls} bg-white`}
+                                value={it.paidBySpecify}
+                                onChange={(e) => patchItem(idx, { paidBySpecify: e.target.value })}
+                                placeholder="Enter name / details..."
+                              />
+                            </Field>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Live Custom Columns for this Category */}
+                      {applicableCustomFields.length > 0 && (
+                        <div className="pt-2 border-t border-dashed border-slate-200">
+                          <div className="text-[11px] font-bold uppercase tracking-wider text-blue-700 mb-2 flex items-center gap-1.5">
+                            <Columns3 className="w-3.5 h-3.5" /> Custom Live Columns
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {applicableCustomFields.map((cf) => (
+                              <Field key={cf.id} label={cf.label}>
+                                <input
+                                  className={inputCls}
+                                  value={it.customValues?.[cf.id] ?? it.customValues?.[cf.label] ?? ''}
+                                  onChange={(e) => patchItemCustom(idx, cf.id, e.target.value)}
+                                  placeholder={`Enter ${cf.label}...`}
+                                />
+                              </Field>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Notes & Live Summary Footer */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pt-2">
+                <Field label="Purchase Notes / Remarks (Optional)">
+                  <textarea
+                    rows={2}
+                    className={inputCls}
+                    value={form.notes}
+                    onChange={(e) => patchForm({ notes: e.target.value })}
+                    placeholder="Any additional vendor payment instructions or office remarks..."
+                  />
+                </Field>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex flex-col justify-center space-y-1.5 text-xs">
+                  <div className="font-bold text-slate-700 uppercase tracking-wider text-[11px]">
+                    Live Purchase Totals
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-slate-600">Total Payable to Vendors:</span>
+                    <div className="flex flex-wrap gap-2">
+                      {formTotals.payables.map(([cur, amt]) => (
+                        <span key={cur} className="font-mono font-bold text-amber-800 text-sm">
+                          {cur} {fmtAmount(amt)}
+                        </span>
                       ))}
                     </div>
                   </div>
-                );
-              })}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-slate-600">Total Receivable from Customer (optional):</span>
+                    <div className="flex flex-wrap gap-2">
+                      {formTotals.receivables.length ? (
+                        formTotals.receivables.map(([cur, amt]) => (
+                          <span key={cur} className="font-mono font-bold text-blue-700 text-sm">
+                            {cur} {fmtAmount(amt)}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="font-mono text-slate-400">—</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button type="button" onClick={() => setForm(null)} className={btnGhost}>
+                  Cancel
+                </button>
+                <button type="button" disabled={busy} onClick={submitForm} className={btnPrimary}>
+                  <Check className="w-4 h-4" /> {busy ? 'Saving...' : 'Save Vendor Purchase'}
+                </button>
+              </div>
             </div>
 
-            {viewing.notes && (
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
-                <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Notes</span>
-                <p className="whitespace-pre-wrap break-words">{viewing.notes}</p>
+            {/* RIGHT COLUMN: Sticky Live Preview (Just like General +New Invoice Modal) */}
+            {livePreviewPurchase && (
+              <div className="w-full xl:w-[540px] shrink-0 xl:sticky xl:top-0">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center justify-between">
+                  <span>LIVE PREVIEW — UPDATES AS YOU TYPE</span>
+                  {newColLabel.trim() && (
+                    <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                      Previewing new column: "{newColLabel.trim()}"
+                    </span>
+                  )}
+                </div>
+                <PurchasePreview
+                  purchase={livePreviewPurchase}
+                  company={crm.data.company}
+                  customFields={customFields}
+                  draftColumnLabel={newColLabel.trim()}
+                  draftColumnCategory={newColCategory}
+                  preparedBy={currentUser.name}
+                />
               </div>
             )}
           </div>
         )}
       </Modal>
 
-      {/* ---------- Add / Edit Vendor Purchase Modal ---------- */}
+      {/* View Detail Modal */}
       <Modal
-        isOpen={Boolean(form)}
-        onClose={() => setForm(null)}
-        title={form?.id ? `Edit Vendor Purchase ${form.purchaseNo || ''}` : 'New Vendor Purchase (+Add Vendor)'}
-        subtitle="Fill in Customer, C/O, and Query Code / CRM ID, then add one or multiple vendor product purchases below."
-        maxWidth="5xl"
+        isOpen={Boolean(viewing)}
+        title={viewing ? `Vendor Purchase ${viewing.purchaseNo}` : ''}
+        subtitle={
+          viewing
+            ? `Customer: ${viewing.customerName}${viewing.careOf ? ` · C/O: ${viewing.careOf}` : ''}${
+                viewing.crmId ? ` · Query Code / CRM ID: ${viewing.crmId}` : ''
+              }`
+            : ''
+        }
+        onClose={() => setViewing(null)}
+        maxWidth="4xl"
       >
-        {form && (
-          <form onSubmit={savePurchase} className="space-y-5">
-            {/* 1. Primary Customer, C/O & Query Code / CRM ID Header */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
-              <div className="md:col-span-2">
-                <Field label="1. Customer *">
-                  <input
-                    className={inputCls}
-                    list="crm-purchase-customers"
-                    value={form.customerName}
-                    onChange={(e) => patchForm({ customerName: e.target.value })}
-                    placeholder="Type or select customer name…"
-                    maxLength={160}
-                    required
-                  />
-                  <datalist id="crm-purchase-customers">
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.customerName}>{c.companyName}</option>
-                    ))}
-                  </datalist>
-                </Field>
-              </div>
-              <div>
-                <Field label="2. C/O (Care Of / Reference)">
-                  <input
-                    className={inputCls}
-                    value={form.careOf}
-                    onChange={(e) => patchForm({ careOf: e.target.value })}
-                    placeholder="e.g. Asad Ali / Direct"
-                    maxLength={160}
-                  />
-                </Field>
-              </div>
-              <div>
-                <Field label="3. Query Code / CRM ID">
-                  <input
-                    className={inputCls}
-                    value={form.crmId}
-                    onChange={(e) => patchForm({ crmId: e.target.value })}
-                    placeholder="e.g. 17562336"
-                    maxLength={80}
-                  />
-                </Field>
-              </div>
-              <div>
-                <Field label="Default Currency">
-                  <select
-                    className={inputCls}
-                    value={form.currency}
-                    onChange={(e) => {
-                      const nextCur = e.target.value;
-                      patchForm({
-                        currency: nextCur,
-                        items: form.items.map((it) => (it.currency === form.currency ? { ...it, currency: nextCur } : it)),
-                      });
-                    }}
-                  >
-                    {currencies.map((c) => <option key={c.code} value={c.code}>{currencyLabel(c)}</option>)}
-                  </select>
-                </Field>
-              </div>
-            </div>
-
-            {/* 2. Add Multiple Product Buttons (+ Ticket, + Hotel, + Visa, + Tours & Transfers, + Insurance) */}
-            <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/60">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-bold text-blue-900 dark:text-blue-200 mr-1">Add Product / Vendor Entry:</span>
-                {(['ticket', 'hotel', 'visa', 'tour', 'insurance', 'other'] as const).map((cat) => {
-                  const meta = CATEGORY_META[cat];
-                  const Icon = meta.Icon;
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => addCategoryItem(cat)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-slate-900 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800 hover:bg-blue-600 hover:text-white transition-all cursor-pointer shadow-2xs"
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                      <span>+ {meta.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Live Admin Quick-Add Custom Column inside the Modal */}
-            {isStaff && (
-              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-300 dark:border-slate-700 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 shrink-0 inline-flex items-center gap-1">
-                  <Columns3 className="w-3.5 h-3.5 text-blue-600" /> Live Add Column:
+        {viewing && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
+              <div className="flex flex-wrap items-center gap-2">
+                <Pill tone={viewing.status === 'paid' ? 'green' : viewing.status === 'partial' ? 'blue' : 'amber'}>
+                  {viewing.status === 'paid' ? 'Paid' : viewing.status === 'partial' ? 'Partially Paid' : 'Unpaid / Credit'}
+                </Pill>
+                <span className="text-xs text-slate-500">
+                  Date: <b>{niceDate(viewing.purchaseDate)}</b> · Created by{' '}
+                  <b>{empName.get(viewing.createdBy) || 'Employee'}</b>
                 </span>
-                <select
-                  className={`${inputCls} sm:!w-44`}
-                  value={newColCategory}
-                  onChange={(e) => setNewColCategory(e.target.value as PurchaseCategory | 'all')}
-                >
-                  <option value="all">All Categories</option>
-                  <option value="ticket">Ticket Purchase</option>
-                  <option value="hotel">Hotel Purchase</option>
-                  <option value="visa">Visa Purchase</option>
-                  <option value="tour">Tours &amp; Transfers</option>
-                  <option value="insurance">Insurance</option>
-                  <option value="other">Other</option>
-                </select>
-                <input
-                  className={`${inputCls} flex-1`}
-                  value={newColLabel}
-                  onChange={(e) => setNewColLabel(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleAddCustomColumn(); } }}
-                  placeholder="Type new column name to add live right now…"
-                  maxLength={80}
-                />
+              </div>
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => void handleAddCustomColumn()}
-                  disabled={colBusy || !newColLabel.trim()}
+                  onClick={() => {
+                    const target = viewing;
+                    setViewing(null);
+                    setForm(toForm(target));
+                  }}
                   className={btnGhost}
                 >
-                  <Plus className="w-3.5 h-3.5" /> Add Field Live
+                  <Pencil className="w-3.5 h-3.5" /> Edit Purchase
                 </button>
               </div>
-            )}
-
-            {/* 3. Product Item Forms */}
-            <div className="space-y-4">
-              {form.items.map((it, idx) => {
-                const meta = CATEGORY_META[it.category];
-                const Icon = meta.Icon;
-                const extraFields = fieldsForCategory(it.category);
-
-                return (
-                  <div key={it.id} className="p-4 rounded-xl border-2 border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-3 shadow-2xs">
-                    {/* Item Header */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold">
-                          {idx + 1}
-                        </span>
-                        <Icon className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                        <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{meta.label}</span>
-                        <select
-                          className={`${inputCls} !w-auto !py-1 text-[11px] font-semibold`}
-                          value={it.category}
-                          onChange={(e) => patchItem(idx, { category: e.target.value as PurchaseCategory })}
-                          aria-label="Change product category"
-                        >
-                          <option value="ticket">Ticket Purchase</option>
-                          <option value="hotel">Hotel Purchase</option>
-                          <option value="visa">Visa Purchase</option>
-                          <option value="tour">Tours &amp; Transfers</option>
-                          <option value="insurance">Insurance</option>
-                          <option value="other">Other Service</option>
-                        </select>
-                      </div>
-                      {form.items.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeItem(idx)}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" /> Remove
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Category-Specific Fields */}
-                    {it.category === 'ticket' && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-                        <Field label="Ticket Number *">
-                          <input className={inputCls} value={it.ticketNumber} onChange={(e) => patchItem(idx, { ticketNumber: e.target.value })} placeholder="e.g. 214-4829104921" required />
-                        </Field>
-                        <Field label="Issued From / Vendor *">
-                          <input className={inputCls} value={it.vendorName} onChange={(e) => patchItem(idx, { vendorName: e.target.value })} placeholder="e.g. MEEZAB AIR" required />
-                        </Field>
-                        <Field label={`Payable Price (${it.currency}) *`}>
-                          <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.payable} onChange={(e) => patchItem(idx, { payable: e.target.value })} placeholder="0.00" required />
-                        </Field>
-                        <Field label={`Receivable (${it.currency}) (optional)`}>
-                          <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.receivable} onChange={(e) => patchItem(idx, { receivable: e.target.value })} placeholder="Optional" />
-                        </Field>
-                        <Field label="Payment Due Date">
-                          <input className={inputCls} type="date" value={it.paymentDueDate} onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })} />
-                        </Field>
-                      </div>
-                    )}
-
-                    {it.category === 'hotel' && (
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                          <Field label="Hotel Name *">
-                            <input className={inputCls} value={it.hotelName} onChange={(e) => patchItem(idx, { hotelName: e.target.value })} placeholder="e.g. Pullman Zamzam" required />
-                          </Field>
-                          <Field label="Rooms">
-                            <input className={inputCls} value={it.rooms} onChange={(e) => patchItem(idx, { rooms: e.target.value })} placeholder="e.g. 2 Double / 1 Quad" />
-                          </Field>
-                          <Field label="Check In Date">
-                            <input className={inputCls} type="date" value={it.checkInDate} onChange={(e) => patchItem(idx, { checkInDate: e.target.value })} />
-                          </Field>
-                          <Field label="Check Out Date">
-                            <input className={inputCls} type="date" value={it.checkOutDate} onChange={(e) => patchItem(idx, { checkOutDate: e.target.value })} />
-                          </Field>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                          <Field label="Vendor / Issued By *">
-                            <input className={inputCls} value={it.vendorName} onChange={(e) => patchItem(idx, { vendorName: e.target.value })} placeholder="Vendor name" required />
-                          </Field>
-                          <Field label={`Payable (${it.currency}) *`}>
-                            <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.payable} onChange={(e) => patchItem(idx, { payable: e.target.value })} placeholder="0.00" required />
-                          </Field>
-                          <Field label={`Receivable (${it.currency}) (optional)`}>
-                            <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.receivable} onChange={(e) => patchItem(idx, { receivable: e.target.value })} placeholder="Optional" />
-                          </Field>
-                          <Field label="Payment Due Date">
-                            <input className={inputCls} type="date" value={it.paymentDueDate} onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })} />
-                          </Field>
-                        </div>
-                      </div>
-                    )}
-
-                    {it.category === 'visa' && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
-                        <Field label="Countries *">
-                          <input className={inputCls} value={it.countries} onChange={(e) => patchItem(idx, { countries: e.target.value })} placeholder="e.g. Turkey, UAE" required />
-                        </Field>
-                        <Field label="Visa Type *">
-                          <input className={inputCls} value={it.visaType} onChange={(e) => patchItem(idx, { visaType: e.target.value })} placeholder="e.g. Tourist / E-Visa / Sticker" required />
-                        </Field>
-                        <Field label="Vendor *">
-                          <input className={inputCls} value={it.vendorName} onChange={(e) => patchItem(idx, { vendorName: e.target.value })} placeholder="Vendor name" required />
-                        </Field>
-                        <Field label={`Payable (${it.currency}) *`}>
-                          <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.payable} onChange={(e) => patchItem(idx, { payable: e.target.value })} placeholder="0.00" required />
-                        </Field>
-                        <Field label={`Receivable (${it.currency}) (opt.)`}>
-                          <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.receivable} onChange={(e) => patchItem(idx, { receivable: e.target.value })} placeholder="Optional" />
-                        </Field>
-                        <Field label="Payment Due Date">
-                          <input className={inputCls} type="date" value={it.paymentDueDate} onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })} />
-                        </Field>
-                      </div>
-                    )}
-
-                    {it.category === 'tour' && (
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                          <div className="md:col-span-2">
-                            <Field label="Description of Tour / Transfer *">
-                              <input className={inputCls} value={it.tourDescription} onChange={(e) => patchItem(idx, { tourDescription: e.target.value })} placeholder="e.g. Airport Transfer + Full Day Baku City Tour" required />
-                            </Field>
-                          </div>
-                          <Field label="Date">
-                            <input className={inputCls} type="date" value={it.tourDate} onChange={(e) => patchItem(idx, { tourDate: e.target.value })} />
-                          </Field>
-                          <Field label="Number of Persons">
-                            <input className={inputCls} type="number" min="1" value={it.persons} onChange={(e) => patchItem(idx, { persons: e.target.value })} placeholder="e.g. 4" />
-                          </Field>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                          <Field label="Vendor / Issued By *">
-                            <input className={inputCls} value={it.vendorName} onChange={(e) => patchItem(idx, { vendorName: e.target.value })} placeholder="Vendor name" required />
-                          </Field>
-                          <Field label={`Payable (${it.currency}) *`}>
-                            <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.payable} onChange={(e) => patchItem(idx, { payable: e.target.value })} placeholder="0.00" required />
-                          </Field>
-                          <Field label={`Receivable (${it.currency}) (optional)`}>
-                            <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.receivable} onChange={(e) => patchItem(idx, { receivable: e.target.value })} placeholder="Optional" />
-                          </Field>
-                          <Field label="Payment Due Date">
-                            <input className={inputCls} type="date" value={it.paymentDueDate} onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })} />
-                          </Field>
-                        </div>
-                      </div>
-                    )}
-
-                    {it.category === 'insurance' && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
-                        <Field label="Insurance Type *">
-                          <input className={inputCls} value={it.insuranceType} onChange={(e) => patchItem(idx, { insuranceType: e.target.value })} placeholder="e.g. Schengen / Worldwide" required />
-                        </Field>
-                        <Field label="Days">
-                          <input className={inputCls} type="number" min="1" value={it.insuranceDays} onChange={(e) => patchItem(idx, { insuranceDays: e.target.value })} placeholder="e.g. 15" />
-                        </Field>
-                        <Field label="Vendor / Issued By *">
-                          <input className={inputCls} value={it.vendorName} onChange={(e) => patchItem(idx, { vendorName: e.target.value })} placeholder="Vendor name" required />
-                        </Field>
-                        <Field label={`Payable (${it.currency}) *`}>
-                          <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.payable} onChange={(e) => patchItem(idx, { payable: e.target.value })} placeholder="0.00" required />
-                        </Field>
-                        <Field label={`Receivable (${it.currency}) (opt.)`}>
-                          <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.receivable} onChange={(e) => patchItem(idx, { receivable: e.target.value })} placeholder="Optional" />
-                        </Field>
-                        <Field label="Payment Due Date">
-                          <input className={inputCls} type="date" value={it.paymentDueDate} onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })} />
-                        </Field>
-                      </div>
-                    )}
-
-                    {it.category === 'other' && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
-                        <Field label="Service Description *">
-                          <input className={inputCls} value={it.description} onChange={(e) => patchItem(idx, { description: e.target.value })} placeholder="Describe service…" required />
-                        </Field>
-                        <Field label="Vendor / Issued By *">
-                          <input className={inputCls} value={it.vendorName} onChange={(e) => patchItem(idx, { vendorName: e.target.value })} placeholder="Vendor name" required />
-                        </Field>
-                        <Field label={`Payable (${it.currency}) *`}>
-                          <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.payable} onChange={(e) => patchItem(idx, { payable: e.target.value })} placeholder="0.00" required />
-                        </Field>
-                        <Field label={`Receivable (${it.currency}) (optional)`}>
-                          <input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={it.receivable} onChange={(e) => patchItem(idx, { receivable: e.target.value })} placeholder="Optional" />
-                        </Field>
-                        <Field label="Payment Due Date">
-                          <input className={inputCls} type="date" value={it.paymentDueDate} onChange={(e) => patchItem(idx, { paymentDueDate: e.target.value })} />
-                        </Field>
-                      </div>
-                    )}
-
-                    {/* Dynamic Live Admin-Added Columns for this Category */}
-                    {extraFields.length > 0 && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-dashed border-slate-200 dark:border-slate-800">
-                        {extraFields.map((ef) => (
-                          <Field key={ef.id} label={ef.label}>
-                            <input
-                              className={inputCls}
-                              value={it.customValues[ef.label] || ''}
-                              onChange={(e) => patchItemCustom(idx, ef.label, e.target.value)}
-                              placeholder={`Enter ${ef.label}…`}
-                            />
-                          </Field>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Paid By Section (Included in Every Category) */}
-                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-2.5">
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-                        <Field label="Paid By (Payment Method)">
-                          <select
-                            className={inputCls}
-                            value={it.paidByMethod}
-                            onChange={(e) => patchItem(idx, { paidByMethod: e.target.value as FormItem['paidByMethod'] })}
-                          >
-                            <option value="unpaid">Unpaid / On Credit (Payable Due)</option>
-                            <option value="card">Paid by Card (Faiq / Ali / Third Party / Others)</option>
-                            <option value="bank_transfer">Paid by Bank Transfer</option>
-                            <option value="cash">Paid by Cash</option>
-                            <option value="other">Others (Specify)</option>
-                          </select>
-                        </Field>
-
-                        {it.paidByMethod === 'card' && (
-                          <Field label="Card Option (A / B / C / D)">
-                            <select
-                              className={inputCls}
-                              value={it.cardOption}
-                              onChange={(e) => patchItem(idx, { cardOption: e.target.value as FormItem['cardOption'] })}
-                            >
-                              <option value="faiq_card">Option A: Paid by Faiq Card</option>
-                              <option value="ali_card">Option B: Paid by Ali&apos;s Card</option>
-                              <option value="third_party">Option C: Third Party</option>
-                              <option value="other">Option D: Others (Specify)</option>
-                            </select>
-                          </Field>
-                        )}
-
-                        {it.paidByMethod === 'card' && (it.cardOption === 'faiq_card' || it.cardOption === 'ali_card') && (
-                          <Field label="Which Bank (optional)">
-                            <input
-                              className={inputCls}
-                              value={it.cardBank}
-                              onChange={(e) => patchItem(idx, { cardBank: e.target.value })}
-                              placeholder="e.g. Meezan Bank / HBL / Alfalah (optional)"
-                            />
-                          </Field>
-                        )}
-
-                        {it.paidByMethod === 'card' && (it.cardOption === 'third_party' || it.cardOption === 'other') && (
-                          <Field label={it.cardOption === 'third_party' ? 'Third Party Name / Details (optional)' : 'Specify Card / Payer *'}>
-                            <input
-                              className={inputCls}
-                              value={it.paidBySpecify}
-                              onChange={(e) => patchItem(idx, { paidBySpecify: e.target.value })}
-                              placeholder="Specify cardholder or third party…"
-                            />
-                          </Field>
-                        )}
-
-                        {it.paidByMethod === 'bank_transfer' && (
-                          <Field label="Which Bank / Account (optional)">
-                            <input
-                              className={inputCls}
-                              value={it.cardBank}
-                              onChange={(e) => patchItem(idx, { cardBank: e.target.value })}
-                              placeholder="e.g. Meezan Bank / HBL"
-                            />
-                          </Field>
-                        )}
-
-                        {it.paidByMethod === 'other' && (
-                          <Field label="Specify Paid By">
-                            <input
-                              className={inputCls}
-                              value={it.paidBySpecify}
-                              onChange={(e) => patchItem(idx, { paidBySpecify: e.target.value })}
-                              placeholder="Specify how this was paid…"
-                            />
-                          </Field>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
             </div>
 
-            {/* Notes & Live Summary Footer */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-              <Field label="Purchase Notes / Remarks (optional)">
-                <textarea
-                  className={`${inputCls} min-h-[70px]`}
-                  value={form.notes}
-                  onChange={(e) => patchForm({ notes: e.target.value })}
-                  placeholder="Any additional vendor payment instructions or booking remarks…"
-                  maxLength={2000}
-                />
-              </Field>
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 space-y-1.5 text-xs">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Live Purchase Totals</p>
-                <div className="flex justify-between">
-                  <span>Total Payable to Vendors:</span>
-                  <b className="font-mono text-amber-700 dark:text-amber-300">{form.currency} {fmtAmount(formTotals.payable)}</b>
-                </div>
-                <div className="flex justify-between">
-                  <span>Total Receivable from Customer (optional):</span>
-                  <b className="font-mono text-blue-700 dark:text-blue-300">{form.currency} {fmtAmount(formTotals.receivable)}</b>
-                </div>
-                {formTotals.receivable > 0 && (
-                  <div className="flex justify-between pt-1.5 border-t border-slate-200 dark:border-slate-700">
-                    <span className="font-semibold">Estimated Margin / Profit:</span>
-                    <b className="font-mono text-emerald-600 dark:text-emerald-400">
-                      {form.currency} {fmtAmount(Math.round((formTotals.receivable - formTotals.payable) * 100) / 100)}
-                    </b>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {error && <ErrorNote message={error} />}
-
-            <div className="flex justify-end gap-2">
-              <button type="button" className={btnGhost} onClick={() => setForm(null)}>Cancel</button>
-              <button type="submit" className={btnPrimary} disabled={busy}>
-                {busy ? 'Saving…' : form.id ? 'Save Changes' : 'Save Vendor Purchase'}
-              </button>
-            </div>
-          </form>
+            <PurchasePreview
+              purchase={viewing}
+              company={crm.data.company}
+              customFields={customFields}
+              preparedBy={empName.get(viewing.createdBy) || currentUser.name}
+            />
+          </div>
         )}
       </Modal>
+    </div>
+  );
+};
+
+const PurchasePreview: React.FC<{
+  purchase: CrmPurchase;
+  company: CompanyProfile;
+  customFields: PurchaseCustomField[];
+  draftColumnLabel?: string;
+  draftColumnCategory?: PurchaseCategory | 'all';
+  preparedBy?: string;
+}> = ({
+  purchase,
+  company,
+  customFields,
+  draftColumnLabel,
+  draftColumnCategory = 'all',
+  preparedBy,
+}) => {
+  const items = purchase.items || [];
+  const totalsByCur = useMemo(() => {
+    const payMap = new Map<string, number>();
+    const recMap = new Map<string, number>();
+    items.forEach((it) => {
+      const c = it.currency || purchase.currency || 'PKR';
+      payMap.set(c, (payMap.get(c) || 0) + (Number(it.payable) || 0));
+      if (it.receivable !== null && it.receivable !== undefined) {
+        recMap.set(c, (recMap.get(c) || 0) + (Number(it.receivable) || 0));
+      }
+    });
+    return { payables: [...payMap.entries()], receivables: [...recMap.entries()] };
+  }, [items, purchase.currency]);
+
+  const meta: [string, string][] = [
+    ['Purchase No', purchase.purchaseNo],
+    ['Purchase Date', niceDate(purchase.purchaseDate)],
+  ];
+  if (purchase.careOf) meta.push(['C/O', purchase.careOf]);
+  if (purchase.crmId) meta.push(['Query / CRM ID', purchase.crmId]);
+  if (company.ntn) meta.push(['NTN#', company.ntn]);
+
+  return (
+    <div className="bg-white text-slate-900 rounded-lg border border-slate-300 p-5 text-[12px] leading-snug">
+      <img src="/bahaar-logo.png" alt={company.name || 'Bahaar Journeys'} className="w-[88%] max-w-[440px] h-auto" />
+      <div className="flex justify-between gap-4 mt-2">
+        <div className="min-w-0">
+          <p className="text-[9px] font-bold text-slate-500 tracking-wider">CUSTOMER</p>
+          <p className="font-bold text-sm break-words">{purchase.customerName || '—'}</p>
+          {purchase.careOf && <p className="text-xs text-slate-700">C/O: <b>{purchase.careOf}</b></p>}
+          {purchase.crmId && <p className="text-xs font-mono text-indigo-700">Query Code / CRM ID: <b>{purchase.crmId}</b></p>}
+        </div>
+        <table className="text-[11px] border border-slate-700 self-start shrink-0">
+          <tbody>
+            {meta.map(([k, v]) => (
+              <tr key={k}>
+                <td className="border border-slate-700 px-2 py-0.5">{k}</td>
+                <td className="border border-slate-700 px-2 py-0.5 font-bold text-center min-w-[110px]">{v}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h4 className="text-center font-serif font-bold text-xl my-3">VENDOR PURCHASE</h4>
+
+      <div className="overflow-x-auto">
+        <table className="w-full border border-slate-700 border-collapse min-w-[420px]">
+          <thead>
+            <tr className="text-[10px]">
+              <th className="border border-slate-700 px-1.5 py-1 text-center w-8">SN</th>
+              <th className="border border-slate-700 px-2 py-1 text-left">DESCRIPTION & VENDOR DETAILS</th>
+              <th className="border border-slate-700 px-1.5 py-1 text-center w-24">UNIT PRICE</th>
+              <th className="border border-slate-700 px-1.5 py-1 text-center w-14">UNITS</th>
+              <th className="border border-slate-700 px-2 py-1 text-right w-28">PAYABLE</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((it, i) => {
+              const metaCat = CATEGORY_META[it.category] || CATEGORY_META.other;
+              const cur = it.currency || purchase.currency || 'PKR';
+              const qty = it.quantity && Number(it.quantity) > 0 ? Number(it.quantity) : 1;
+              const unitPay =
+                it.unitPayable !== null && it.unitPayable !== undefined
+                  ? Number(it.unitPayable)
+                  : qty > 0
+                    ? (Number(it.payable) || 0) / qty
+                    : Number(it.payable) || 0;
+              const itemCustomFields = customFields.filter(
+                (cf) => cf.category === 'all' || cf.category === it.category
+              );
+              const showDraftCol =
+                Boolean(draftColumnLabel) &&
+                (draftColumnCategory === 'all' || draftColumnCategory === it.category);
+
+              return (
+                <tr key={it.id || i} className="align-top border-t border-slate-300">
+                  <td className="border-x border-slate-700 px-1.5 py-1.5 text-center font-bold">{i + 1}</td>
+                  <td className="border-x border-slate-700 px-2 py-1.5 space-y-0.5">
+                    <div className="font-bold text-slate-900">
+                      {metaCat.label} — <span className="text-amber-800">Vendor: {it.vendorName || '—'}</span>
+                    </div>
+                    {it.category === 'ticket' && it.ticketNumber && (
+                      <div className="text-slate-700">Ticket #: <b className="font-mono">{it.ticketNumber}</b></div>
+                    )}
+                    {it.category === 'hotel' && (
+                      <div className="text-slate-700">
+                        Hotel: <b>{it.hotelName || '—'}</b>
+                        {it.rooms ? ` · Rooms: ${it.rooms}` : ''}
+                        {it.checkInDate ? ` · Check-In: ${niceDate(it.checkInDate)}` : ''}
+                        {it.checkOutDate ? ` · Check-Out: ${niceDate(it.checkOutDate)}` : ''}
+                      </div>
+                    )}
+                    {it.category === 'visa' && (
+                      <div className="text-slate-700">
+                        Countries: <b>{it.countries || '—'}</b> · Visa Type: <b>{it.visaType || '—'}</b>
+                      </div>
+                    )}
+                    {it.category === 'tour' && (
+                      <div className="text-slate-700">
+                        Tour: <b>{it.tourDescription || '—'}</b>
+                        {it.tourDate ? ` · Date: ${niceDate(it.tourDate)}` : ''}
+                        {it.persons ? ` · Persons: ${it.persons}` : ''}
+                      </div>
+                    )}
+                    {it.category === 'insurance' && (
+                      <div className="text-slate-700">
+                        Type: <b>{it.insuranceType || '—'}</b>
+                        {it.insuranceDays ? ` · Days: ${it.insuranceDays}` : ''}
+                      </div>
+                    )}
+                    {it.category === 'other' && it.description && (
+                      <div className="text-slate-700">Details: <b>{it.description}</b></div>
+                    )}
+                    <div className="text-[10px] text-slate-600">
+                      Paid By: <b className="text-slate-900">{formatPaidByLabel(it)}</b>
+                      {it.paymentDueDate ? ` · Due: ${niceDate(it.paymentDueDate)}` : ''}
+                      {it.receivable !== null && it.receivable !== undefined
+                        ? ` · Receivable: ${cur} ${fmtAmount(it.receivable)}`
+                        : ''}
+                    </div>
+
+                    {/* Active Custom Columns in Live Preview */}
+                    {itemCustomFields.map((cf) => {
+                      const val = getCustomFieldValue(it, cf);
+                      return (
+                        <div key={cf.id} className="text-[10px] text-indigo-800">
+                          {cf.label}: <b>{val || '—'}</b>
+                        </div>
+                      );
+                    })}
+
+                    {/* Live Preview of Draft Column Being Typed */}
+                    {showDraftCol && (
+                      <div className="text-[10px] text-indigo-700 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded inline-block border border-indigo-200">
+                        + {draftColumnLabel}: —
+                      </div>
+                    )}
+                  </td>
+                  <td className="border-x border-slate-700 px-1.5 py-1.5 text-center font-mono">
+                    {cur} {fmtAmount(unitPay)}
+                  </td>
+                  <td className="border-x border-slate-700 px-1.5 py-1.5 text-center font-mono">
+                    {fmtAmount(qty)}
+                  </td>
+                  <td className="border-x border-slate-700 px-2 py-1.5 text-right font-mono font-bold">
+                    {cur} {fmtAmount(it.payable || 0)}
+                  </td>
+                </tr>
+              );
+            })}
+            <tr className="border-t border-slate-700 font-bold">
+              <td className="border-x border-slate-700" />
+              <td className="border-x border-slate-700" />
+              <td className="border-slate-700" />
+              <td className="text-center py-1.5">Total Payable</td>
+              <td className="border border-slate-700 text-right px-2 font-mono">
+                {totalsByCur.payables.length
+                  ? totalsByCur.payables.map(([c, amt]) => (
+                      <div key={c}>
+                        {c} {fmtAmount(amt)}
+                      </div>
+                    ))
+                  : '0'}
+              </td>
+            </tr>
+            {totalsByCur.receivables.length > 0 && (
+              <tr className="border-t border-slate-700 font-bold text-blue-800">
+                <td className="border-x border-slate-700" />
+                <td className="border-x border-slate-700" />
+                <td className="border-slate-700" />
+                <td className="text-center py-1.5">Receivable</td>
+                <td className="border border-slate-700 text-right px-2 font-mono">
+                  {totalsByCur.receivables.map(([c, amt]) => (
+                    <div key={c}>
+                      {c} {fmtAmount(amt)}
+                    </div>
+                  ))}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {purchase.notes && (
+        <div className="mt-2">
+          <p className="text-[9px] font-bold text-slate-500">NOTES</p>
+          <p className="whitespace-pre-wrap text-slate-600">{purchase.notes}</p>
+        </div>
+      )}
+
+      <div className="mt-3 flex justify-between items-end">
+        <div>
+          <p className="text-[10px] text-slate-500">Internal vendor purchase record</p>
+          {preparedBy && <p className="text-[9px] text-slate-400">Prepared by {preparedBy}</p>}
+        </div>
+        <p className="text-[9px] text-slate-500 border-t border-slate-500 pt-0.5 px-6">Authorised signature</p>
+      </div>
     </div>
   );
 };

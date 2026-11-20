@@ -271,12 +271,14 @@ export interface CrmPurchaseItem {
   id: string;
   category: PurchaseCategory;
   vendorName: string;
+  quantity?: number;
+  unitPayable?: number;
   payable: number;
   receivable: number | null;
   currency: string;
   paymentDueDate: string | null;
   // Paid By fields (present on every category)
-  paidByMethod: 'unpaid' | 'card' | 'cash' | 'bank_transfer' | 'other';
+  paidByMethod: 'unpaid' | 'faiq_card' | 'ali_card' | 'third_party' | 'other' | 'card' | 'cash' | 'bank_transfer';
   cardOption?: 'faiq_card' | 'ali_card' | 'third_party' | 'other' | '';
   cardBank?: string;
   paidBySpecify?: string;
