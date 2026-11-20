@@ -37,11 +37,13 @@ import {
   formatMinutesToHoursMinutes,
   formatTime12h,
   getDayName,
+  getShiftEndWindowMs,
   getTodayDateString,
   isLateArrival,
   parseTimeToMinutes,
   playPunchSound,
 } from '../../lib/attendanceCalculations';
+import { crmCall } from '../../crm/crmApi';
 import { verifyOfficeIpAccess } from '../../lib/ipSecurity';
 import {
   canEmployeeAutoPunch,
@@ -99,6 +101,8 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   const [showNoteInput, setShowNoteInput] = useState<boolean>(false);
   const [noteSavedFeedback, setNoteSavedFeedback] = useState<boolean>(false);
   const [batDownloaded, setBatDownloaded] = useState<boolean>(false);
+  const [verifyingWork, setVerifyingWork] = useState<boolean>(false);
+  const [workVerifiedAt, setWorkVerifiedAt] = useState<string | null>(null);
 
   const canPersonalAutoStart = canEmployeeAutoPunch(currentUser, settings);
 
@@ -228,6 +232,42 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   const isPunchBlocked = isPunchBlockedByIp;
   // Network, connection and automation details are for administrators only; staff just punch in and out.
   const isAdminUser = currentUser.role === 'admin';
+
+  const graceHours = Number(settings.autoPunchOutOnInactiveHours ?? 2) || 2;
+  const effectiveConfirmedMs = useMemo(() => {
+    const raw = workVerifiedAt || todayRecord?.workConfirmedAt;
+    return raw ? Date.parse(raw) : NaN;
+  }, [workVerifiedAt, todayRecord?.workConfirmedAt]);
+
+  const shiftWindow = useMemo(() => {
+    if (!todayRecord?.timeIn || todayRecord.timeOut) return null;
+    return getShiftEndWindowMs(todayRecord.date, todayRecord.timeIn, userShift, graceHours, effectiveConfirmedMs);
+  }, [todayRecord?.date, todayRecord?.timeIn, todayRecord?.timeOut, userShift, graceHours, effectiveConfirmedMs]);
+
+  const nowMs = currentTime.getTime();
+  const isOvertimeVerificationDue = Boolean(
+    isClockedIn &&
+    shiftWindow &&
+    !userShift?.isNoRestriction &&
+    Number.isFinite(shiftWindow.verifyAtMs) &&
+    nowMs >= shiftWindow.verifyAtMs - 15 * 60 * 1000
+  );
+  const verifyMinsRemaining = shiftWindow && Number.isFinite(shiftWindow.checkAtMs)
+    ? Math.max(0, Math.ceil((shiftWindow.checkAtMs - nowMs) / 60000))
+    : 0;
+
+  const handleConfirmStillWorking = async () => {
+    if (verifyingWork) return;
+    setVerifyingWork(true);
+    try {
+      const res = await crmCall<{ confirmedAt?: string }>('work_confirm');
+      setWorkVerifiedAt(res?.confirmedAt || new Date().toISOString());
+    } catch (err: any) {
+      alert(err?.message || 'Could not verify working status. Please try again.');
+    } finally {
+      setVerifyingWork(false);
+    }
+  };
 
   // Calculate live elapsed seconds for work and break
   const getElapsedTimeString = (startTimeStr: string): string => {
@@ -593,6 +633,38 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
           {/* Action Buttons */}
           <div className="space-y-4 pt-1">
+            {isOvertimeVerificationDue && !todayRecord?.timeOut && (
+              <div className="p-3.5 rounded-xl border-2 border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-950 dark:text-amber-100 space-y-2.5 shadow-xs">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-1">
+                    <p className="font-bold">
+                      Overtime Verification ({graceHours}h After Shift End) — Are you currently working?
+                    </p>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-200">
+                      Please verify if you are still actively working on overtime. If not verified within <b>{verifyMinsRemaining} min</b>, the system will automatically punch you out and record your overtime separately under auto punch-out remarks.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={verifyingWork}
+                    onClick={handleConfirmStillWorking}
+                    className="px-3.5 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer disabled:opacity-60"
+                  >
+                    {verifyingWork ? 'Verifying…' : '✓ Yes, I Am Currently Working (Continue Overtime)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTimeOutClick}
+                    className="px-3.5 py-2 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+                  >
+                    No, Punch Out Now
+                  </button>
+                </div>
+              </div>
+            )}
             {!todayRecord?.timeIn ? (
               <button
                 onClick={handleTimeInClick}
@@ -654,14 +726,11 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                 </p>
                 <p className="text-xs text-emerald-700 dark:text-emerald-400">
                   Time In: {formatTime12h(todayRecord.timeIn)} · Time Out: {formatTime12h(todayRecord.timeOut)} · Total Worked: {formatMinutesToHoursMinutes(todayRecord.totalWorkedMinutes)}
+                  {(todayRecord.overtimeMinutes || 0) > 0 ? ` · Overtime: ${formatMinutesToHoursMinutes(todayRecord.overtimeMinutes)}` : ''}
                 </p>
                 {todayRecord.isAutoPunchedOut && (
                   <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                    {todayRecord.autoPunchOutReason === 'shift_end_2h'
-                      ? `System Notice: Auto punched out ${settings.autoPunchOutOnInactiveHours ?? 2}h after shift ended (no live internet connection).`
-                      : todayRecord.autoPunchOutReason === 'inactivity_2h'
-                      ? 'System Notice: Auto punched out by server rule.'
-                      : 'System Notice: Auto system punched out at 11:59 PM.'}
+                    {`System Notice: Auto punched out ${settings.autoPunchOutOnInactiveHours ?? 2}h after shift ended · Overtime counted in remarks: ${formatMinutesToHoursMinutes(todayRecord.overtimeMinutes || 0)}`}
                   </p>
                 )}
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1">

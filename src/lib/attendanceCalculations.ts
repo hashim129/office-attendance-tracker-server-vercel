@@ -259,10 +259,12 @@ export function getShiftEndWindowMs(
   recordDate: string,
   timeIn: string,
   shift?: Partial<ShiftSchedule>,
-  graceHours: number = 2
+  graceHours: number = 2,
+  confirmedAtMs: number = NaN
 ): {
   inMs: number;
   shiftEndMs: number;
+  verifyAtMs: number;
   checkAtMs: number;
   isOvernightShift: boolean;
 } {
@@ -278,9 +280,12 @@ export function getShiftEndWindowMs(
     isOvernightShift && inMins > endMins ? addDaysYmdLocal(recordDate, 1) : recordDate;
   const shiftEndMs = buildLocalMs(endDateStr, endTime);
   const cleanGrace = Math.max(0, Number(graceHours || 0));
-  const checkAtMs = shiftEndMs + cleanGrace * 60 * 60 * 1000;
+  const baseMs = Number.isFinite(confirmedAtMs) ? Math.max(shiftEndMs, confirmedAtMs) : shiftEndMs;
+  const verifyAtMs = baseMs + cleanGrace * 60 * 60 * 1000;
+  // 15-minute verification window after Shift End + 2h for the employee to verify if they are currently working
+  const checkAtMs = cleanGrace > 0 ? verifyAtMs + 15 * 60 * 1000 : shiftEndMs;
 
-  return { inMs, shiftEndMs, checkAtMs, isOvernightShift };
+  return { inMs, shiftEndMs, verifyAtMs, checkAtMs, isOvernightShift };
 }
 
 /**
@@ -368,12 +373,19 @@ function finalizeAutoClosedRecord(params: {
     updatedBreaks,
     expectedHours
   );
+  const otH = Math.floor(overtimeMinutes / 60);
+  const otM = overtimeMinutes % 60;
+  const regH = Math.floor(regularMinutes / 60);
+  const regM = regularMinutes % 60;
+  const otText = `Overtime: ${otH}h ${String(otM).padStart(2, '0')}m (Regular: ${regH}h ${String(regM).padStart(2, '0')}m)`;
+  const remarkWithOt = `${autoRemark} · ${otText}`;
+
   const existingNotes = record.notes ? record.notes.trim() : '';
   const finalNotes = existingNotes
     ? existingNotes.includes(autoRemark)
       ? existingNotes
-      : `${existingNotes} · ${autoRemark}`
-    : autoRemark;
+      : `${existingNotes} · ${remarkWithOt}`
+    : remarkWithOt;
 
   return {
     ...record,
@@ -393,11 +405,11 @@ function finalizeAutoClosedRecord(params: {
 }
 
 /**
- * Evaluates open attendance punches against:
- * 1. Shift-End + 2h (configurable) rule: if user is live through internet & working (!onBreak),
- *    keep open for live overtime; otherwise if disconnected / offline / forgot to logout, auto punch out.
- *    (Device idle timeout during shift has been removed.)
- * 2. End-of-day (23:59:00) safety net for forgotten punches (skipping active overnight shifts and Admin keep-open).
+ * Evaluates open attendance punches against the Shift-End + 2h (configurable) rule:
+ * After Shift End + 2h + 15m verification window, if the employee has not verified that they are
+ * still actively working, automatically punches them out at Shift End + 2h while keeping overtime
+ * calculation intact and recording overtime separately under auto punch-out remarks.
+ * (The 11:59 auto-logout rule has been removed.)
  */
 export function autoCloseForgottenPunches(
   records: AttendanceRecord[],
@@ -405,8 +417,6 @@ export function autoCloseForgottenPunches(
   settings?: OfficeSettings,
   employees?: Employee[]
 ): { updatedRecords: AttendanceRecord[]; hasChanges: boolean } {
-  const today = getTodayDateString();
-  const nowTime = getCurrentTimeString();
   const nowMs = Date.now();
   let hasChanges = false;
 
@@ -434,100 +444,49 @@ export function autoCloseForgottenPunches(
     const expectedHours = shift.expectedHours || 8;
 
     const adminOverrideMs = record.adminOverrideAt ? Date.parse(record.adminOverrideAt) : 0;
-    const midnightCutoffMs = record.date ? buildLocalMs(record.date, '23:59:00') : 0;
-    const adminKeptOpenPastCutoff =
-      record.adminKeepOpen === true ||
-      (adminOverrideMs > 0 && midnightCutoffMs > 0 && adminOverrideMs > midnightCutoffMs);
+    const confirmedAtMs = record.workConfirmedAt ? Date.parse(record.workConfirmedAt) : NaN;
 
-    const { inMs, shiftEndMs, checkAtMs, isOvernightShift } = getShiftEndWindowMs(
+    const { inMs, verifyAtMs, checkAtMs } = getShiftEndWindowMs(
       record.date,
       record.timeIn,
       shift,
-      overtimeHoursRaw
+      overtimeHoursRaw,
+      confirmedAtMs
     );
 
-    const onBreak = Array.isArray(record.breaks) && record.breaks.some((b) => !b.end);
-    const isKioskSession =
-      record.heartbeatSource === 'kiosk' ||
-      (!record.heartbeatSource && String(record.notes || '').startsWith('Lobby Kiosk Punch'));
-
-    const lastHbMs = record.lastHeartbeatAt ? Date.parse(record.lastHeartbeatAt) : NaN;
     const adaptiveFloorMs = record.heartbeatIntervalMs ? Number(record.heartbeatIntervalMs) + 90000 : 0;
     const effectiveDisconnectMs = Math.max(disconnectMs, adaptiveFloorMs);
-    const isLiveConnected =
-      !isKioskSession &&
-      !Number.isNaN(lastHbMs) &&
-      !record.monitoringPaused &&
-      record.connectionStatus !== 'no_internet' &&
-      nowMs - lastHbMs <= effectiveDisconnectMs;
 
     const adminReopenedAfterCheck =
       adminOverrideMs > 0 &&
       !Number.isNaN(checkAtMs) &&
-      adminOverrideMs >= checkAtMs &&
+      adminOverrideMs >= verifyAtMs &&
       (record.adminKeepOpen === true ||
         nowMs - adminOverrideMs < Math.max(overtimeGraceMs, effectiveDisconnectMs));
 
-    // 1. Shift-End + 2h evaluation: live & working -> overtime; offline / forgot to logout -> auto punch out
     if (
       overtimeGraceMs > 0 &&
       !Number.isNaN(inMs) &&
       !Number.isNaN(checkAtMs) &&
       inMs < checkAtMs &&
       nowMs >= checkAtMs &&
+      record.adminKeepOpen !== true &&
       !adminReopenedAfterCheck
     ) {
-      if (!onBreak && isLiveConnected) {
-        // Keep clocked in for live overtime (persisted by server/heartbeat)
-        return record;
-      }
-
-      let candidateOutMs =
-        !Number.isNaN(lastHbMs) && lastHbMs > checkAtMs && lastHbMs <= nowMs
-          ? lastHbMs
-          : checkAtMs;
-      if (candidateOutMs > nowMs) candidateOutMs = nowMs;
-      if (!isOvernightShift && !Number.isNaN(midnightCutoffMs) && candidateOutMs > midnightCutoffMs) {
-        candidateOutMs = midnightCutoffMs;
-      }
-
+      const candidateOutMs = Number.isFinite(verifyAtMs) ? verifyAtMs : checkAtMs;
       if (candidateOutMs >= inMs) {
         hasChanges = true;
         const outDt = new Date(candidateOutMs);
-        const outDateStr = `${outDt.getFullYear()}-${String(outDt.getMonth() + 1).padStart(2, '0')}-${String(outDt.getDate()).padStart(2, '0')}`;
         const outTimeStr = outDt.toTimeString().split(' ')[0];
-        const effectiveOutTime =
-          !isOvernightShift && outDateStr > record.date ? '23:59:00' : outTimeStr;
 
         return finalizeAutoClosedRecord({
           record,
-          autoOutTime: effectiveOutTime,
+          autoOutTime: outTimeStr,
           autoRemark: `Auto Punched Out (Shift Ended + ${overtimeHoursRaw}h)`,
           reason: 'shift_end_2h',
           expectedHours,
         });
       }
-    }
-
-    // 2. End-of-day (23:59:00) safety net
-    const isPastDay = record.date < today;
-    const isPastMidnightToday = record.date === today && nowTime >= '23:59:00';
-    const isActiveOvernightRunning =
-      isOvernightShift && !Number.isNaN(shiftEndMs) && nowMs < shiftEndMs;
-
-    if (
-      (isPastDay || isPastMidnightToday) &&
-      !isActiveOvernightRunning &&
-      !adminKeptOpenPastCutoff
-    ) {
-      hasChanges = true;
-      return finalizeAutoClosedRecord({
-        record,
-        autoOutTime: '23:59:00',
-        autoRemark: 'Auto system Punched out',
-        reason: 'midnight',
-        expectedHours,
-      });
     }
 
     return record;
@@ -587,12 +546,20 @@ export function formatSecondsToClock(totalSeconds: number): string {
 
 
 /**
- * Text for an auto punched-out record whose last stretch was never confirmed by the employee,
- * e.g. "System punched out at 7:00 PM · 2h 0m not counted". Returns null when nothing was left out.
+ * Text for an auto punched-out record showing the separate overtime counted under auto punch-out remarks.
  */
-export function describeUnverifiedTime(rec?: Pick<AttendanceRecord, 'unverifiedMinutes' | 'autoOutAt'> | null): string | null {
+export function describeUnverifiedTime(
+  rec?: Pick<AttendanceRecord, 'unverifiedMinutes' | 'autoOutAt' | 'isAutoPunchedOut' | 'overtimeMinutes'> | null
+): string | null {
+  if (!rec) return null;
+  if (rec.isAutoPunchedOut && Number(rec.overtimeMinutes) > 0) {
+    const ot = Math.round(Number(rec.overtimeMinutes) || 0);
+    const h = Math.floor(ot / 60);
+    const m = ot % 60;
+    return `Auto Punch-Out Overtime: ${h}h ${String(m).padStart(2, '0')}m`;
+  }
   const mins = Math.round(Number(rec?.unverifiedMinutes) || 0);
-  if (!rec || mins <= 0) return null;
+  if (mins <= 0) return null;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   let at = '';

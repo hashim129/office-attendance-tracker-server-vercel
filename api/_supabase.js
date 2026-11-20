@@ -559,28 +559,25 @@ export async function sweepShiftReminders({ getShiftEndWindowMs, format12h }) {
       const confirmedMs = rec.workConfirmedAt ? Date.parse(rec.workConfirmedAt) : NaN;
       const win = getShiftEndWindowMs(rec.date, rec.timeIn, shift, graceHours, confirmedMs);
       const shiftEndMs = win.shiftEndMs;
-      let checkAtMs = win.checkAtMs;
-      if (!win.isOvernightShift && rec.date) {
-        const capMs = Date.parse(`${rec.date}T23:59:00+05:00`);
-        if (Number.isFinite(capMs) && checkAtMs > capMs) checkAtMs = capMs;
-      }
+      const verifyAtMs = Number.isFinite(win.verifyAtMs) ? win.verifyAtMs : win.checkAtMs;
+      const checkAtMs = win.checkAtMs;
       if (!Number.isFinite(shiftEndMs)) continue;
       const endLabel = format12h ? format12h(shift.endTime) : shift.endTime;
-      const logoutLabel = format12h ? format12h(clock(checkAtMs)) : clock(checkAtMs);
+      const logoutLabel = format12h ? format12h(clock(verifyAtMs)) : clock(verifyAtMs);
       let kind = null;
       let message = '';
       if (nowMs >= shiftEndMs - REMIND_BEFORE_MS && nowMs < shiftEndMs) {
         kind = 'pre';
         message = `⏰ Your shift ends at ${endLabel}. Please remember to punch out.`;
-      } else if (graceHours > 0 && nowMs >= shiftEndMs && nowMs >= checkAtMs - ASK_WINDOW_MS && nowMs < checkAtMs) {
-        // Repeated "are you still working?" prompts every 5 minutes before the automatic punch-out
-        const minsLeft = Math.ceil((checkAtMs - nowMs) / 60000);
+      } else if (graceHours > 0 && nowMs >= verifyAtMs - 15 * 60 * 1000 && nowMs < checkAtMs) {
+        // At Shift End + 2h (and 15m leading into it), ask the employee to verify if they are currently working before auto punch-out
+        const minsLeft = Math.max(1, Math.ceil((checkAtMs - nowMs) / 60000));
         const slot = Math.max(5, Math.ceil(minsLeft / 5) * 5);
         kind = `ask-${Math.round(checkAtMs / 60000)}-${slot}`;
-        message = `❓ Are you still working online? Please confirm now — otherwise you will be punched out automatically at ${logoutLabel} (${minsLeft} min left) and the extra time will not count as overtime.`;
-      } else if (nowMs >= shiftEndMs && (graceHours === 0 || nowMs < checkAtMs)) {
+        message = `❓ ${graceHours} hours after shift end: Are you currently working on overtime? Please verify now (${minsLeft} min left) — otherwise you will be automatically punched out at ${logoutLabel} and overtime will be recorded separately under auto punch-out remarks.`;
+      } else if (nowMs >= shiftEndMs && (graceHours === 0 || nowMs < verifyAtMs)) {
         kind = 'end';
-        message = `🔔 Your shift has ended. Please punch out${graceHours > 0 ? ` — you will be logged out automatically at ${logoutLabel}` : ''}.`;
+        message = `🔔 Your shift has ended. Please punch out${graceHours > 0 ? ` — after ${graceHours}h you will be asked to verify if you are still working before automatic logout at ${logoutLabel}` : ''}.`;
       }
       if (!kind) continue;
       out.push({ id: `rem-${rec.id}-${kind}`, employee_id: rec.employeeId, category: 'reminder', ref_id: rec.id, message, created_at: new Date().toISOString(), read_at: null });
@@ -626,9 +623,9 @@ export async function persistAutoClosures(originalRecords, evaluatedRecords) {
       });
       if (orig.employeeId) {
         const outLabel = (t) => { const [h, m] = String(t || '').split(':').map((x) => parseInt(x, 10)); return Number.isFinite(h) ? `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}` : ''; };
-        const msg = ev.unverifiedMinutes > 0
-          ? `🔒 You were punched out automatically at ${outLabel(ev.autoOutAt)} because working online was not confirmed. Your counted time ends at ${outLabel(ev.timeOut)}; the remaining ${Math.floor(ev.unverifiedMinutes / 60)}h ${ev.unverifiedMinutes % 60}m is not counted as overtime.`
-          : `🔒 You were punched out automatically at ${outLabel(ev.timeOut)}.`;
+        const otMins = Number(ev.overtimeMinutes) || 0;
+        const otDesc = otMins > 0 ? ` (Overtime counted separately in remarks: ${Math.floor(otMins / 60)}h ${otMins % 60}m)` : '';
+        const msg = `🔒 You were punched out automatically at ${outLabel(ev.timeOut)} after the post-shift verification window${otDesc}.`;
         try {
           await supabaseFetch('/crm_notifications?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates' }, body: JSON.stringify([{ id: `rem-${orig.id}-closed`, employee_id: orig.employeeId, category: 'reminder', ref_id: orig.id, message: msg, created_at: new Date().toISOString(), read_at: null }]) });
         } catch (_) {}
