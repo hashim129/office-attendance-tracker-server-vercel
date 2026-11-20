@@ -4,7 +4,7 @@ import { getAutoStartToken } from './pinAuth';
 /**
  * Compute SHA-256 verification token matching api/auto-punch.js.
  * Does NOT expose the user's plain PIN in the downloaded .bat file, and
- * automatically invalidates if PIN or approved device binding changes.
+ * automatically invalidates if the PIN changes.
  */
 export async function computeAutoStartToken(employee: Employee): Promise<string> {
   if (!employee.pin) {
@@ -473,7 +473,7 @@ while ($true) {
     }
     if ($hbResp.state -eq 'punched_out') {
       if ($hbResp.autoPunchOutReason -eq 'shift_end_2h') {
-        $outMsg = "Auto punched out at $($hbResp.timeOutFormatted) (shift ended +2h without live connection)."
+        $outMsg = "Auto punched out at $($hbResp.timeOutFormatted) (shift ended +2 hours and no 'still working' confirmation was given)."
         Write-Log "AUTO PUNCH-OUT: $outMsg"
         Show-TrayToast "$($cfg.companyName) - Auto Punched Out" $outMsg $true
       } elseif ($hbResp.autoPunchOutReason -eq 'inactivity_2h') {
@@ -489,6 +489,7 @@ while ($true) {
     # Server was reached but refused the ping (expired PIN token, deactivated account...). Not an internet problem.
     Write-Log "HEARTBEAT REFUSED [$($hbResp.code)]: $($hbResp.message)"
     if ($hbResp.code -eq 'TOKEN_INVALID' -or $hbResp.code -eq 'EMPLOYEE_INACTIVE') {
+      if ($hbResp.code -eq 'EMPLOYEE_INACTIVE') { Write-Log 'Profile disabled by the administrator. Background monitor stopping.' }
       Show-TrayToast "$($cfg.companyName) - Notice" $hbResp.message $true
       break
     }
@@ -510,7 +511,7 @@ exit 0
 /**
  * Generates a clean Windows .bat startup app launcher for the current Attendance Tracker.
  * Automatically starts the software when Windows boots or signs in so staff can select
- * their Employee ID / PIN and punch manually without disrupting device binding or PIN rules.
+ * their Employee ID / PIN and punch manually without disrupting PIN or office-network rules.
  */
 export function generatePortalLauncherBat(params: {
   appUrl: string;

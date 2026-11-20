@@ -833,7 +833,7 @@ async function enforceFacePassForPunch(existing, rec, actorRole, ctx) {
   if (!punchFieldsChanged(existing, rec)) return;
   const setRows = await supabaseFetch('/settings?id=eq.current&select=data');
   const settings = readJson(setRows?.[0]?.data, {}) || {};
-  if (!settings.faceScanPunchEnabled) return;
+  if (!settings.faceScanPunchEnabled && !settings.faceEnrollRequired) return;
   const isDirectPunchAction = ['time_in', 'time_out', 'start_break', 'end_break'].includes(rec.actorAction);
   if (actorRole === 'admin' && !isDirectPunchAction) return; // admin timesheet corrections on roster bypass face scan
 
@@ -843,12 +843,20 @@ async function enforceFacePassForPunch(existing, rec, actorRole, ctx) {
   );
   const enrolled = Boolean(tplRows?.[0]);
   if (!enrolled) {
+    // The administrator requires everyone to enroll their face (through their own login) before punching.
+    if (settings.faceEnrollRequired) {
+      const err = new Error('Your administrator requires a face scan. Please sign in to your own account and set up your face first.');
+      err.status = 403;
+      err.code = 'FACE_ENROLL_REQUIRED';
+      throw err;
+    }
     if (settings.faceScanAllowUnenrolled ?? true) return;
     const err = new Error('Face scan is required but your face is not enrolled yet. Ask the administrator to enroll you.');
     err.status = 403;
     err.code = 'FACE_NOT_ENROLLED';
     throw err;
   }
+  if (!settings.faceScanPunchEnabled) return; // enrolled; per-punch scanning is not switched on
   const token = ctx.facePasses && typeof ctx.facePasses === 'object' ? ctx.facePasses[employeeId] : undefined;
   if (!verifyFacePass(token, employeeId)) {
     const err = new Error('Face scan required (or it expired). Please scan your face and try again.');
@@ -992,6 +1000,16 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
         }
         if (incoming.clearPendingRequest) {
           mergedEmp.pendingDeviceRequest = undefined;
+        }
+      }
+      if (existing && existing.isActive !== false && mergedEmp.isActive === false) {
+        // Disabling a profile: never your own, and never the last active administrator.
+        if (existing.id === ctx.actor?.id) throw denied(400, 'CANNOT_DISABLE_SELF', 'You cannot disable your own profile while you are signed in.');
+        if (existing.role === 'admin') {
+          const admins = await supabaseFetch('/employees?role=eq.admin&deleted_at=is.null&is_active=eq.true&select=id');
+          if (!(Array.isArray(admins) ? admins : []).some((x) => x.id !== existing.id)) {
+            throw denied(400, 'LAST_ADMIN', 'At least one active administrator must remain.');
+          }
         }
       }
       mergedEmp.recordUpdatedAt = new Date().toISOString();

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Employee, Role, ShiftSchedule, AttendanceRecord } from '../../types';
 import { Modal } from '../common/Modal';
+import { Switch } from '../common/Switch';
 import { adminSetPin } from '../../lib/pinAuth';
 import { flushPendingCloudWrites } from '../../lib/storage';
 import { FaceScanModal, FaceScanMode } from '../common/FaceScanModal';
@@ -251,7 +252,11 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
           return (
             <div
               key={emp.id}
-              className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-all flex flex-col justify-between"
+              className={`bg-white dark:bg-slate-900 rounded-xl p-5 border shadow-xs transition-all flex flex-col justify-between ${
+                emp.isActive === false
+                  ? 'border-rose-200 dark:border-rose-900/60 bg-slate-50 dark:bg-slate-900/60'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+              }`}
             >
               <div>
                 {/* Header: Name, Code & Role */}
@@ -261,8 +266,11 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                       {emp.name.charAt(0)}
                     </div>
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                        {emp.name}
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                        <span>{emp.name}</span>
+                        {emp.isActive === false && (
+                          <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300">Disabled</span>
+                        )}
                       </h3>
                       <p className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                         {emp.employeeCode}
@@ -325,6 +333,30 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                         </span>
                       )}
                     </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px]">
+                    <div className="min-w-0">
+                      <span className="font-semibold text-slate-700 dark:text-slate-200 block">
+                        {emp.isActive === false ? 'Profile disabled' : 'Profile enabled'}
+                      </span>
+                      <span className="text-slate-500 text-[10px]">
+                        {emp.id === currentUserId
+                          ? 'You cannot disable your own profile'
+                          : emp.isActive === false
+                          ? 'Cannot sign in or punch'
+                          : 'Can sign in and punch'}
+                      </span>
+                    </div>
+                    <Switch
+                      label={`${emp.isActive === false ? 'Enable' : 'Disable'} profile of ${emp.name}`}
+                      checked={emp.isActive !== false}
+                      disabled={emp.id === currentUserId}
+                      onChange={(next) => {
+                        if (!next && !window.confirm(`Disable ${emp.name}'s profile? They will be signed out and cannot sign in or punch until you enable it again.`)) return;
+                        onUpdateEmployee({ ...emp, isActive: next });
+                      }}
+                    />
                   </div>
 
                   <div className="flex items-center justify-between text-[11px]">

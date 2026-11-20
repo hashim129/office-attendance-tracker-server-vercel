@@ -401,11 +401,7 @@ app.post('/api/auto-punch', (req, res) => {
   }
 });
 
-// Serve standalone Windows .exe installers under /downloads
-const releaseDir = path.resolve(__dirname, 'release');
-if (fs.existsSync(releaseDir)) {
-  app.use('/downloads', express.static(releaseDir));
-}
+// Software files (installers, scripts) are never served over the web. They are handed out by the administrator only.
 
 // Serve static assets from the dist folder if it exists
 const distPath = path.resolve(__dirname, 'dist');

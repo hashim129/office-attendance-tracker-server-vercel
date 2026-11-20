@@ -21,7 +21,6 @@ import {
   Check,
   KeyRound,
   ShieldCheck,
-  Terminal,
   WifiOff,
   Wifi,
   Coffee,
@@ -46,10 +45,6 @@ import {
   describeUnverifiedTime,
 } from '../../lib/attendanceCalculations';
 import { exportAttendanceToCsv } from '../../lib/exportUtils';
-import {
-  canEmployeeAutoPunch,
-  downloadAutoStartScriptForUser,
-} from '../../lib/autoStartScript';
 
 interface MyAttendanceTabProps {
   currentUser: Employee;
@@ -88,15 +83,8 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
   const [customEnd, setCustomEnd] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [batDownloaded, setBatDownloaded] = useState<boolean>(false);
 
-  const canPersonalAutoStart = canEmployeeAutoPunch(currentUser, settings);
 
-  const handleDownloadAutoStartBat = async () => {
-    await downloadAutoStartScriptForUser({ employee: currentUser, settings });
-    setBatDownloaded(true);
-    setTimeout(() => setBatDownloaded(false), 3000);
-  };
 
   // Calculate filtered records
   const filteredRecords = useMemo(() => {
@@ -381,7 +369,7 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
           </div>
           <div className="space-y-1">
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2 flex-wrap">
-              <span>Portal Credentials &amp; Windows Auto-Start</span>
+              <span>Portal Credentials</span>
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-[10px] font-bold text-indigo-700 dark:text-indigo-300" title="Attendance Tracker">
                 <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <circle cx="11" cy="12" r="8" stroke="currentColor" strokeWidth="2" />
@@ -393,41 +381,12 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
               </span>
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Download the Windows Startup (.bat) app or update your portal login PIN. Attendance is secured by Office Wi-Fi / IP Restriction.
+              Update your portal login PIN. Attendance is secured by Office Wi-Fi / IP Restriction.
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto justify-end">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-700 dark:text-slate-200" title="Attendance Tracker .bat Launcher">
-            <svg className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="11" cy="12" r="8" stroke="currentColor" strokeWidth="2" />
-              <path d="M11 8v4l2.5 1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              <circle cx="18" cy="17" r="4.5" className="fill-emerald-500 stroke-white dark:stroke-slate-900" strokeWidth="1.5" />
-              <path d="M16.2 17l1.2 1.2 2.4-2.4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <span>AT .bat</span>
-          </span>
-          <button
-            type="button"
-            onClick={handleDownloadAutoStartBat}
-            className={`flex-1 md:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-              batDownloaded
-                ? 'bg-emerald-600 text-white border-emerald-600'
-                : 'bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
-            }`}
-            title={
-              canPersonalAutoStart
-                ? 'Download Windows startup app (.bat) to auto-start portal & auto mark Time In when booting on office Wi-Fi'
-                : 'Download Windows auto-start launcher (.bat) to auto-open Attendance Tracker on Windows startup for manual ID/PIN punching'
-            }
-          >
-            <Terminal className="w-3.5 h-3.5" />
-            <span>
-              {batDownloaded ? 'Downloaded .bat!' : 'Download Auto-Start (.bat)'}
-            </span>
-          </button>
-
           {onOpenChangePassword && (
             <button
               type="button"

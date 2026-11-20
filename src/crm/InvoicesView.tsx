@@ -258,7 +258,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return invoices.filter((i) => (filter === 'all' || i.status === filter) && (!q || [i.invoiceNo, i.customerName, i.reference, i.crmId || '', i.queryCode || '', i.customerPhone, empName.get(i.createdBy) || '', ...(i.vendors || []).flatMap((v) => [v.name, v.description || ''])].some((v) => v.toLowerCase().includes(q))));
+    return invoices.filter((i) => (filter === 'all' ? i.status !== 'paid' : i.status === filter) && (!q || [i.invoiceNo, i.customerName, i.reference, i.crmId || '', i.queryCode || '', i.customerPhone, empName.get(i.createdBy) || '', ...(i.vendors || []).flatMap((v) => [v.name, v.description || ''])].some((v) => v.toLowerCase().includes(q))));
   }, [invoices, filter, query, empName]);
 
   const canEdit = (i: CrmInvoice) => isStaff || (i.createdBy === currentUser.id && i.status === 'unpaid');
@@ -468,7 +468,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
       {error && !form && !companyForm && <ErrorNote message={error} />}
 
       {shown.length === 0 ? (
-        <div className={`${cardCls} p-8 text-center text-xs text-slate-500`}>{invoices.length === 0 ? (vendorSide ? 'No vendor payables yet. Press “New vendor payable” to add the first one.' : 'No invoices yet. Press “New invoice” to create the first one.') : 'No invoices match this filter.'}</div>
+        <div className={`${cardCls} p-8 text-center text-xs text-slate-500`}>{invoices.length === 0 ? (vendorSide ? 'No vendor payables yet. Press “New vendor payable” to add the first one.' : 'No invoices yet. Press “New invoice” to create the first one.') : filter === 'all' && invoices.some((x) => x.status === 'paid') ? 'No open invoices. Paid ones are in the Paid tab.' : 'No invoices match this filter.'}</div>
       ) : (
         <div className="space-y-3">
           {shown.map((i) => {
@@ -482,7 +482,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
             });
 
             return (
-              <div key={i.id} className={`${cardCls} p-4`}>
+              <div key={i.id} className={`${cardCls} p-4 ${i.status === 'paid' ? '!bg-emerald-100/80 !border-emerald-300 dark:!bg-emerald-950/40 dark:!border-emerald-800/70' : ''}`}>
                 <div className={`grid grid-cols-1 ${!vendorSide ? 'lg:grid-cols-2' : ''} gap-4`}>
                   {/* LEFT HALF (50%): Customer Receivable Side */}
                   <div className="min-w-0 flex flex-col justify-between space-y-3">
@@ -505,7 +505,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                           {niceDate(i.invoiceDate)}{i.dueDate ? ` · due ${niceDate(i.dueDate)}` : ''} · created by <b className="text-slate-700 dark:text-slate-200">{by(i) || 'Former employee'}</b>
                         </p>
                       </div>
-                      <div className="sm:text-right shrink-0 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/50 rounded-lg px-2.5 py-1.5">
+                      <div className={`sm:text-right shrink-0 rounded-lg px-2.5 py-1.5 border ${i.status === 'paid' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60' : 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-100 dark:border-blue-900/50'}`}>
                         <p className="text-[11px] text-slate-500">{vendorSide ? 'Total payment' : 'Receivable Total'} <b className="font-mono text-slate-900 dark:text-slate-100">{i.currency} {fmtAmount(i.total)}</b></p>
                         <p className="text-[11px] text-slate-500">Balance <b className={`font-mono ${i.balance > 0 && i.status === 'unpaid' ? 'text-amber-600' : 'text-emerald-600'}`}>{i.currency} {fmtAmount(i.balance)}</b></p>
                       </div>
@@ -528,14 +528,14 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                   {!vendorSide && (
                     <div className="min-w-0 lg:border-l lg:border-slate-200 dark:lg:border-slate-800 lg:pl-4 flex flex-col justify-between space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                        <span className={`text-[10px] font-bold uppercase tracking-wider ${i.status === 'paid' ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
                           Vendor Payables (Office Only)
                         </span>
                         <div className="flex flex-wrap items-center gap-2 text-[11px]">
                           <span className="text-slate-500">Total Payable:</span>
                           {vendorTotalsByCur.size > 0 ? (
                             [...vendorTotalsByCur.entries()].map(([cur, amt]) => (
-                              <b key={cur} className="font-mono text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 px-2 py-0.5 rounded">
+                              <b key={cur} className={`font-mono px-2 py-0.5 rounded border ${i.status === 'paid' ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60' : 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60'}`}>
                                 {cur} {fmtAmount(amt)}
                               </b>
                             ))
@@ -548,7 +548,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                       {invVendors.length > 0 ? (
                         <div className="space-y-1.5">
                           {invVendors.map((v, vi) => (
-                            <div key={vi} className="p-2.5 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/50 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div key={vi} className={`p-2.5 rounded-lg border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${i.status === 'paid' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60' : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-900/50'}`}>
                               <div className="min-w-0 space-y-0.5">
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <span className="font-bold text-slate-900 dark:text-slate-100">{v.name}</span>
@@ -567,7 +567,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                               </div>
                               <div className="sm:text-right shrink-0">
                                 <span className="block text-[10px] text-slate-400 uppercase">Payable</span>
-                                <b className="font-mono text-xs text-amber-700 dark:text-amber-300">
+                                <b className={`font-mono text-xs ${i.status === 'paid' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
                                   {v.currency || i.currency} {fmtAmount(v.amount || 0)}
                                 </b>
                               </div>

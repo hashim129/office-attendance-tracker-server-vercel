@@ -189,6 +189,7 @@ export interface OfficeSettings {
   allowedOfficeIsps?: { ispName: string; label: string; addedAt: string }[];
   allowAdminBypassIpLock?: boolean;
   faceScanPunchEnabled?: boolean; // High security: punches need a live face scan (off by default)
+  faceEnrollRequired?: boolean; // Everyone must enroll their own face (through their own login) before punching
   faceScanAllowUnenrolled?: boolean; // Staff without an enrolled face may still punch (default true)
   enforceDeviceBinding?: boolean; // Anti-proxy punching: 1 device per employee
   allowAdminBypassDeviceBinding?: boolean;

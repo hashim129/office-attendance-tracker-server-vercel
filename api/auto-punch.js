@@ -14,6 +14,7 @@ import {
   isSupabaseConfigured,
   readSupabaseDb,
   mutateSupabaseDb,
+  supabaseFetch,
 } from './_supabase.js';
 import { DEFAULT_DB } from './db.js';
 
@@ -69,7 +70,7 @@ export default async function handler(req, res) {
         return res.status(401).json({
           ok: false,
           code: 'TOKEN_INVALID',
-          message: 'Auto-start credentials have expired (PIN changed). Please re-download your .bat file from the portal.',
+          message: 'Auto-start credentials have expired (PIN changed). Please ask your administrator for a fresh .bat file.',
         });
       }
 
@@ -140,6 +141,18 @@ export default async function handler(req, res) {
           code: 'FACE_REQUIRED',
           message: 'Face scan punch is enabled by the Administrator. Please punch from the website and scan your face.',
         });
+      }
+
+      // The administrator requires everyone to enroll their face first (done through their own login on the website).
+      if (settings.faceEnrollRequired) {
+        const tpl = await supabaseFetch(`/face_templates?employee_id=eq.${encodeURIComponent(emp.id)}&select=employee_id`);
+        if (!tpl?.[0]) {
+          return res.status(403).json({
+            ok: false,
+            code: 'FACE_ENROLL_REQUIRED',
+            message: 'Your administrator requires a face scan. Please sign in on the website, set up your face once, then punch in.',
+          });
+        }
       }
 
       // Work from home needs a written reason, which the automatic start-up punch cannot ask for.
@@ -253,7 +266,7 @@ export default async function handler(req, res) {
               ok: false,
               code: 'TOKEN_INVALID',
               message:
-                'Auto-start credentials have expired (PIN changed). Please re-download your .bat file from the portal.',
+                'Auto-start credentials have expired (PIN changed). Please ask your administrator for a fresh .bat file.',
             },
           };
         }

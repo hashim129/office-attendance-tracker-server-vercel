@@ -51,6 +51,7 @@ export const DEFAULT_DB = {
     allowAdminBypassIpLock: true,
     faceScanPunchEnabled: false,
     faceScanAllowUnenrolled: true,
+    faceEnrollRequired: false,
   },
   shifts: [
     {
