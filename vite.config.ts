@@ -6,6 +6,7 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    build: { sourcemap: false }, // never publish readable source maps
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
