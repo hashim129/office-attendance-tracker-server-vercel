@@ -66,6 +66,7 @@ import { OfficeSettingsTab } from './components/desktop/OfficeSettingsTab';
 import { PrintableTimesheetModal } from './components/desktop/PrintableTimesheetModal';
 import { ChangePasswordModal } from './components/common/ChangePasswordModal';
 import { verifyAdminPin, rememberSession, takePendingToken } from './lib/pinAuth';
+import { QuickJump } from './components/common/QuickJump';
 import { FaceScanModal } from './components/common/FaceScanModal';
 import { CRM_ENABLED } from './crm/config';
 import { useCrm } from './crm/useCrm';
@@ -1213,6 +1214,7 @@ export default function App() {
               )}
               </ErrorBoundary>
               {CRM_ENABLED && <LiveAlerts crm={crm} onOpen={setActiveTab} />}
+      <QuickJump currentUser={currentUser} crmEnabled={CRM_ENABLED} onSelectTab={setActiveTab} />
             </div>
             </main>
           </div>

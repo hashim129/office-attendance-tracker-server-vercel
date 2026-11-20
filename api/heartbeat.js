@@ -45,7 +45,7 @@ export default async function handler(req, res) {
         return res.status(403).json({ ok: false, code: 'EMPLOYEE_INACTIVE', message: 'Employee account not found or deactivated.' });
       }
       if (!verifyAutoToken(e, authToken)) {
-        return res.status(401).json({ ok: false, code: 'TOKEN_INVALID', message: 'Auto-start credentials have expired. Please re-download your .bat file from the portal.' });
+        return res.status(401).json({ ok: false, code: 'TOKEN_INVALID', message: 'Auto-start credentials have expired. Please ask your administrator for a fresh .bat file.' });
       }
     }
 

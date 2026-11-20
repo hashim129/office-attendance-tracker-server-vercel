@@ -53,7 +53,7 @@ import {
 interface CoworkerPresenceItem {
   employee: Employee;
   record: AttendanceRecord | undefined;
-  status: 'in' | 'break' | 'out' | 'absent';
+  status: 'in' | 'offline' | 'break' | 'out' | 'absent';
   elapsedMins: number;
 }
 
@@ -136,7 +136,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
   // Today's Coworker Live Presence (Specific Day Only)
   const [coworkerSearch, setCoworkerSearch] = useState<string>('');
-  const [coworkerFilter, setCoworkerFilter] = useState<'all' | 'in' | 'break' | 'out' | 'absent'>('all');
+  const [coworkerFilter, setCoworkerFilter] = useState<'all' | 'in' | 'offline' | 'break' | 'out' | 'absent'>('all');
 
   const coworkerPresenceList: CoworkerPresenceItem[] = useMemo(() => {
     const list = (allEmployees && allEmployees.length > 0 ? allEmployees : [currentUser])
@@ -145,7 +145,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
     return list.map((emp: Employee): CoworkerPresenceItem => {
       const rec = records.find((r: AttendanceRecord) => r.employeeId === emp.id && r.date === todayStr);
-      let status: 'in' | 'break' | 'out' | 'absent' = 'absent';
+      let status: 'in' | 'offline' | 'break' | 'out' | 'absent' = 'absent';
       let elapsedMins = 0;
 
       if (rec?.timeIn) {
@@ -157,6 +157,13 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
           status = 'break';
         } else {
           status = 'in';
+          // Signed in but nothing heard from their browser / Windows app lately → show as offline (never for yourself).
+          if (
+            emp.id !== currentUser.id &&
+            deriveLiveAttendanceState({ record: rec, settings, todayStr, nowMs: currentTime.getTime() }) === 'no_internet'
+          ) {
+            status = 'offline';
+          }
           const inM = parseTimeToMinutes(rec.timeIn);
           const now = currentTime;
           const nowM = now.getHours() * 60 + now.getMinutes();
@@ -173,7 +180,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
         elapsedMins,
       };
     });
-  }, [allEmployees, currentUser, records, todayStr, currentTime]);
+  }, [allEmployees, currentUser, records, todayStr, currentTime, settings]);
 
   const filteredCoworkers = useMemo<CoworkerPresenceItem[]>(() => {
     return coworkerPresenceList.filter((item: CoworkerPresenceItem) => {
@@ -191,19 +198,22 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
   const coworkerCounts = useMemo(() => {
     let inCount = 0;
+    let offlineCount = 0;
     let breakCount = 0;
     let outCount = 0;
     let absentCount = 0;
     coworkerPresenceList.forEach((c: CoworkerPresenceItem) => {
       if (c.status === 'in') inCount++;
+      else if (c.status === 'offline') offlineCount++;
       else if (c.status === 'break') breakCount++;
       else if (c.status === 'out') outCount++;
       else absentCount++;
     });
     return {
       total: coworkerPresenceList.length,
-      present: inCount + breakCount + outCount,
+      present: inCount + offlineCount + breakCount + outCount,
       in: inCount,
+      offline: offlineCount,
       break: breakCount,
       out: outCount,
       absent: absentCount,
@@ -351,8 +361,38 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     (c) => c.employeeId === currentUser.id && !c.isRead
   );
 
+  const greetingWord = currentTime.getHours() < 12 ? 'Good morning' : currentTime.getHours() < 17 ? 'Good afternoon' : 'Good evening';
+  const firstName = (currentUser.name || '').trim().split(/\s+/)[0] || 'there';
+  const greetingLine = todayRecord?.timeOut
+    ? `You wrapped up at ${formatTime12h(todayRecord.timeOut)}. Great work today, rest well!`
+    : todayRecord?.timeIn
+    ? `You have been clocked in since ${formatTime12h(todayRecord.timeIn)}. Keep up the good work!`
+    : userShift?.startTime
+    ? `Your shift starts at ${formatTime12h(userShift.startTime)}. Press Time In when you are ready.`
+    : 'Press Time In when you are ready to start your day.';
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
+      {/* Friendly greeting */}
+      <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg sm:text-xl font-bold leading-tight">{greetingWord}, {firstName}!</h2>
+          <p className="text-xs sm:text-sm text-blue-100 mt-0.5">{greetingLine}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
+            <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+            {coworkerCounts.in} online now
+          </span>
+          {coworkerCounts.offline > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
+              <span className="w-2 h-2 rounded-full bg-slate-300" />
+              {coworkerCounts.offline} offline
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Unread Executive Directives Banner */}
       {myDirectives.length > 0 && (
         <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 shadow-xs space-y-2">
@@ -892,7 +932,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                   </span>
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Live presence board for today. See coworkers currently working live, on break, or punched out.
+                  Live presence board for today. See who is online right now, who is offline, on a break, or finished for the day.
                 </p>
               </div>
             </div>
@@ -921,7 +961,19 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Working Live ({coworkerCounts.in})</span>
+              <span>Online ({coworkerCounts.in})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setCoworkerFilter('offline')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
+                coworkerFilter === 'offline'
+                  ? 'bg-slate-700 text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-slate-400" />
+              <span>Offline ({coworkerCounts.offline})</span>
             </button>
             <button
               type="button"
@@ -1010,7 +1062,13 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                   {status === 'in' && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/90 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shrink-0">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span>Live</span>
+                      <span>Online</span>
+                    </span>
+                  )}
+                  {status === 'offline' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                      <span>Offline</span>
                     </span>
                   )}
                   {status === 'break' && (
@@ -1036,7 +1094,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                   {rec?.timeIn ? (
                     <>
                       <span>In: {formatTime12h(rec.timeIn)}</span>
-                      {status === 'in' ? (
+                      {status === 'in' || status === 'offline' ? (
                         <span className="text-emerald-600 dark:text-emerald-400 font-bold">
                           {formatMinutesToHoursMinutes(elapsedMins)}
                         </span>

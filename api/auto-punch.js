@@ -70,7 +70,7 @@ export default async function handler(req, res) {
         return res.status(401).json({
           ok: false,
           code: 'TOKEN_INVALID',
-          message: 'Auto-start credentials have expired (PIN changed). Please re-download your .bat file from the portal.',
+          message: 'Auto-start credentials have expired (PIN changed). Please ask your administrator for a fresh .bat file.',
         });
       }
 
@@ -266,7 +266,7 @@ export default async function handler(req, res) {
               ok: false,
               code: 'TOKEN_INVALID',
               message:
-                'Auto-start credentials have expired (PIN changed). Please re-download your .bat file from the portal.',
+                'Auto-start credentials have expired (PIN changed). Please ask your administrator for a fresh .bat file.',
             },
           };
         }
