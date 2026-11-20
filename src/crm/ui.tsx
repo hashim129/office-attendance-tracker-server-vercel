@@ -180,7 +180,10 @@ export const Countdown: React.FC<{ atIso: string | null | undefined; endIso?: st
   const diff = at - now;
   let text: string;
   let cls: string;
-  if (kind === 'start' && endIso && now >= at && now < Date.parse(endIso)) {
+  if (kind === 'start' && endIso && now >= Date.parse(endIso)) {
+    text = `Ended ${formatRemaining(now - Date.parse(endIso))} ago`;
+    cls = 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700';
+  } else if (kind === 'start' && endIso && now >= at && now < Date.parse(endIso)) {
     text = `In progress · ends in ${formatRemaining(Date.parse(endIso) - now)}`;
     cls = 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-900';
   } else if (diff <= 0) {

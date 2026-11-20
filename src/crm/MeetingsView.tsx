@@ -4,7 +4,7 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmMeeting, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
-import { AddToCalendar, Countdown, ErrorNote, StatBar, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { AddToCalendar, Countdown, ErrorNote, StatBar, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, fromLocalInput, inputCls, toLocalInput, useNow } from './ui';
 
 interface Props {
   crm: CrmState;
@@ -12,8 +12,9 @@ interface Props {
   currentUser: Employee;
 }
 
-const DAY_START = 8; // availability strip covers 8:00 - 20:00
+const DAY_START = 8; // availability strip covers 8:00 - 20:00 by default and widens when a meeting falls outside that
 const DAY_END = 20;
+const hourLabel = (h: number) => `${h % 12 || 12}${h % 24 >= 12 ? 'pm' : 'am'}`;
 
 const nextHour = (): Date => {
   const d = new Date();
@@ -30,6 +31,7 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
   const customerOf = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const staff = employees.filter((e) => e.isActive !== false);
 
+  const now = useNow(15000); // keeps "upcoming" and "done" in step with the clock
   const [day, setDay] = useState<Date>(() => startOfDay(new Date()));
   const [showPast, setShowPast] = useState(false);
 
@@ -128,18 +130,31 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
   };
 
   // ---- availability for the chosen day
-  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => new Date(startOfDay(new Date()).getTime() + i * 86400000)), []);
+  const todayMs = startOfDay(new Date(now)).getTime();
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => new Date(todayMs + i * 86400000)), [todayMs]);
   const dayStart = day.getTime();
   const dayEnd = dayStart + 86400000;
   const busyToday = useMemo(
     () => meetings.filter((m) => m.status === 'scheduled' && Date.parse(m.startAt) < dayEnd && Date.parse(m.endAt) > dayStart).sort((a, b) => a.startAt.localeCompare(b.startAt)),
     [meetings, dayStart, dayEnd]
   );
-  const winStart = dayStart + DAY_START * 3600000;
-  const winLen = (DAY_END - DAY_START) * 3600000;
+  // the strip shows 8am-8pm, and stretches (to whole hours) so that every meeting booked that day is visible
+  let fromH = DAY_START;
+  let toH = DAY_END;
+  for (const m of busyToday) {
+    fromH = Math.min(fromH, Math.floor(Math.max(0, Date.parse(m.startAt) - dayStart) / 3600000));
+    toH = Math.max(toH, Math.ceil(Math.min(86400000, Date.parse(m.endAt) - dayStart) / 3600000));
+  }
+  fromH = Math.max(0, fromH);
+  toH = Math.min(24, Math.max(toH, fromH + 1));
+  const winStart = dayStart + fromH * 3600000;
+  const winLen = (toH - fromH) * 3600000;
+  const tickStep = toH - fromH <= 12 ? 2 : toH - fromH <= 18 ? 3 : 4;
+  const ticks: number[] = [];
+  for (let h = fromH; h <= toH; h += tickStep) ticks.push(h);
+  if (ticks[ticks.length - 1] !== toH) ticks.push(toH);
 
   // ---- lists
-  const now = Date.now();
   const pending = meetings.filter((m) => m.status === 'pending_approval').sort((a, b) => a.startAt.localeCompare(b.startAt));
   const myRejected = meetings.filter((m) => m.status === 'rejected' && m.requestedBy === currentUser.id && Date.parse(m.endAt) >= now - 7 * 86400000);
   const upcoming = meetings.filter((m) => m.status === 'scheduled' && Date.parse(m.endAt) >= now).sort((a, b) => a.startAt.localeCompare(b.startAt));
@@ -181,8 +196,9 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
       ...(cust ? [`${cust.customerName}${cust.companyName ? ` (${cust.companyName})` : ''}`] : []),
       ...(m.externalName ? [m.externalName] : []),
     ];
-    const tone = m.status === 'scheduled' ? 'green' : m.status === 'pending_approval' ? 'amber' : m.status === 'completed' ? 'blue' : 'red';
-    const label = { scheduled: 'Scheduled', pending_approval: 'Waiting for approval', rejected: 'Not approved', cancelled: 'Cancelled', completed: 'Done' }[m.status];
+    const ended = m.status === 'scheduled' && Date.parse(m.endAt) < now;
+    const tone = ended ? 'blue' : m.status === 'scheduled' ? 'green' : m.status === 'pending_approval' ? 'amber' : m.status === 'completed' ? 'blue' : 'red';
+    const label = ended ? 'Done' : { scheduled: 'Scheduled', pending_approval: 'Waiting for approval', rejected: 'Not approved', cancelled: 'Cancelled', completed: 'Done' }[m.status];
     const canCancel = (isAdmin || m.requestedBy === currentUser.id) && (m.status === 'scheduled' || m.status === 'pending_approval');
     return (
       <div key={m.id} className={`${cardCls} p-4`}>
@@ -230,7 +246,7 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2"><CalendarClock className="w-4 h-4 text-blue-600" /> CEO availability</h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">Blue blocks are times the CEO is already booked. Pick a free time to request your own meeting.</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">Blue blocks are times the CEO is already booked. Pick a free time to request your own meeting. The bar stretches when a meeting falls outside 8am - 8pm.</p>
           </div>
           <div className="flex gap-2">
             {isAdmin && <button className={btnPrimary} onClick={() => openForm('admin')}><Plus className="w-4 h-4" /> Schedule CEO meeting</button>}
@@ -265,8 +281,10 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
               return <div key={m.id} className="absolute top-0 bottom-0 bg-blue-500/80 border-x border-blue-700" style={{ left: `${l}%`, width: `${Math.max(1, r - l)}%` }} title={`${fmtTime(m.startAt)} – ${fmtTime(m.endAt)}`} />;
             })}
           </div>
-          <div className="flex justify-between text-[10px] text-slate-400 mt-1 px-0.5">
-            {[8, 10, 12, 14, 16, 18, 20].map((h) => <span key={h}>{h > 12 ? h - 12 : h}{h >= 12 ? 'pm' : 'am'}</span>)}
+          <div className="relative h-4 text-[10px] text-slate-400 mt-1">
+            {ticks.map((h, i) => (
+              <span key={h} className="absolute whitespace-nowrap" style={{ left: `${((h - fromH) / (toH - fromH)) * 100}%`, transform: i === 0 ? 'none' : i === ticks.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)' }}>{hourLabel(h)}</span>
+            ))}
           </div>
           <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-2">
             {busyToday.length ? <>Booked: {busyToday.map((m) => `${fmtTime(m.startAt)}–${fmtTime(m.endAt)}`).join(', ')}</> : 'The CEO is free all day.'}
