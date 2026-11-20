@@ -27,6 +27,7 @@ import {
   retryCloudOutboxNow,
   saveAttendanceRecords,
   fetchFaceEnrolledIds,
+  getSessionToken,
   saveCeoComments,
   saveEmployeeDelete,
   saveEmployeeUpsert,
@@ -100,6 +101,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   // High-security face scan punch (admin turns it on in Office Settings; off by default)
   const [faceEnrolledIds, setFaceEnrolledIds] = useState<string[]>([]);
+  const [faceStatusLoaded, setFaceStatusLoaded] = useState(false);
+  const [enrollSelf, setEnrollSelf] = useState<{ employeeId: string; run: (() => void) | null } | null>(null);
+  const enrollPromptShownRef = useRef<Set<string>>(new Set());
   const [faceRequest, setFaceRequest] = useState<{ employeeId: string; run: () => void } | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveDesktopTab>('clock');
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
@@ -310,6 +314,63 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // If the administrator disables this person's profile while they are signed in, sign them out.
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const me = employees.find((e) => e.id === currentUser.id);
+    if (me && me.isActive === false) {
+      handleLogout();
+      alert('Your profile has been disabled by the administrator. Please contact them if you think this is a mistake.');
+    }
+  }, [employees, currentUser?.id]);
+
+  // Browser presence: while a person is signed in on the web page, tell the server "still here" every 30 s,
+  // so Team Presence shows live Online / Offline even without the Windows app. Closing the tab marks them offline.
+  useEffect(() => {
+    if (!currentUser?.id || appMode === 'kiosk') return;
+    const employeeId = currentUser.id;
+    const markActive = () => {
+      lastInteractionRef.current = Date.now();
+    };
+    const events = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
+    events.forEach((ev) => window.addEventListener(ev, markActive, { passive: true }));
+
+    const startToken = getSessionToken();
+    const send = (closing: boolean) => {
+      const token = closing ? getSessionToken() || startToken : getSessionToken();
+      if (!token) return;
+      const idleMs = Date.now() - lastInteractionRef.current;
+      try {
+        void fetch('/api/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          keepalive: true,
+          body: JSON.stringify({
+            employeeId,
+            sessionToken: token,
+            isUserActive: idleMs < 5 * 60 * 1000,
+            ...(closing ? { closing: true } : {}),
+          }),
+        }).catch(() => undefined);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    send(false);
+    const timer = setInterval(() => {
+      if (typeof navigator === 'undefined' || navigator.onLine) send(false);
+    }, 30000);
+    const onPageHide = () => send(true);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      clearInterval(timer);
+      events.forEach((ev) => window.removeEventListener(ev, markActive));
+      window.removeEventListener('pagehide', onPageHide);
+      send(true); // signed out / switched mode: show offline straight away
+    };
+  }, [currentUser?.id, appMode]);
 
   // Theme synchronization
   useEffect(() => {
@@ -640,14 +701,40 @@ export default function App() {
   }, [currentUser?.id]);
 
   const refreshFaceStatus = () => {
-    void fetchFaceEnrolledIds().then(setFaceEnrolledIds);
+    void fetchFaceEnrolledIds().then((ids) => {
+      setFaceEnrolledIds(ids);
+      setFaceStatusLoaded(true);
+    });
   };
 
   useEffect(() => {
-    if (settings.faceScanPunchEnabled || currentUser?.role === 'admin') refreshFaceStatus();
-  }, [settings.faceScanPunchEnabled, currentUser?.id, currentUser?.role]);
+    if (settings.faceScanPunchEnabled || settings.faceEnrollRequired || currentUser?.role === 'admin') refreshFaceStatus();
+  }, [settings.faceScanPunchEnabled, settings.faceEnrollRequired, currentUser?.id, currentUser?.role]);
+
+  // When the admin requires every person to enroll their face, ask once after sign-in (and again at any punch).
+  useEffect(() => {
+    if (
+      settings.faceEnrollRequired &&
+      faceStatusLoaded &&
+      currentUser?.id &&
+      appMode !== 'kiosk' &&
+      !faceEnrolledIds.includes(currentUser.id) &&
+      !enrollPromptShownRef.current.has(currentUser.id)
+    ) {
+      enrollPromptShownRef.current.add(currentUser.id);
+      setEnrollSelf({ employeeId: currentUser.id, run: null });
+    }
+  }, [settings.faceEnrollRequired, faceStatusLoaded, faceEnrolledIds, currentUser?.id, appMode]);
 
   const gatePunch = (employeeId: string, run: () => void) => {
+    if (settings.faceEnrollRequired && !faceEnrolledIds.includes(employeeId)) {
+      if (appMode !== 'kiosk' && currentUserRef.current?.id === employeeId) {
+        setEnrollSelf({ employeeId, run });
+      } else {
+        alert('Your administrator requires a face scan before punching. Please sign in to your own account once and set up your face, then try again here.');
+      }
+      return;
+    }
     if (!settings.faceScanPunchEnabled) {
       run();
       return;
@@ -1164,6 +1251,24 @@ export default function App() {
             const { run } = faceRequest;
             setFaceRequest(null);
             run();
+          }}
+        />
+      )}
+
+      {/* Required face set-up through the person's own login */}
+      {enrollSelf && (
+        <FaceScanModal
+          isOpen
+          mode="enroll-self"
+          employeeId={enrollSelf.employeeId}
+          employeeName={employees.find((e) => e.id === enrollSelf.employeeId)?.name || ''}
+          onClose={() => setEnrollSelf(null)}
+          onSuccess={() => {
+            const { run, employeeId } = enrollSelf;
+            setEnrollSelf(null);
+            setFaceEnrolledIds((ids) => (ids.includes(employeeId) ? ids : [...ids, employeeId]));
+            refreshFaceStatus();
+            if (run) run();
           }}
         />
       )}

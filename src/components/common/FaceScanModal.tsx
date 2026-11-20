@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ScanFace, Loader2, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react';
 import { Modal } from './Modal';
-import { setFacePass } from '../../lib/storage';
+import { getSessionToken, setFacePass } from '../../lib/storage';
 import {
-  enrollFace, removeFace, scanForEnrollment, scanForPunch, startCamera, stopCamera, verifyFace, loadFaceEngine, type FaceLiveTelemetry,
+  enrollFace, enrollFaceSelf, removeFace, scanForEnrollment, scanForPunch, startCamera, stopCamera, verifyFace, loadFaceEngine, type FaceLiveTelemetry,
 } from '../../lib/faceScan';
 
-export type FaceScanMode = 'verify' | 'enroll' | 'remove';
+export type FaceScanMode = 'verify' | 'enroll' | 'enroll-self' | 'remove';
 
 interface Props {
   isOpen: boolean;
@@ -21,7 +21,7 @@ interface Props {
 type Phase = 'pin' | 'loading' | 'scanning' | 'sending' | 'done' | 'error';
 
 export const FaceScanModal: React.FC<Props> = ({ isOpen, mode, employeeId, employeeName, adminId, onClose, onSuccess }) => {
-  const needsPin = mode !== 'verify';
+  const needsPin = mode === 'enroll' || mode === 'remove';
   const [phase, setPhase] = useState<Phase>(needsPin ? 'pin' : 'loading');
   const [pin, setPin] = useState('');
   const [message, setMessage] = useState('');
@@ -114,7 +114,14 @@ const [liveTime, setLiveTime] = useState(() => new Date());
       } else {
         const samples = await scanForEnrollment(video, setMessage, signal, 5, 40000, handleTelemetry);
         setPhase('sending');
-        await enrollFace(employeeId, samples, adminId || '', adminPin);
+        if (mode === 'enroll-self') {
+          const token = getSessionToken();
+          if (!token) throw new Error('Please sign in again, then enroll your face.');
+          const pass = (await enrollFaceSelf(employeeId, samples, token)) as { token?: string; expiresAt?: number };
+          if (pass?.token && pass.expiresAt) setFacePass(employeeId, { token: pass.token, expiresAt: pass.expiresAt });
+        } else {
+          await enrollFace(employeeId, samples, adminId || '', adminPin);
+        }
       }
       cleanup();
       setPhase('done');
@@ -141,7 +148,7 @@ const [liveTime, setLiveTime] = useState(() => new Date());
     return cleanup;
   }, [isOpen, needsPin, run, cleanup]);
 
-  const title = mode === 'verify' ? 'Face scan to punch' : mode === 'enroll' ? 'Enroll face' : 'Remove enrolled face';
+  const title = mode === 'verify' ? 'Face scan to punch' : mode === 'enroll-self' ? 'Set up your face scan' : mode === 'enroll' ? 'Enroll face' : 'Remove enrolled face';
   const showVideo = mode !== 'remove' && (phase === 'loading' || phase === 'scanning' || phase === 'sending');
 
   return (
@@ -218,6 +225,11 @@ const [liveTime, setLiveTime] = useState(() => new Date());
           )}
         </div>
 
+        {mode === 'enroll-self' && (phase === 'loading' || phase === 'scanning') && (
+          <p className="text-xs text-slate-600 dark:text-slate-300">
+            Look straight at the camera in good light and blink once when asked. This takes a few seconds and is only needed once.
+          </p>
+        )}
         {(phase === 'loading' || phase === 'scanning' || phase === 'sending') && mode !== 'remove' && (
           <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200" role="status" aria-live="polite">
             <Loader2 className="w-4 h-4 animate-spin shrink-0" />
@@ -230,7 +242,7 @@ const [liveTime, setLiveTime] = useState(() => new Date());
         {phase === 'done' && (
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-600" role="status">
             <CheckCircle2 className="w-5 h-5" />
-            <span>{mode === 'verify' ? 'Face verified' : mode === 'enroll' ? 'Face enrolled' : 'Face removed'}</span>
+            <span>{mode === 'verify' ? 'Face verified' : mode === 'remove' ? 'Face removed' : 'Face enrolled. You are all set!'}</span>
           </div>
         )}
         {phase === 'error' && (

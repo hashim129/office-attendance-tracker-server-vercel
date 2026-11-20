@@ -1,5 +1,6 @@
 import { isSupabaseConfigured, supabaseFetch } from './_supabase.js';
 import { checkAdminPin, migratePlaintextPins } from './_auth.js';
+import { getSessionEmployee } from './_session.js';
 import {
   FACE_MATCH_DISTANCE, FACE_DUPLICATE_DISTANCE, FACE_AMBIGUITY_MARGIN, bestDistance, closestOther, listTemplates, samplesAreConsistent, checkLock, clearFailures, getTemplate, isValidDescriptor,
   listEnrolledIds, recordFailure, signFacePass,
@@ -28,7 +29,21 @@ export default async function handler(req, res) {
     if (!employeeId || typeof employeeId !== 'string') return res.status(400).json({ error: 'employeeId required' });
 
     if (action === 'enroll') {
-      const admin = await requireAdmin(body.adminId, body.adminPin);
+      let enrolledBy;
+      if (body.sessionToken && !body.adminPin) {
+        // Self-enrollment: a signed-in person enrolls their OWN face, once. Changing or removing it needs the administrator.
+        const me = await getSessionEmployee(body.sessionToken);
+        if (!me || me.id !== employeeId) {
+          return res.status(401).json({ error: 'Please sign in again to enroll your face.', code: 'SESSION_INVALID' });
+        }
+        const already = await getTemplate(employeeId);
+        if (already && already.descriptors.length > 0) {
+          return res.status(403).json({ error: 'Your face is already enrolled. Ask the administrator if it must be changed.', code: 'FACE_ALREADY_ENROLLED' });
+        }
+        enrolledBy = me.id;
+      } else {
+        enrolledBy = (await requireAdmin(body.adminId, body.adminPin)).id;
+      }
       const emp = await getEmployee(employeeId);
       if (!emp) return res.status(404).json({ error: 'Employee not found.' });
       const samples = Array.isArray(body.descriptors) ? body.descriptors : [];
@@ -52,9 +67,14 @@ export default async function handler(req, res) {
         headers: { Prefer: 'resolution=merge-duplicates' },
         body: JSON.stringify([{
           employee_id: employeeId, descriptors: samples, enrolled_at: new Date().toISOString(),
-          enrolled_by: admin.id, fail_count: 0, locked_until: null,
+          enrolled_by: enrolledBy, fail_count: 0, locked_until: null,
         }]),
       });
+      if (body.sessionToken && !body.adminPin) {
+        // Enrolling just proved who they are (live scan), so hand back a punch pass and skip a second scan.
+        const { token, expiresAt } = signFacePass(employeeId);
+        return res.status(200).json({ ok: true, token, expiresAt });
+      }
       return res.status(200).json({ ok: true });
     }
 

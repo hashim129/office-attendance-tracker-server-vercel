@@ -19,6 +19,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { OfficeSettings } from '../../types';
+import { Switch } from '../common/Switch';
 import {
   exportDatabaseBackup,
   importDatabaseBackup,
@@ -593,6 +594,24 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
           <p className="text-xs text-slate-500 dark:text-slate-400">
             When on, an employee with an enrolled face must pass a live camera check (blink) before clocking in, out or taking a break. It works on top of the office network lock and can be switched off at any time. Enroll faces from the Employees page.
           </p>
+          <div className="flex items-center justify-between gap-4 p-4 rounded-xl bg-violet-50/50 dark:bg-violet-950/20 border border-violet-200/80 dark:border-violet-900/40">
+            <div className="text-xs min-w-0">
+              <span className="font-semibold text-slate-900 dark:text-slate-100 block">Everyone must set up their own face before punching</span>
+              <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                When on, each person is asked to enroll their face through their own login (it takes a few seconds, once). Nobody can punch in until it is done. Only you can change an enrolled face afterwards.
+              </span>
+            </div>
+            <Switch
+              tone="violet"
+              label="Require every employee to enroll their face"
+              checked={formData.faceEnrollRequired === true}
+              onChange={(v) => {
+                const updated = { ...formData, faceEnrollRequired: v };
+                setFormData(updated);
+                onUpdateSettings(updated);
+              }}
+            />
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-violet-50/50 dark:bg-violet-950/20 border border-violet-200/80 dark:border-violet-900/40">
             <label className="flex items-start gap-3 cursor-pointer">
               <input

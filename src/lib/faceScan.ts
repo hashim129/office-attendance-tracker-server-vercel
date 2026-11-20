@@ -566,3 +566,7 @@ export function preloadFaceEngine() {
   if (typeof w.requestIdleCallback === 'function') w.requestIdleCallback(run, { timeout: 2000 });
   else setTimeout(run, 1000);
 }
+
+/** A signed-in person enrolls their own face (allowed once; the server checks who is asking). */
+export const enrollFaceSelf = (employeeId: string, descriptors: number[][], sessionToken: string) =>
+  post({ action: 'enroll', employeeId, descriptors, sessionToken });
