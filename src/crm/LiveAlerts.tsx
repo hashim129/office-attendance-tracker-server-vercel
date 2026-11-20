@@ -89,7 +89,7 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
         if (!Number.isFinite(at)) return;
         const left = at - now;
         const tab: ActiveDesktopTab = u.kind === 'meeting' ? 'crm-meetings' : 'crm-tasks';
-        if (left <= 0 && left > -3600000) push({ key: `d:${u.id}:${u.at}:now`, kind: 'deadline', urgent: true, text: `${u.title} — ${u.kind === 'meeting' ? 'starting now' : 'deadline reached'}.`, tab });
+        if (left <= 0 && left > (u.kind === 'meeting' ? -120000 : -3600000)) push({ key: `d:${u.id}:${u.at}:now`, kind: 'deadline', urgent: true, text: `${u.title} — ${u.kind === 'meeting' ? 'starting now' : 'deadline reached'}.`, tab });
         else if (left > 0 && left <= WARN_MS) push({ key: `d:${u.id}:${u.at}:soon`, kind: 'deadline', text: `${u.title} — ${u.kind === 'meeting' ? 'starts' : 'due'} in ${formatRemaining(left)}.`, tab });
       });
     };
