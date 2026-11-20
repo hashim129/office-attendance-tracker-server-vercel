@@ -4,6 +4,7 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CompanyProfile, CrmInvoice, InvoiceSection, InvoiceVendor, crmCall } from './crmApi';
 import { crmQueryOf, ntnShown } from './invoiceHelpers';
+import { downloadInvoicePdf, invoicePdfFile } from './invoicePdf';
 import { CrmState } from './useCrm';
 import { ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
@@ -354,7 +355,6 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
   const pdf = async (i: CrmInvoice) => {
     setError('');
     try {
-      const { downloadInvoicePdf } = await import('./invoicePdf'); // loaded only when needed
       await downloadInvoicePdf(i, company, by(i));
     } catch (err: any) {
       setError(err?.message || 'Could not create the PDF.');
@@ -362,7 +362,6 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
   };
   const share = async (i: CrmInvoice) => {
     try {
-      const { invoicePdfFile } = await import('./invoicePdf');
       const file = await invoicePdfFile(i, company, by(i));
       await navigator.share({ files: [file], title: `Invoice ${i.invoiceNo}`, text: `Invoice ${i.invoiceNo} — ${company.name}` });
     } catch (err: any) {

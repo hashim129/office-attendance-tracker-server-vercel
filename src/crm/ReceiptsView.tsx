@@ -3,6 +3,7 @@ import { Plus, Trash2, FileDown, Share2, Eye, Pencil, ReceiptText, Upload, X } f
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmReceipt, RECEIPT_ITEMS, crmCall } from './crmApi';
+import { downloadReceiptPdf, receiptPdfFile } from './receiptPdf';
 import { CrmState } from './useCrm';
 import { ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
@@ -159,7 +160,6 @@ export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) =
   const pdf = async (r: CrmReceipt) => {
     setError('');
     try {
-      const { downloadReceiptPdf } = await import('./receiptPdf');
       await downloadReceiptPdf(r, company, by(r));
     } catch (err: any) {
       setError(err?.message || 'Could not create the PDF.');
@@ -167,7 +167,6 @@ export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) =
   };
   const share = async (r: CrmReceipt) => {
     try {
-      const { receiptPdfFile } = await import('./receiptPdf');
       const file = await receiptPdfFile(r, company, by(r));
       await navigator.share({ files: [file], title: `Receipt ${r.receiptNo}`, text: `Receipt ${r.receiptNo} — ${company.name}` });
     } catch (err: any) {
