@@ -472,45 +472,129 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
         <div className={`${cardCls} p-8 text-center text-xs text-slate-500`}>{invoices.length === 0 ? (vendorSide ? 'No vendor payables yet. Press “New vendor payable” to add the first one.' : 'No invoices yet. Press “New invoice” to create the first one.') : 'No invoices match this filter.'}</div>
       ) : (
         <div className="space-y-3">
-          {shown.map((i) => (
-            <div key={i.id} className={`${cardCls} p-4`}>
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                <div className="min-w-0 space-y-1">
-                  {/* Ordered: 1. Invoice No -> 2. CRM ID / Query Code -> 3. Customer Name */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                      {i.invoiceNo}
-                    </span>
-                    <Pill tone="blue">CRM / Query: {crmQueryOf(i) || '—'}</Pill>
-                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{i.customerName}</span>
-                    <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? 'Paid' : i.status === 'cancelled' ? 'Cancelled' : 'Unpaid'}</Pill>
-                    {i.reference && <Pill tone="slate">Ref {i.reference}</Pill>}
+          {shown.map((i) => {
+            const invVendors = i.vendors || [];
+            const vendorTotalsByCur = new Map<string, number>();
+            invVendors.forEach((v) => {
+              if ((v.amount ?? 0) > 0) {
+                const c = v.currency || i.currency;
+                vendorTotalsByCur.set(c, (vendorTotalsByCur.get(c) || 0) + v.amount);
+              }
+            });
+
+            return (
+              <div key={i.id} className={`${cardCls} p-4`}>
+                <div className={`grid grid-cols-1 ${!vendorSide ? 'lg:grid-cols-2' : ''} gap-4`}>
+                  {/* LEFT HALF (50%): Customer Receivable Side */}
+                  <div className="min-w-0 flex flex-col justify-between space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                      <div className="min-w-0 space-y-1.5">
+                        <span className="block text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                          {vendorSide ? 'Vendor Payable Bill' : 'Customer Receivable'}
+                        </span>
+                        {/* Ordered: 1. Invoice No -> 2. CRM ID / Query Code -> 3. Customer Name */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                            {i.invoiceNo}
+                          </span>
+                          <Pill tone="blue">CRM / Query: {crmQueryOf(i) || '—'}</Pill>
+                          <span className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{i.customerName}</span>
+                          <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? 'Paid' : i.status === 'cancelled' ? 'Cancelled' : 'Unpaid'}</Pill>
+                          {i.reference && <Pill tone="slate">Ref {i.reference}</Pill>}
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {niceDate(i.invoiceDate)}{i.dueDate ? ` · due ${niceDate(i.dueDate)}` : ''} · created by <b className="text-slate-700 dark:text-slate-200">{by(i) || 'Former employee'}</b>
+                        </p>
+                      </div>
+                      <div className="sm:text-right shrink-0 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/50 rounded-lg px-2.5 py-1.5">
+                        <p className="text-[11px] text-slate-500">{vendorSide ? 'Total payment' : 'Receivable Total'} <b className="font-mono text-slate-900 dark:text-slate-100">{i.currency} {fmtAmount(i.total)}</b></p>
+                        <p className="text-[11px] text-slate-500">Balance <b className={`font-mono ${i.balance > 0 && i.status === 'unpaid' ? 'text-amber-600' : 'text-emerald-600'}`}>{i.currency} {fmtAmount(i.balance)}</b></p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      <button className={btnGhost} onClick={() => setView(i)}><Eye className="w-3.5 h-3.5" /> View</button>
+                      <button className={btnPrimary} onClick={() => void pdf(i)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
+                      {canShare && <button className={btnGhost} onClick={() => void share(i)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
+                      {canEdit(i) && <button className={btnGhost} onClick={() => { setForm(toForm(i, company.ntn || '')); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
+                      {isStaff && i.status !== 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'paid' })}>Mark paid</button>}
+                      {isStaff && i.status === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Mark unpaid</button>}
+                      {(isStaff || i.createdBy === currentUser.id) && i.status === 'unpaid' && <button className={btnGhost} onClick={() => { if (window.confirm(`Cancel invoice ${i.invoiceNo}?`)) void act('invoice_status', { id: i.id, status: 'cancelled' }); }}>Cancel invoice</button>}
+                      {isStaff && i.status === 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Reopen</button>}
+                      {isAdmin && <button className={btnDanger} aria-label="Delete invoice" onClick={() => { if (window.confirm(`Delete invoice ${i.invoiceNo} permanently?`)) void act('invoice_delete', { id: i.id }); }}><Trash2 className="w-3.5 h-3.5" /></button>}
+                    </div>
                   </div>
-                  {(i.vendors || []).length > 0 && (
-                    <p className="text-[11px] text-amber-700 dark:text-amber-400 break-words">
-                      Vendors (office only): {i.vendors.map((v) => `${v.name}${v.description ? ` (${v.description})` : ''}${v.unitPrice ? ` [${fmtAmount(v.unitPrice)} × ${v.units ?? 1}]` : ''}${v.amount ? ` — ${v.currency} ${fmtAmount(v.amount)}` : ''}`).join('; ')}
-                    </p>
+
+                  {/* RIGHT HALF (50%): Vendor Payables for This Invoice */}
+                  {!vendorSide && (
+                    <div className="min-w-0 lg:border-l lg:border-slate-200 dark:lg:border-slate-800 lg:pl-4 flex flex-col justify-between space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                          Vendor Payables (Office Only)
+                        </span>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                          <span className="text-slate-500">Total Payable:</span>
+                          {vendorTotalsByCur.size > 0 ? (
+                            [...vendorTotalsByCur.entries()].map(([cur, amt]) => (
+                              <b key={cur} className="font-mono text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 px-2 py-0.5 rounded">
+                                {cur} {fmtAmount(amt)}
+                              </b>
+                            ))
+                          ) : (
+                            <b className="font-mono text-slate-400">{i.currency} 0</b>
+                          )}
+                        </div>
+                      </div>
+
+                      {invVendors.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {invVendors.map((v, vi) => (
+                            <div key={vi} className="p-2.5 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-900/50 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div className="min-w-0 space-y-0.5">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="font-bold text-slate-900 dark:text-slate-100">{v.name}</span>
+                                  {v.description && <span className="text-[11px] text-slate-600 dark:text-slate-300">· {v.description}</span>}
+                                </div>
+                                {(v.unitPrice !== null && v.unitPrice !== undefined) && (
+                                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                                    Unit price: {v.currency || i.currency} {fmtAmount(v.unitPrice)} × Units: {fmtAmount(v.units ?? 1)}
+                                  </p>
+                                )}
+                                {v.bank && (
+                                  <p className="text-[11px] text-slate-500 dark:text-slate-400 break-words">
+                                    Bank: <span className="font-medium text-slate-700 dark:text-slate-300">{v.bank}</span>
+                                  </p>
+                                )}
+                              </div>
+                              <div className="sm:text-right shrink-0">
+                                <span className="block text-[10px] text-slate-400 uppercase">Payable</span>
+                                <b className="font-mono text-xs text-amber-700 dark:text-amber-300">
+                                  {v.currency || i.currency} {fmtAmount(v.amount || 0)}
+                                </b>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex-1 flex items-center justify-between p-3 rounded-lg border border-dashed border-slate-200 dark:border-slate-800 text-xs text-slate-400">
+                          <span>No vendor payables recorded for this invoice.</span>
+                          {canEdit(i) && (
+                            <button
+                              type="button"
+                              onClick={() => { setForm(toForm(i, company.ntn || '')); setError(''); }}
+                              className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 hover:underline cursor-pointer"
+                            >
+                              + Add vendor
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )}
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{niceDate(i.invoiceDate)}{i.dueDate ? ` · due ${niceDate(i.dueDate)}` : ''} · created by <b className="text-slate-700 dark:text-slate-200">{by(i) || 'Former employee'}</b></p>
-                </div>
-                <div className="lg:text-right shrink-0">
-                  <p className="text-[11px] text-slate-500">{vendorSide ? 'Total payment' : 'Total'} <b className="font-mono text-slate-900 dark:text-slate-100">{i.currency} {fmtAmount(i.total)}</b></p>
-                  <p className="text-[11px] text-slate-500">Balance <b className={`font-mono ${i.balance > 0 && i.status === 'unpaid' ? 'text-amber-600' : 'text-emerald-600'}`}>{i.currency} {fmtAmount(i.balance)}</b></p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-1.5 mt-3">
-                <button className={btnGhost} onClick={() => setView(i)}><Eye className="w-3.5 h-3.5" /> View</button>
-                <button className={btnPrimary} onClick={() => void pdf(i)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
-                {canShare && <button className={btnGhost} onClick={() => void share(i)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
-                {canEdit(i) && <button className={btnGhost} onClick={() => { setForm(toForm(i, company.ntn || '')); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
-                {isStaff && i.status !== 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'paid' })}>Mark paid</button>}
-                {isStaff && i.status === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Mark unpaid</button>}
-                {(isStaff || i.createdBy === currentUser.id) && i.status === 'unpaid' && <button className={btnGhost} onClick={() => { if (window.confirm(`Cancel invoice ${i.invoiceNo}?`)) void act('invoice_status', { id: i.id, status: 'cancelled' }); }}>Cancel invoice</button>}
-                {isStaff && i.status === 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Reopen</button>}
-                {isAdmin && <button className={btnDanger} aria-label="Delete invoice" onClick={() => { if (window.confirm(`Delete invoice ${i.invoiceNo} permanently?`)) void act('invoice_delete', { id: i.id }); }}><Trash2 className="w-3.5 h-3.5" /></button>}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
