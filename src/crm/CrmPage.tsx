@@ -7,12 +7,13 @@ import { TasksView } from './TasksView';
 import { MeetingsView } from './MeetingsView';
 import { InventoryView } from './InventoryView';
 import { SalesView } from './SalesView';
+import { PurchasesView } from './PurchasesView';
 import { InvoicesView } from './InvoicesView';
 import { ReceiptsView } from './ReceiptsView';
 import { NotificationsView } from './NotificationsView';
 import { ActiveDesktopTab } from '../types';
 
-export type CrmSection = 'crm-customers' | 'crm-tasks' | 'crm-meetings' | 'crm-inventory' | 'crm-sales' | 'crm-invoices' | 'crm-receipts' | 'crm-notifications';
+export type CrmSection = 'crm-customers' | 'crm-tasks' | 'crm-meetings' | 'crm-inventory' | 'crm-sales' | 'crm-purchases' | 'crm-invoices' | 'crm-receipts' | 'crm-notifications';
 
 interface Props {
   section: CrmSection;
@@ -39,6 +40,7 @@ export const CrmPage: React.FC<Props> = ({ section, crm, employees, currentUser,
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center text-xs text-slate-500">The Sales section is only available to employees selected by an administrator.</div>
       )}
       {section === 'crm-sales' && (currentUser.salesAccess || ['admin', 'accounts', 'ceo'].includes(currentUser.role)) && <SalesView crm={crm} employees={employees} currentUser={currentUser} />}
+      {section === 'crm-purchases' && <PurchasesView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-invoices' && <InvoicesView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-receipts' && <ReceiptsView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-notifications' && <NotificationsView crm={crm} onOpen={onNavigate} />}

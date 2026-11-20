@@ -152,6 +152,26 @@ async function getInventoryCatalog() {
   }
 }
 
+const PURCHASE_CATEGORIES = ['ticket', 'hotel', 'visa', 'tour', 'insurance', 'other'];
+
+async function getPurchaseCustomFields() {
+  try {
+    const row = await getOne('crm_company', 'purchases_schema');
+    return asArray(row?.data?.customFields).filter((f) => f && f.id && f.label);
+  } catch {
+    return [];
+  }
+}
+
+async function getAllPurchases() {
+  try {
+    const rows = (await supabaseFetch(`/crm_company?id=like.pur-*&order=updated_at.desc&limit=${LIMIT}&select=*`)) || [];
+    return rows.map((r) => ({ ...(r.data || {}), id: r.id, updatedAt: r.updated_at || r.data?.updatedAt || '' })).filter((p) => p && p.purchaseNo);
+  } catch {
+    return [];
+  }
+}
+
 async function activeEmployees() {
   return (await supabaseFetch('/employees?deleted_at=is.null&is_active=eq.true&select=id,name,role')) || [];
 }
@@ -267,18 +287,24 @@ export default async function handler(req, res) {
         .map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at, read: Boolean(n.read_at) }));
       let invoices = [];
       let receipts = [];
+      let purchases = [];
+      let purchaseCustomFields = [];
       let company = DEFAULT_COMPANY;
       let inventoryItems = DEFAULT_INVENTORY_ITEMS;
       if (action === 'list') {
-        const [invRows, companyRow, receiptRows, catalogItems] = await Promise.all([
+        const [invRows, companyRow, receiptRows, catalogItems, allPurchases, customFields] = await Promise.all([
           getAll('crm_invoices'),
           getOne('crm_company', 'main'),
           supabaseFetch(`/crm_receipts?select=id,receipt_no,created_by,query_code,client_name,items,other_item,payment_type,currency,total_amount,amount_received,method,bank_name,reference_no,has_proof,purpose,created_at,updated_at&order=created_at.desc&limit=${LIMIT}`),
           getInventoryCatalog(),
+          getAllPurchases(),
+          getPurchaseCustomFields(),
         ]);
         // Receipts go to Accounts (and Admin / CEO); everyone else only sees the receipts they made themselves.
         receipts = (receiptRows || []).filter((x) => salesViewer || x.created_by === me.id).map(mapReceipt);
         invoices = invRows.filter((x) => salesViewer || x.created_by === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapInvoice);
+        purchases = (allPurchases || []).filter((x) => salesViewer || x.createdBy === me.id);
+        purchaseCustomFields = customFields || [];
         company = { ...DEFAULT_COMPANY, ...(companyRow?.data || {}) };
         inventoryItems = catalogItems;
       }
@@ -288,7 +314,7 @@ export default async function handler(req, res) {
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems, sales, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
+        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems, sales, purchases, purchaseCustomFields, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
     }
@@ -891,6 +917,197 @@ export default async function handler(req, res) {
       const existing = await getOne('crm_receipts', body.id);
       if (!existing) throw notFound('Receipt not found.');
       await supabaseFetch(`/crm_receipts?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ---------------------------------------------------------------- purchases (+Add Vendor)
+    if (action === 'purchase_field_add') {
+      if (!isAdmin && me.role !== 'accounts') throw forbidden('Only Admin or Accounts can add custom purchase columns.');
+      const label = str(body.label, 80, { required: true, name: 'Column name' });
+      const category = ['all', ...PURCHASE_CATEGORIES].includes(body.category) ? body.category : 'all';
+      const existingFields = await getPurchaseCustomFields();
+      if (!existingFields.some((f) => f.label.toLowerCase() === label.toLowerCase() && f.category === category)) {
+        existingFields.push({ id: id('pf'), category, label });
+      }
+      await upsert('crm_company', { id: 'purchases_schema', data: { customFields: existingFields }, updated_at: nowIso() });
+      return res.status(200).json({ ok: true, purchaseCustomFields: existingFields });
+    }
+
+    if (action === 'purchase_field_remove') {
+      if (!isAdmin && me.role !== 'accounts') throw forbidden('Only Admin or Accounts can remove custom purchase columns.');
+      const targetId = String(body.fieldId || '');
+      const existingFields = (await getPurchaseCustomFields()).filter((f) => f.id !== targetId);
+      await upsert('crm_company', { id: 'purchases_schema', data: { customFields: existingFields }, updated_at: nowIso() });
+      return res.status(200).json({ ok: true, purchaseCustomFields: existingFields });
+    }
+
+    if (action === 'purchase_save') {
+      const x = body.purchase || {};
+      const existingRow = x.id ? await getOne('crm_company', x.id) : null;
+      const existing = existingRow?.data || null;
+      if (x.id && !existing) throw notFound('Purchase record not found.');
+      if (existing && !(isAdmin || me.role === 'accounts' || existing.createdBy === me.id)) {
+        throw forbidden('You can only edit your own purchase records.');
+      }
+
+      const customerName = str(x.customerName, 160, { required: true, name: 'Customer name' });
+      const careOf = str(x.careOf, 160, { name: 'C/O' });
+      const crmId = str(x.crmId, 80, { name: 'Query Code / CRM ID' });
+      const currency = String(x.currency || 'PKR').toUpperCase();
+      if (!/^[A-Z]{3}$/.test(currency)) throw bad('Choose a valid currency.');
+      const purchaseDate = String(x.purchaseDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
+      const notes = str(x.notes, 2000, { name: 'Notes' });
+
+      const moneyOpt = (v, label, { required = false } = {}) => {
+        if (v === '' || v === null || v === undefined) {
+          if (required) throw bad(`${label} is required.`);
+          return null;
+        }
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0 || n > 9999999999) throw bad(`${label} is not a valid amount.`);
+        return r2(n);
+      };
+
+      const rawItems = asArray(x.items);
+      if (!rawItems.length) throw bad('Add at least one vendor purchase item (Ticket, Hotel, Visa, Tours & Transfers, or Insurance).');
+
+      let totalPayable = 0;
+      let totalReceivable = 0;
+      const items = rawItems.slice(0, 40).map((it, idx) => {
+        const category = PURCHASE_CATEGORIES.includes(it?.category) ? it.category : 'other';
+        const catTitle = { ticket: 'Ticket', hotel: 'Hotel', visa: 'Visa', tour: 'Tours & Transfers', insurance: 'Insurance', other: 'Other' }[category];
+        const vendorName = str(it?.vendorName, 160, { required: true, name: `${catTitle} #${idx + 1} Vendor / Issued By` });
+        const payable = moneyOpt(it?.payable, `${catTitle} #${idx + 1} Payable Price`, { required: true }) ?? 0;
+        const receivable = moneyOpt(it?.receivable, `${catTitle} #${idx + 1} Receivable`, { required: false });
+        const itemCurrency = /^[A-Z]{3}$/.test(String(it?.currency || '').toUpperCase()) ? String(it.currency).toUpperCase() : currency;
+        const paymentDueDate = it?.paymentDueDate ? String(it.paymentDueDate).slice(0, 10) : null;
+
+        const paidByMethod = ['unpaid', 'card', 'cash', 'bank_transfer', 'other'].includes(it?.paidByMethod) ? it.paidByMethod : 'unpaid';
+        const cardOption = ['faiq_card', 'ali_card', 'third_party', 'other', ''].includes(it?.cardOption) ? (it.cardOption || '') : '';
+        const cardBank = str(it?.cardBank, 160, { name: 'Card bank' });
+        const paidBySpecify = str(it?.paidBySpecify, 200, { name: 'Paid by details' });
+
+        // Category-specific validations
+        const ticketNumber = category === 'ticket' ? str(it?.ticketNumber, 120, { required: true, name: `Ticket #${idx + 1} Ticket Number` }) : str(it?.ticketNumber, 120);
+        const hotelName = category === 'hotel' ? str(it?.hotelName, 160, { required: true, name: `Hotel #${idx + 1} Hotel Name` }) : str(it?.hotelName, 160);
+        const rooms = str(it?.rooms, 80, { name: 'Rooms' });
+        const checkInDate = it?.checkInDate ? String(it.checkInDate).slice(0, 10) : null;
+        const checkOutDate = it?.checkOutDate ? String(it.checkOutDate).slice(0, 10) : null;
+        const countries = category === 'visa' ? str(it?.countries, 200, { required: true, name: `Visa #${idx + 1} Countries` }) : str(it?.countries, 200);
+        const visaType = category === 'visa' ? str(it?.visaType, 120, { required: true, name: `Visa #${idx + 1} Visa Type` }) : str(it?.visaType, 120);
+        const tourDescription = category === 'tour' ? str(it?.tourDescription, 400, { required: true, name: `Tour #${idx + 1} Description of Tour` }) : str(it?.tourDescription, 400);
+        const tourDate = it?.tourDate ? String(it.tourDate).slice(0, 10) : null;
+        const persons = it?.persons !== '' && it?.persons !== null && it?.persons !== undefined ? Math.max(0, Math.round(Number(it.persons) || 0)) : null;
+        const insuranceType = category === 'insurance' ? str(it?.insuranceType, 160, { required: true, name: `Insurance #${idx + 1} Type` }) : str(it?.insuranceType, 160);
+        const insuranceDays = it?.insuranceDays !== '' && it?.insuranceDays !== null && it?.insuranceDays !== undefined ? Math.max(0, Math.round(Number(it.insuranceDays) || 0)) : null;
+        const description = category === 'other' ? str(it?.description, 400, { required: true, name: `Item #${idx + 1} Description` }) : str(it?.description, 400);
+
+        const rawCustom = it?.customValues && typeof it.customValues === 'object' ? it.customValues : {};
+        const customValues = {};
+        for (const [k, v] of Object.entries(rawCustom)) {
+          const val = str(v, 300);
+          if (val) customValues[String(k).slice(0, 80)] = val;
+        }
+
+        totalPayable = r2(totalPayable + payable);
+        if (receivable !== null) totalReceivable = r2(totalReceivable + receivable);
+
+        return {
+          id: it?.id || id('pit'),
+          category,
+          vendorName,
+          payable,
+          receivable,
+          currency: itemCurrency,
+          paymentDueDate,
+          paidByMethod,
+          cardOption,
+          cardBank,
+          paidBySpecify,
+          ticketNumber,
+          hotelName,
+          rooms,
+          checkInDate,
+          checkOutDate,
+          countries,
+          visaType,
+          tourDescription,
+          tourDate,
+          persons,
+          insuranceType,
+          insuranceDays,
+          description,
+          customValues,
+        };
+      });
+
+      const allPaid = items.every((i) => i.paidByMethod !== 'unpaid');
+      const somePaid = items.some((i) => i.paidByMethod !== 'unpaid');
+      const autoStatus = allPaid ? 'paid' : somePaid ? 'partial' : 'unpaid';
+      const status = ['unpaid', 'paid', 'partial'].includes(x.status) ? x.status : (existing?.status || autoStatus);
+
+      const at = nowIso();
+      if (existing) {
+        const updatedPurchase = {
+          ...existing,
+          customerName,
+          careOf,
+          crmId,
+          purchaseDate,
+          currency,
+          items,
+          totalPayable,
+          totalReceivable,
+          notes,
+          status,
+          updatedAt: at,
+        };
+        await upsert('crm_company', { id: existing.id, data: updatedPurchase, updated_at: at });
+        return res.status(200).json({ ok: true, purchase: updatedPurchase });
+      }
+
+      const existingPurchases = await getAllPurchases();
+      const nextNum = existingPurchases.length + 1;
+      const purchaseNo = `PUR-${String(nextNum).padStart(6, '0')}`;
+      const rowId = id('pur');
+      const newPurchase = {
+        id: rowId,
+        purchaseNo,
+        createdBy: me.id,
+        customerName,
+        careOf,
+        crmId,
+        purchaseDate,
+        currency,
+        items,
+        totalPayable,
+        totalReceivable,
+        notes,
+        status: autoStatus,
+        createdAt: at,
+        updatedAt: at,
+      };
+      await upsert('crm_company', { id: rowId, data: newPurchase, updated_at: at });
+      await notify(await salesStaffIds(), 'invoice', rowId, `${me.name || 'An employee'} added vendor purchase ${purchaseNo} for ${customerName} (${currency} ${totalPayable}).`, me.id);
+      return res.status(200).json({ ok: true, purchase: newPurchase });
+    }
+
+    if (action === 'purchase_status') {
+      const existingRow = await getOne('crm_company', body.id);
+      if (!existingRow?.data) throw notFound('Purchase record not found.');
+      if (!isAdmin && me.role !== 'accounts' && existingRow.data.createdBy !== me.id) {
+        throw forbidden('Only Admin, Accounts, or the creator can update purchase status.');
+      }
+      const status = ['unpaid', 'paid', 'partial'].includes(body.status) ? body.status : 'unpaid';
+      const at = nowIso();
+      const updated = { ...existingRow.data, status, updatedAt: at };
+      await upsert('crm_company', { id: existingRow.id, data: updated, updated_at: at });
+      return res.status(200).json({ ok: true, purchase: updated });
+    }
+
+    if (action === 'purchase_delete') {
+      if (!isAdmin) throw forbidden('Only an administrator can delete a purchase record.');
+      await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(body.id)}`, { method: 'DELETE' });
       return res.status(200).json({ ok: true });
     }
 
