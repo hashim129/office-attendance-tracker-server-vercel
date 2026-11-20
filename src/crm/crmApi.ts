@@ -259,7 +259,12 @@ export interface CrmUnread {
   createdAt: string;
 }
 
-export type PurchaseCategory = 'ticket' | 'hotel' | 'visa' | 'tour' | 'insurance' | 'other';
+export type PurchaseCategory = 'ticket' | 'hotel' | 'visa' | 'tour' | 'insurance' | 'other' | string;
+
+export interface PurchaseCustomCategory {
+  id: string;
+  label: string;
+}
 
 export interface PurchaseCustomField {
   id: string;
@@ -270,6 +275,7 @@ export interface PurchaseCustomField {
 export interface CrmPurchaseItem {
   id: string;
   category: PurchaseCategory;
+  categoryLabel?: string;
   vendorName: string;
   quantity?: number;
   unitPayable?: number;
@@ -333,6 +339,7 @@ export interface CrmData {
   sales: CrmSale[];
   purchases?: CrmPurchase[];
   purchaseCustomFields?: PurchaseCustomField[];
+  purchaseCustomCategories?: PurchaseCustomCategory[];
   invoices: CrmInvoice[];
   receipts: CrmReceipt[];
   company: CompanyProfile;

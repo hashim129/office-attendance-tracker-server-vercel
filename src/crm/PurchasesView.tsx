@@ -1,8 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Eye, Pencil, ShoppingBag, X, Check, Plane, Building2, Stamp, Bus, ShieldCheck, Package, CreditCard, Search, Columns3 } from 'lucide-react';
+import { Plus, Trash2, Eye, Pencil, ShoppingBag, X, Check, Plane, Building2, Stamp, Bus, ShieldCheck, Package, CreditCard, Search, Columns3, FolderPlus } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
-import { CompanyProfile, CrmPurchase, CrmPurchaseItem, PurchaseCategory, PurchaseCustomField, crmCall } from './crmApi';
+import {
+  CompanyProfile,
+  CrmPurchase,
+  CrmPurchaseItem,
+  PurchaseCategory,
+  PurchaseCustomCategory,
+  PurchaseCustomField,
+  crmCall,
+} from './crmApi';
 import { CrmState } from './useCrm';
 import { ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
@@ -54,7 +62,7 @@ interface FormItem {
   // Insurance
   insuranceType: string;
   insuranceDays: string;
-  // Other
+  // Other / Custom Category description
   description: string;
   // Live custom fields
   customValues: Record<string, string>;
@@ -75,7 +83,12 @@ interface PurchaseFormState {
 const today = () => new Date().toLocaleDateString('en-CA');
 const uid = () => `pi_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-4)}`;
 
-const CATEGORY_META: Record<PurchaseCategory, { label: string; badgeTone: 'blue' | 'violet' | 'green' | 'amber' | 'slate'; Icon: React.FC<{ className?: string }> }> = {
+const BUILTIN_CATEGORIES = ['ticket', 'hotel', 'visa', 'tour', 'insurance', 'other'] as const;
+
+const CATEGORY_META: Record<
+  string,
+  { label: string; badgeTone: 'blue' | 'violet' | 'green' | 'amber' | 'slate'; Icon: React.FC<{ className?: string }> }
+> = {
   ticket: { label: 'Ticket Purchase', badgeTone: 'blue', Icon: Plane },
   hotel: { label: 'Hotel Purchase', badgeTone: 'violet', Icon: Building2 },
   visa: { label: 'Visa Purchase', badgeTone: 'green', Icon: Stamp },
@@ -83,6 +96,23 @@ const CATEGORY_META: Record<PurchaseCategory, { label: string; badgeTone: 'blue'
   insurance: { label: 'Insurance', badgeTone: 'slate', Icon: ShieldCheck },
   other: { label: 'Other Service', badgeTone: 'slate', Icon: Package },
 };
+
+function getCategoryMeta(
+  cat: PurchaseCategory,
+  customCategories: PurchaseCustomCategory[],
+  fallbackLabel?: string
+): { label: string; badgeTone: 'blue' | 'violet' | 'green' | 'amber' | 'slate'; Icon: React.FC<{ className?: string }>; isCustom: boolean } {
+  if (CATEGORY_META[cat]) {
+    return { ...CATEGORY_META[cat], isCustom: false };
+  }
+  const found = customCategories.find((c) => c.id === cat);
+  return {
+    label: found?.label || fallbackLabel || cat || 'Custom Category',
+    badgeTone: 'blue',
+    Icon: Package,
+    isCustom: true,
+  };
+}
 
 function normalizePaidByMethod(
   it: Pick<CrmPurchaseItem, 'paidByMethod' | 'cardOption'>
@@ -224,9 +254,26 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
 
   const purchases = crm.data.purchases || [];
   const customFields = crm.data.purchaseCustomFields || [];
+  const customCategories = crm.data.purchaseCustomCategories || [];
   const customers = crm.data.customers || [];
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const currencies = useMemo(() => allCurrencies(), []);
+
+  const allCategoryEntries = useMemo(() => {
+    const builtins = BUILTIN_CATEGORIES.map((id) => ({
+      id: id as PurchaseCategory,
+      label: CATEGORY_META[id].label,
+      Icon: CATEGORY_META[id].Icon,
+      isCustom: false,
+    }));
+    const customs = customCategories.map((c) => ({
+      id: c.id as PurchaseCategory,
+      label: c.label,
+      Icon: Package,
+      isCustom: true,
+    }));
+    return [...builtins, ...customs];
+  }, [customCategories]);
 
   const [form, setForm] = useState<PurchaseFormState | null>(null);
   const [viewing, setViewing] = useState<CrmPurchase | null>(null);
@@ -236,10 +283,12 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // Live Custom Column Manager (Admin & Accounts)
+  // Live Custom Column & Category Manager (Admin & Accounts)
   const [newColLabel, setNewColLabel] = useState('');
   const [newColCategory, setNewColCategory] = useState<PurchaseCategory | 'all'>('all');
+  const [newCatLabel, setNewCatLabel] = useState('');
   const [showInlineColAdder, setShowInlineColAdder] = useState(false);
+  const [showInlineCatAdder, setShowInlineCatAdder] = useState(false);
   const [colBusy, setColBusy] = useState(false);
   const [colNotice, setColNotice] = useState('');
   const [colError, setColError] = useState('');
@@ -317,7 +366,9 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
       await crmCall('purchase_field_add', { label: trimmed, category: targetCat });
       setNewColLabel('');
       await crm.refresh();
-      setColNotice(`Added column "${trimmed}" live to ${targetCat === 'all' ? 'all purchase categories' : CATEGORY_META[targetCat].label}.`);
+      const targetName =
+        targetCat === 'all' ? 'all purchase categories' : getCategoryMeta(targetCat, customCategories).label;
+      setColNotice(`Added column "${trimmed}" live to ${targetName}.`);
       window.setTimeout(() => setColNotice(''), 3500);
     } catch (err: any) {
       setColError(err?.message || 'Could not add custom column.');
@@ -333,8 +384,56 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
     try {
       await crmCall('purchase_field_remove', { fieldId: field.id });
       await crm.refresh();
+      setColNotice(`Removed custom column "${field.label}".`);
+      window.setTimeout(() => setColNotice(''), 3000);
     } catch (err: any) {
       setColError(err?.message || 'Could not remove custom column.');
+    } finally {
+      setColBusy(false);
+    }
+  };
+
+  const handleAddCustomCategory = async (e?: React.FormEvent, addToFormImmediately = false) => {
+    if (e) e.preventDefault();
+    const trimmed = newCatLabel.trim();
+    if (!trimmed || colBusy) return;
+    setColBusy(true);
+    setColError('');
+    setColNotice('');
+    try {
+      const res = await crmCall<{ purchaseCustomCategories: PurchaseCustomCategory[] }>('purchase_category_add', {
+        label: trimmed,
+      });
+      setNewCatLabel('');
+      await crm.refresh();
+      const added = (res.purchaseCustomCategories || []).find(
+        (c) => c.label.toLowerCase() === trimmed.toLowerCase()
+      );
+      if (addToFormImmediately && added && form) {
+        addItem(added.id);
+      }
+      setColNotice(`Added new category "${trimmed}" live.`);
+      window.setTimeout(() => setColNotice(''), 3500);
+    } catch (err: any) {
+      setColError(err?.message || 'Could not add custom category.');
+    } finally {
+      setColBusy(false);
+    }
+  };
+
+  const handleRemoveCustomCategory = async (cat: { id: string; label: string }) => {
+    if (!window.confirm(`Remove custom category "${cat.label}"?`)) return;
+    setColBusy(true);
+    setColError('');
+    try {
+      await crmCall('purchase_category_remove', { categoryId: cat.id });
+      await crm.refresh();
+      if (catFilter === cat.id) setCatFilter('all');
+      if (newColCategory === cat.id) setNewColCategory('all');
+      setColNotice(`Removed custom category "${cat.label}".`);
+      window.setTimeout(() => setColNotice(''), 3000);
+    } catch (err: any) {
+      setColError(err?.message || 'Could not remove custom category.');
     } finally {
       setColBusy(false);
     }
@@ -431,9 +530,11 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
         it.paidByMethod === 'other'
           ? it.paidByMethod
           : '';
+      const meta = getCategoryMeta(it.category, customCategories);
       return {
         id: it.id,
         category: it.category,
+        categoryLabel: meta.label,
         vendorName: it.vendorName.trim() || '—',
         quantity: qty,
         unitPayable: unitPay,
@@ -483,7 +584,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-  }, [form, currentUser.id]);
+  }, [form, currentUser.id, customCategories]);
 
   const submitForm = async () => {
     if (!form) return;
@@ -499,7 +600,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
     for (let i = 0; i < validItems.length; i++) {
       const it = validItems[i];
       if (!it.vendorName.trim()) {
-        setError(`Item #${i + 1} (${CATEGORY_META[it.category].label}): Vendor / Issued From is required.`);
+        setError(`Item #${i + 1} (${getCategoryMeta(it.category, customCategories).label}): Vendor / Issued From is required.`);
         return;
       }
     }
@@ -523,9 +624,11 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
           const qty = Math.max(1, Number(it.quantity) || 1);
           const unitPay = Number(it.unitPayable) || 0;
           const totalPay = it.payable !== '' ? Number(it.payable) || 0 : Math.round(qty * unitPay * 100) / 100;
+          const meta = getCategoryMeta(it.category, customCategories);
           return {
             id: it.id,
             category: it.category,
+            categoryLabel: meta.isCustom ? meta.label : undefined,
             vendorName: it.vendorName.trim(),
             quantity: qty,
             unitPayable: unitPay || totalPay / qty,
@@ -569,10 +672,10 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
         }),
       };
 
-      const saved = await crmCall<CrmPurchase>('purchase_save', payload);
+      const saved = await crmCall<{ purchase: CrmPurchase }>('purchase_save', payload);
       await crm.refresh();
       setForm(null);
-      setViewing(saved);
+      setViewing(saved.purchase || (saved as unknown as CrmPurchase));
     } catch (e: any) {
       setError(e?.message || 'Could not save vendor purchase.');
     } finally {
@@ -602,7 +705,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
           <div>
             <h2 className="text-base font-bold text-slate-900">Purchases — Vendor Entries</h2>
             <p className="text-xs text-slate-500">
-              Record multi-product vendor purchases (Ticket, Hotel, Visa, Tours & Transfers, Insurance) with Customer, C/O, Query Code / CRM ID, and payment method.
+              Record multi-product vendor purchases (Ticket, Hotel, Visa, Tours & Transfers, Insurance, or custom categories) with Customer, C/O, Query Code / CRM ID, and payment method.
             </p>
           </div>
         </div>
@@ -620,88 +723,142 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
         </div>
       </div>
 
-      {/* Live Custom Column Bar for Admin / Accounts */}
+      {/* Live Custom Column & Category Bar for Admin / Accounts */}
       {isStaff && (
-        <div className={`${cardCls} p-4 border-blue-200 bg-gradient-to-r from-blue-50/70 via-white to-indigo-50/50`}>
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+        <div className={`${cardCls} p-4 border-blue-200 bg-gradient-to-r from-blue-50/70 via-white to-indigo-50/50 space-y-3`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-blue-600 text-white">
                 <Columns3 className="w-4 h-4" />
               </span>
               <div>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">
-                  Live Vendor Purchase Column Manager (Admin & Accounts)
+                  Live Vendor Purchase Category & Column Manager (Admin & Accounts)
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Add a new custom column for entry right here — it updates in the database immediately and appears in all vendor purchase forms & live previews.
+                  Add or remove custom product categories and custom columns right here — changes update in the database immediately and appear live in all forms.
                 </p>
               </div>
             </div>
-            <span className="text-[11px] font-semibold text-blue-700 bg-blue-100/80 px-2.5 py-0.5 rounded-full">
-              {customFields.length} custom {customFields.length === 1 ? 'column' : 'columns'} active
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full">
+                {customCategories.length} custom {customCategories.length === 1 ? 'category' : 'categories'}
+              </span>
+              <span className="text-[11px] font-semibold text-blue-700 bg-blue-100/80 px-2.5 py-0.5 rounded-full">
+                {customFields.length} custom {customFields.length === 1 ? 'column' : 'columns'}
+              </span>
+            </div>
           </div>
 
-          <form onSubmit={(e) => handleAddCustomColumn(e)} className="flex flex-wrap items-center gap-2">
-            <select
-              className={`${inputCls} !w-auto min-w-[175px] bg-white`}
-              value={newColCategory}
-              onChange={(e) => setNewColCategory(e.target.value as PurchaseCategory | 'all')}
-              disabled={colBusy}
-            >
-              <option value="all">All Product Categories</option>
-              <option value="ticket">Ticket Purchase Only</option>
-              <option value="hotel">Hotel Purchase Only</option>
-              <option value="visa">Visa Purchase Only</option>
-              <option value="tour">Tours & Transfers Only</option>
-              <option value="insurance">Insurance Only</option>
-              <option value="other">Other Service Only</option>
-            </select>
-            <input
-              type="text"
-              className={`${inputCls} flex-1 min-w-[220px] bg-white`}
-              placeholder="Enter new column name (e.g. PNR / GDS Code, Supplier Invoice #, ROE, Confirmation Code)..."
-              value={newColLabel}
-              onChange={(e) => setNewColLabel(e.target.value)}
-              disabled={colBusy}
-            />
-            <button
-              type="submit"
-              disabled={colBusy || !newColLabel.trim()}
-              className={btnPrimary}
-            >
-              <Plus className="w-4 h-4" /> {colBusy ? 'Adding...' : 'Add Live Column'}
-            </button>
-          </form>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+            {/* Add New Custom Category Form */}
+            <form onSubmit={(e) => handleAddCustomCategory(e, false)} className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-white/90 p-2.5">
+              <span className="text-[11px] font-bold text-emerald-800 inline-flex items-center gap-1">
+                <FolderPlus className="w-3.5 h-3.5 text-emerald-600" /> New Category:
+              </span>
+              <input
+                type="text"
+                className={`${inputCls} flex-1 min-w-[180px] bg-white`}
+                placeholder="e.g. Transport, Umrah Package, Train, Car Rental..."
+                value={newCatLabel}
+                onChange={(e) => setNewCatLabel(e.target.value)}
+                disabled={colBusy}
+              />
+              <button
+                type="submit"
+                disabled={colBusy || !newCatLabel.trim()}
+                className={btnPrimary}
+              >
+                <Plus className="w-4 h-4" /> {colBusy ? 'Adding...' : '+ Add Category'}
+              </button>
+            </form>
 
-          {colNotice && <div className="mt-2 text-xs font-semibold text-emerald-700">{colNotice}</div>}
-          {colError && <div className="mt-2 text-xs font-semibold text-rose-600">{colError}</div>}
+            {/* Add New Custom Column Form */}
+            <form onSubmit={(e) => handleAddCustomColumn(e)} className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-white/90 p-2.5">
+              <select
+                className={`${inputCls} !w-auto min-w-[155px] bg-white`}
+                value={newColCategory}
+                onChange={(e) => setNewColCategory(e.target.value as PurchaseCategory | 'all')}
+                disabled={colBusy}
+              >
+                <option value="all">All Categories</option>
+                {allCategoryEntries.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label} Only
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                className={`${inputCls} flex-1 min-w-[180px] bg-white`}
+                placeholder="New column name (e.g. PNR, ROE, Supplier Inv #)..."
+                value={newColLabel}
+                onChange={(e) => setNewColLabel(e.target.value)}
+                disabled={colBusy}
+              />
+              <button
+                type="submit"
+                disabled={colBusy || !newColLabel.trim()}
+                className={btnPrimary}
+              >
+                <Plus className="w-4 h-4" /> {colBusy ? 'Adding...' : '+ Add Column'}
+              </button>
+            </form>
+          </div>
 
-          {customFields.length > 0 && (
-            <div className="mt-3 pt-2.5 border-t border-slate-200/70 flex flex-wrap items-center gap-1.5">
-              <span className="text-[11px] font-medium text-slate-400 mr-1">Active live columns:</span>
-              {customFields.map((cf) => (
-                <span
-                  key={cf.id}
-                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-white text-slate-700 border-slate-200 shadow-2xs"
-                >
-                  <span className="font-semibold">{cf.label}</span>
-                  <span className="text-[10px] uppercase px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
-                    {cf.category === 'all' ? 'All' : CATEGORY_META[cf.category as PurchaseCategory]?.label || cf.category}
-                  </span>
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveCustomColumn(cf)}
-                      disabled={colBusy}
-                      className="text-slate-400 hover:text-rose-600 transition-colors"
-                      title={`Remove "${cf.label}" column`}
+          {colNotice && <div className="text-xs font-semibold text-emerald-700">{colNotice}</div>}
+          {colError && <div className="text-xs font-semibold text-rose-600">{colError}</div>}
+
+          {(customCategories.length > 0 || customFields.length > 0) && (
+            <div className="pt-2 border-t border-slate-200/70 flex flex-wrap items-center gap-2">
+              {customCategories.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 mr-3">
+                  <span className="text-[11px] font-semibold text-emerald-700">Custom categories:</span>
+                  {customCategories.map((cat) => (
+                    <span
+                      key={cat.id}
+                      className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-emerald-50/70 text-emerald-900 border-emerald-200 shadow-2xs"
                     >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                </span>
-              ))}
+                      <span className="font-semibold">{cat.label}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCustomCategory(cat)}
+                        disabled={colBusy}
+                        className="text-emerald-700 hover:text-rose-600 transition-colors cursor-pointer"
+                        title={`Remove "${cat.label}" category`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {customFields.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-indigo-700">Active live columns:</span>
+                  {customFields.map((cf) => (
+                    <span
+                      key={cf.id}
+                      className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border bg-white text-slate-700 border-slate-200 shadow-2xs"
+                    >
+                      <span className="font-semibold">{cf.label}</span>
+                      <span className="text-[10px] uppercase px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                        {cf.category === 'all' ? 'All' : getCategoryMeta(cf.category, customCategories).label}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCustomColumn(cf)}
+                        disabled={colBusy}
+                        className="text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                        title={`Remove "${cf.label}" column`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -738,23 +895,22 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
           <div className={`${cardCls} p-4`}>
             <div className="text-xs font-bold text-slate-800 mb-2">Category Breakdown</div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {(['ticket', 'hotel', 'visa', 'tour', 'insurance', 'other'] as PurchaseCategory[]).map((cat) => {
-                const meta = CATEGORY_META[cat];
+              {allCategoryEntries.map((cat) => {
                 const count = purchases.reduce(
-                  (acc, p) => acc + (p.items || []).filter((it) => it.category === cat).length,
+                  (acc, p) => acc + (p.items || []).filter((it) => it.category === cat.id).length,
                   0
                 );
-                const Icon = meta.Icon;
+                const Icon = cat.Icon;
                 return (
                   <div
-                    key={cat}
+                    key={cat.id}
                     className="flex items-center justify-between px-3 py-2 rounded-xl border border-slate-200/80 bg-slate-50/60 text-xs"
                   >
-                    <span className="inline-flex items-center gap-1.5 font-medium text-slate-700">
-                      <Icon className="w-3.5 h-3.5 text-blue-600" />
-                      {meta.label}
+                    <span className="inline-flex items-center gap-1.5 font-medium text-slate-700 truncate">
+                      <Icon className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span className="truncate">{cat.label}</span>
                     </span>
-                    <span className="font-mono font-bold text-slate-900">{count}</span>
+                    <span className="font-mono font-bold text-slate-900 ml-1">{count}</span>
                   </div>
                 );
               })}
@@ -801,12 +957,11 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
             onChange={(e) => setCatFilter(e.target.value as 'all' | PurchaseCategory)}
           >
             <option value="all">All Categories</option>
-            <option value="ticket">Ticket Purchase</option>
-            <option value="hotel">Hotel Purchase</option>
-            <option value="visa">Visa Purchase</option>
-            <option value="tour">Tours & Transfers</option>
-            <option value="insurance">Insurance</option>
-            <option value="other">Other Service</option>
+            {allCategoryEntries.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -876,7 +1031,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
               {/* Split 50/50 Product & Vendor Breakdown inside each Purchase Card */}
               <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {items.map((it, idx) => {
-                  const meta = CATEGORY_META[it.category || 'ticket'] || CATEGORY_META.other;
+                  const meta = getCategoryMeta(it.category || 'ticket', customCategories, it.categoryLabel);
                   const Icon = meta.Icon;
                   const cur = it.currency || p.currency || 'PKR';
                   const qty = it.quantity && Number(it.quantity) > 0 ? Number(it.quantity) : 1;
@@ -937,7 +1092,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                                 : ''}
                             </div>
                           )}
-                          {it.category === 'other' && it.description && (
+                          {(it.category === 'other' || meta.isCustom) && it.description && (
                             <div>
                               Details: <b>{it.description}</b>
                             </div>
@@ -1065,89 +1220,212 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                 </div>
               </div>
 
-              {/* Add Multiple Products Bar + Admin "+ Add Live Column" button right in the bar */}
+              {/* Add Multiple Products Bar + Admin "+ Add New Category" & "+ Add Live Column" buttons */}
               <div className="rounded-xl border border-blue-200/80 bg-blue-50/40 p-3 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-bold text-slate-700 mr-1">Add Product / Vendor Entry:</span>
-                    {(['ticket', 'hotel', 'visa', 'tour', 'insurance', 'other'] as PurchaseCategory[]).map((cat) => {
-                      const meta = CATEGORY_META[cat];
-                      const Icon = meta.Icon;
+                    {allCategoryEntries.map((cat) => {
+                      const Icon = cat.Icon;
                       return (
-                        <button
-                          key={cat}
-                          type="button"
-                          onClick={() => addItem(cat)}
-                          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-blue-200 bg-white text-blue-700 hover:bg-blue-600 hover:text-white transition-colors shadow-2xs"
-                        >
-                          <Icon className="w-3.5 h-3.5" /> + {meta.label}
-                        </button>
+                        <div key={cat.id} className="inline-flex items-center">
+                          <button
+                            type="button"
+                            onClick={() => addItem(cat.id)}
+                            className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 border bg-white text-blue-700 hover:bg-blue-600 hover:text-white transition-colors shadow-2xs cursor-pointer ${
+                              cat.isCustom && isStaff
+                                ? 'rounded-l-lg border-emerald-300 text-emerald-800 hover:bg-emerald-600'
+                                : 'rounded-lg border-blue-200'
+                            }`}
+                          >
+                            <Icon className="w-3.5 h-3.5" /> + {cat.label}
+                          </button>
+                          {cat.isCustom && isStaff && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCustomCategory({ id: cat.id, label: cat.label })}
+                              disabled={colBusy}
+                              className="inline-flex items-center justify-center px-1.5 py-1.5 text-xs font-bold rounded-r-lg border border-l-0 border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-colors cursor-pointer"
+                              title={`Remove custom category "${cat.label}"`}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
 
                   {isStaff && (
-                    <button
-                      type="button"
-                      onClick={() => setShowInlineColAdder((v) => !v)}
-                      className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors shadow-2xs ${
-                        showInlineColAdder
-                          ? 'bg-indigo-600 text-white border-indigo-600'
-                          : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-600 hover:text-white'
-                      }`}
-                    >
-                      <Columns3 className="w-3.5 h-3.5" /> + Add Live Column
-                    </button>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowInlineCatAdder((v) => !v)}
+                        className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors shadow-2xs cursor-pointer ${
+                          showInlineCatAdder
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-600 hover:text-white'
+                        }`}
+                      >
+                        <FolderPlus className="w-3.5 h-3.5" /> + Add New Category
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowInlineColAdder((v) => !v)}
+                        className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors shadow-2xs cursor-pointer ${
+                          showInlineColAdder
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-600 hover:text-white'
+                        }`}
+                      >
+                        <Columns3 className="w-3.5 h-3.5" /> + Add Live Column
+                      </button>
+                    </div>
                   )}
                 </div>
 
-                {/* Inline Live Column Adder inside the New Vendor Purchase Modal */}
+                {/* Inline Live Category Adder inside the New Vendor Purchase Modal */}
                 {isStaff && (
                   <div
-                    className={`rounded-xl border border-dashed border-indigo-300 bg-white/90 p-2.5 flex flex-wrap items-center gap-2 ${
+                    className={`rounded-xl border border-dashed border-emerald-300 bg-white/95 p-2.5 space-y-2 ${
+                      showInlineCatAdder ? 'ring-2 ring-emerald-500/20' : ''
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-bold text-emerald-900 inline-flex items-center gap-1">
+                        <FolderPlus className="w-3.5 h-3.5 text-emerald-600" /> Live Add Category:
+                      </span>
+                      <input
+                        className={`${inputCls} !py-1 text-xs flex-1 min-w-[220px] bg-white`}
+                        placeholder="Type new product category name (e.g. Transport, Umrah Package, Car Rental)..."
+                        value={newCatLabel}
+                        onChange={(e) => setNewCatLabel(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void handleAddCustomCategory(undefined, true);
+                          }
+                        }}
+                        disabled={colBusy}
+                      />
+                      <button
+                        type="button"
+                        disabled={colBusy || !newCatLabel.trim()}
+                        onClick={() => handleAddCustomCategory(undefined, true)}
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> {colBusy ? 'Adding...' : '+ Add Category Live'}
+                      </button>
+                    </div>
+
+                    {customCategories.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
+                        <span className="text-[10px] font-semibold text-slate-400">Custom categories (click × to remove):</span>
+                        {customCategories.map((cat) => (
+                          <span
+                            key={cat.id}
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200"
+                          >
+                            <span className="font-semibold">{cat.label}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCustomCategory(cat)}
+                              disabled={colBusy}
+                              className="text-emerald-600 hover:text-rose-600 cursor-pointer"
+                              title={`Remove category "${cat.label}"`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Inline Live Column Adder & Remover inside the New Vendor Purchase Modal */}
+                {isStaff && (
+                  <div
+                    className={`rounded-xl border border-dashed border-indigo-300 bg-white/95 p-2.5 space-y-2 ${
                       showInlineColAdder ? 'ring-2 ring-indigo-500/20' : ''
                     }`}
                   >
-                    <span className="text-[11px] font-bold text-indigo-900 inline-flex items-center gap-1">
-                      <Columns3 className="w-3.5 h-3.5 text-indigo-600" /> Live Add Column:
-                    </span>
-                    <select
-                      className={`${inputCls} !w-auto !py-1 text-xs bg-white`}
-                      value={newColCategory}
-                      onChange={(e) => setNewColCategory(e.target.value as PurchaseCategory | 'all')}
-                      disabled={colBusy}
-                    >
-                      <option value="all">All Categories</option>
-                      <option value="ticket">Ticket Purchase</option>
-                      <option value="hotel">Hotel Purchase</option>
-                      <option value="visa">Visa Purchase</option>
-                      <option value="tour">Tours & Transfers</option>
-                      <option value="insurance">Insurance</option>
-                      <option value="other">Other Service</option>
-                    </select>
-                    <input
-                      className={`${inputCls} !py-1 text-xs flex-1 min-w-[200px] bg-white`}
-                      placeholder="Type new column name to add live right now (updates preview as you type)..."
-                      value={newColLabel}
-                      onChange={(e) => setNewColLabel(e.target.value)}
-                      disabled={colBusy}
-                    />
-                    <button
-                      type="button"
-                      disabled={colBusy || !newColLabel.trim()}
-                      onClick={() => handleAddCustomColumn()}
-                      className={`${btnPrimary} !py-1 !px-3 text-xs`}
-                    >
-                      <Plus className="w-3.5 h-3.5" /> {colBusy ? 'Adding...' : '+ Add Field Live'}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-bold text-indigo-900 inline-flex items-center gap-1">
+                        <Columns3 className="w-3.5 h-3.5 text-indigo-600" /> Live Add Column:
+                      </span>
+                      <select
+                        className={`${inputCls} !w-auto !py-1 text-xs bg-white`}
+                        value={newColCategory}
+                        onChange={(e) => setNewColCategory(e.target.value as PurchaseCategory | 'all')}
+                        disabled={colBusy}
+                      >
+                        <option value="all">All Categories</option>
+                        {allCategoryEntries.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className={`${inputCls} !py-1 text-xs flex-1 min-w-[200px] bg-white`}
+                        placeholder="Type new column name to add live right now (updates preview as you type)..."
+                        value={newColLabel}
+                        onChange={(e) => setNewColLabel(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            void handleAddCustomColumn();
+                          }
+                        }}
+                        disabled={colBusy}
+                      />
+                      <button
+                        type="button"
+                        disabled={colBusy || !newColLabel.trim()}
+                        onClick={() => handleAddCustomColumn()}
+                        className={`${btnPrimary} !py-1 !px-3 text-xs`}
+                      >
+                        <Plus className="w-3.5 h-3.5" /> {colBusy ? 'Adding...' : '+ Add Field Live'}
+                      </button>
+                    </div>
+
+                    {customFields.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
+                        <span className="text-[10px] font-semibold text-slate-400">Active columns (click × to remove):</span>
+                        {customFields.map((cf) => (
+                          <span
+                            key={cf.id}
+                            className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-900 border border-indigo-200"
+                          >
+                            <span className="font-semibold">{cf.label}</span>
+                            <span className="text-[9px] uppercase px-1 rounded bg-white text-slate-600">
+                              {cf.category === 'all' ? 'All' : getCategoryMeta(cf.category, customCategories).label}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCustomColumn(cf)}
+                              disabled={colBusy}
+                              className="text-indigo-500 hover:text-rose-600 cursor-pointer"
+                              title={`Remove column "${cf.label}"`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
+
+                {colNotice && <div className="text-xs font-semibold text-emerald-700">{colNotice}</div>}
+                {colError && <div className="text-xs font-semibold text-rose-600">{colError}</div>}
               </div>
 
               {/* Product Entry Blocks */}
               <div className="space-y-4">
                 {form.items.map((it, idx) => {
-                  const meta = CATEGORY_META[it.category] || CATEGORY_META.other;
+                  const meta = getCategoryMeta(it.category, customCategories);
                   const Icon = meta.Icon;
                   const applicableCustomFields = customFields.filter(
                     (cf) => cf.category === 'all' || cf.category === it.category
@@ -1170,12 +1448,11 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                             value={it.category}
                             onChange={(e) => patchItem(idx, { category: e.target.value as PurchaseCategory })}
                           >
-                            <option value="ticket">Ticket Purchase</option>
-                            <option value="hotel">Hotel Purchase</option>
-                            <option value="visa">Visa Purchase</option>
-                            <option value="tour">Tours & Transfers</option>
-                            <option value="insurance">Insurance</option>
-                            <option value="other">Other Service</option>
+                            {allCategoryEntries.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.label}
+                              </option>
+                            ))}
                           </select>
                         </div>
 
@@ -1187,7 +1464,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                                 setNewColCategory(it.category);
                                 setShowInlineColAdder(true);
                               }}
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200"
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 cursor-pointer"
                               title={`Add a live custom column to ${meta.label}`}
                             >
                               <Columns3 className="w-3 h-3" /> + Add Column
@@ -1196,7 +1473,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                           <button
                             type="button"
                             onClick={() => removeItem(idx)}
-                            className="inline-flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 rounded-lg hover:bg-rose-50"
+                            className="inline-flex items-center gap-1 text-xs text-rose-600 hover:text-rose-700 font-medium px-2 py-1 rounded-lg hover:bg-rose-50 cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" /> Remove
                           </button>
@@ -1474,14 +1751,14 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                         </div>
                       )}
 
-                      {it.category === 'other' && (
+                      {(it.category === 'other' || meta.isCustom) && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                          <Field label="Service Description *">
+                          <Field label={`${meta.label} Description`}>
                             <input
                               className={inputCls}
                               value={it.description}
                               onChange={(e) => patchItem(idx, { description: e.target.value })}
-                              placeholder="Describe service..."
+                              placeholder={`Describe ${meta.label.toLowerCase()}...`}
                             />
                           </Field>
                           <Field label="Vendor / Issued From *">
@@ -1616,7 +1893,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                         </div>
                       </div>
 
-                      {/* Live Custom Columns for this Category */}
+                      {/* Live Custom Columns for this Category — WITH DIRECT REMOVE BUTTON ON EACH COLUMN */}
                       {applicableCustomFields.length > 0 && (
                         <div className="pt-2 border-t border-dashed border-slate-200">
                           <div className="text-[11px] font-bold uppercase tracking-wider text-blue-700 mb-2 flex items-center gap-1.5">
@@ -1624,14 +1901,28 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                             {applicableCustomFields.map((cf) => (
-                              <Field key={cf.id} label={cf.label}>
+                              <div key={cf.id} className="block">
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                  <span className="text-[11px] font-semibold text-slate-600">{cf.label}</span>
+                                  {isStaff && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveCustomColumn(cf)}
+                                      disabled={colBusy}
+                                      className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-1.5 py-0.5 rounded border border-rose-200 transition-colors cursor-pointer"
+                                      title={`Remove "${cf.label}" column`}
+                                    >
+                                      <X className="w-3 h-3" /> Remove
+                                    </button>
+                                  )}
+                                </div>
                                 <input
                                   className={inputCls}
                                   value={it.customValues?.[cf.id] ?? it.customValues?.[cf.label] ?? ''}
                                   onChange={(e) => patchItemCustom(idx, cf.id, e.target.value)}
                                   placeholder={`Enter ${cf.label}...`}
                                 />
-                              </Field>
+                              </div>
                             ))}
                           </div>
                         </div>
@@ -1709,6 +2000,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                   purchase={livePreviewPurchase}
                   company={crm.data.company}
                   customFields={customFields}
+                  customCategories={customCategories}
                   draftColumnLabel={newColLabel.trim()}
                   draftColumnCategory={newColCategory}
                   preparedBy={currentUser.name}
@@ -1764,6 +2056,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
               purchase={viewing}
               company={crm.data.company}
               customFields={customFields}
+              customCategories={customCategories}
               preparedBy={empName.get(viewing.createdBy) || currentUser.name}
             />
           </div>
@@ -1777,6 +2070,7 @@ const PurchasePreview: React.FC<{
   purchase: CrmPurchase;
   company: CompanyProfile;
   customFields: PurchaseCustomField[];
+  customCategories: PurchaseCustomCategory[];
   draftColumnLabel?: string;
   draftColumnCategory?: PurchaseCategory | 'all';
   preparedBy?: string;
@@ -1784,6 +2078,7 @@ const PurchasePreview: React.FC<{
   purchase,
   company,
   customFields,
+  customCategories,
   draftColumnLabel,
   draftColumnCategory = 'all',
   preparedBy,
@@ -1847,7 +2142,7 @@ const PurchasePreview: React.FC<{
           </thead>
           <tbody>
             {items.map((it, i) => {
-              const metaCat = CATEGORY_META[it.category] || CATEGORY_META.other;
+              const metaCat = getCategoryMeta(it.category, customCategories, it.categoryLabel);
               const cur = it.currency || purchase.currency || 'PKR';
               const qty = it.quantity && Number(it.quantity) > 0 ? Number(it.quantity) : 1;
               const unitPay =
@@ -1899,7 +2194,7 @@ const PurchasePreview: React.FC<{
                         {it.insuranceDays ? ` · Days: ${it.insuranceDays}` : ''}
                       </div>
                     )}
-                    {it.category === 'other' && it.description && (
+                    {(it.category === 'other' || metaCat.isCustom) && it.description && (
                       <div className="text-slate-700">Details: <b>{it.description}</b></div>
                     )}
                     <div className="text-[10px] text-slate-600">

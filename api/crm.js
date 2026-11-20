@@ -154,13 +154,20 @@ async function getInventoryCatalog() {
 
 const PURCHASE_CATEGORIES = ['ticket', 'hotel', 'visa', 'tour', 'insurance', 'other'];
 
-async function getPurchaseCustomFields() {
+async function getPurchaseSchema() {
   try {
     const row = await getOne('crm_company', 'purchases_schema');
-    return asArray(row?.data?.customFields).filter((f) => f && f.id && f.label);
+    const customFields = asArray(row?.data?.customFields).filter((f) => f && f.id && f.label);
+    const customCategories = asArray(row?.data?.customCategories).filter((c) => c && c.id && c.label);
+    return { customFields, customCategories };
   } catch {
-    return [];
+    return { customFields: [], customCategories: [] };
   }
+}
+
+async function getPurchaseCustomFields() {
+  const { customFields } = await getPurchaseSchema();
+  return customFields;
 }
 
 async function getAllPurchases() {
@@ -289,22 +296,24 @@ export default async function handler(req, res) {
       let receipts = [];
       let purchases = [];
       let purchaseCustomFields = [];
+      let purchaseCustomCategories = [];
       let company = DEFAULT_COMPANY;
       let inventoryItems = DEFAULT_INVENTORY_ITEMS;
       if (action === 'list') {
-        const [invRows, companyRow, receiptRows, catalogItems, allPurchases, customFields] = await Promise.all([
+        const [invRows, companyRow, receiptRows, catalogItems, allPurchases, purchaseSchema] = await Promise.all([
           getAll('crm_invoices'),
           getOne('crm_company', 'main'),
           supabaseFetch(`/crm_receipts?select=id,receipt_no,created_by,query_code,client_name,items,other_item,payment_type,currency,total_amount,amount_received,method,bank_name,reference_no,has_proof,purpose,created_at,updated_at&order=created_at.desc&limit=${LIMIT}`),
           getInventoryCatalog(),
           getAllPurchases(),
-          getPurchaseCustomFields(),
+          getPurchaseSchema(),
         ]);
         // Receipts go to Accounts (and Admin / CEO); everyone else only sees the receipts they made themselves.
         receipts = (receiptRows || []).filter((x) => salesViewer || x.created_by === me.id).map(mapReceipt);
         invoices = invRows.filter((x) => salesViewer || x.created_by === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapInvoice);
         purchases = (allPurchases || []).filter((x) => salesViewer || x.createdBy === me.id);
-        purchaseCustomFields = customFields || [];
+        purchaseCustomFields = purchaseSchema?.customFields || [];
+        purchaseCustomCategories = purchaseSchema?.customCategories || [];
         company = { ...DEFAULT_COMPANY, ...(companyRow?.data || {}) };
         inventoryItems = catalogItems;
       }
@@ -314,7 +323,7 @@ export default async function handler(req, res) {
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems, sales, purchases, purchaseCustomFields, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
+        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems, sales, purchases, purchaseCustomFields, purchaseCustomCategories, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
     }
@@ -924,31 +933,60 @@ export default async function handler(req, res) {
     if (action === 'purchase_field_add') {
       if (!isAdmin && me.role !== 'accounts') throw forbidden('Only Admin or Accounts can add custom purchase columns.');
       const label = str(body.label, 80, { required: true, name: 'Column name' });
-      const category = ['all', ...PURCHASE_CATEGORIES].includes(body.category) ? body.category : 'all';
-      const existingFields = await getPurchaseCustomFields();
+      const { customFields: existingFields, customCategories } = await getPurchaseSchema();
+      const validCats = ['all', ...PURCHASE_CATEGORIES, ...customCategories.map((c) => c.id)];
+      const category = validCats.includes(body.category) ? body.category : 'all';
       if (!existingFields.some((f) => f.label.toLowerCase() === label.toLowerCase() && f.category === category)) {
         existingFields.push({ id: id('pf'), category, label });
       }
-      await upsert('crm_company', { id: 'purchases_schema', data: { customFields: existingFields }, updated_at: nowIso() });
-      return res.status(200).json({ ok: true, purchaseCustomFields: existingFields });
+      await upsert('crm_company', { id: 'purchases_schema', data: { customFields: existingFields, customCategories }, updated_at: nowIso() });
+      return res.status(200).json({ ok: true, purchaseCustomFields: existingFields, purchaseCustomCategories: customCategories });
     }
 
     if (action === 'purchase_field_remove') {
       if (!isAdmin && me.role !== 'accounts') throw forbidden('Only Admin or Accounts can remove custom purchase columns.');
-      const targetId = String(body.fieldId || '');
-      const existingFields = (await getPurchaseCustomFields()).filter((f) => f.id !== targetId);
-      await upsert('crm_company', { id: 'purchases_schema', data: { customFields: existingFields }, updated_at: nowIso() });
-      return res.status(200).json({ ok: true, purchaseCustomFields: existingFields });
+      const targetId = String(body.fieldId || body.id || '');
+      const { customFields, customCategories } = await getPurchaseSchema();
+      const existingFields = customFields.filter((f) => f.id !== targetId);
+      await upsert('crm_company', { id: 'purchases_schema', data: { customFields: existingFields, customCategories }, updated_at: nowIso() });
+      return res.status(200).json({ ok: true, purchaseCustomFields: existingFields, purchaseCustomCategories: customCategories });
+    }
+
+    if (action === 'purchase_category_add') {
+      if (!isAdmin && me.role !== 'accounts') throw forbidden('Only Admin or Accounts can add custom purchase categories.');
+      const label = str(body.label, 80, { required: true, name: 'Category name' });
+      const { customFields, customCategories } = await getPurchaseSchema();
+      const builtinLabels = ['ticket purchase', 'hotel purchase', 'visa purchase', 'tours & transfers', 'insurance', 'other service'];
+      if (
+        !builtinLabels.includes(label.toLowerCase()) &&
+        !customCategories.some((c) => c.label.toLowerCase() === label.toLowerCase())
+      ) {
+        customCategories.push({ id: id('pcat'), label });
+      }
+      await upsert('crm_company', { id: 'purchases_schema', data: { customFields, customCategories }, updated_at: nowIso() });
+      return res.status(200).json({ ok: true, purchaseCustomCategories: customCategories, purchaseCustomFields: customFields });
+    }
+
+    if (action === 'purchase_category_remove') {
+      if (!isAdmin && me.role !== 'accounts') throw forbidden('Only Admin or Accounts can remove custom purchase categories.');
+      const targetId = String(body.categoryId || body.id || '');
+      const { customFields, customCategories } = await getPurchaseSchema();
+      const nextCategories = customCategories.filter((c) => c.id !== targetId);
+      await upsert('crm_company', { id: 'purchases_schema', data: { customFields, customCategories: nextCategories }, updated_at: nowIso() });
+      return res.status(200).json({ ok: true, purchaseCustomCategories: nextCategories, purchaseCustomFields: customFields });
     }
 
     if (action === 'purchase_save') {
-      const x = body.purchase || {};
+      const x = body.purchase || body;
       const existingRow = x.id ? await getOne('crm_company', x.id) : null;
       const existing = existingRow?.data || null;
       if (x.id && !existing) throw notFound('Purchase record not found.');
       if (existing && !(isAdmin || me.role === 'accounts' || existing.createdBy === me.id)) {
         throw forbidden('You can only edit your own purchase records.');
       }
+
+      const { customCategories } = await getPurchaseSchema();
+      const customCatMap = new Map(customCategories.map((c) => [c.id, c.label]));
 
       const customerName = str(x.customerName, 160, { required: true, name: 'Customer name' });
       const careOf = str(x.careOf, 160, { name: 'C/O' });
@@ -969,13 +1007,18 @@ export default async function handler(req, res) {
       };
 
       const rawItems = asArray(x.items);
-      if (!rawItems.length) throw bad('Add at least one vendor purchase item (Ticket, Hotel, Visa, Tours & Transfers, or Insurance).');
+      if (!rawItems.length) throw bad('Add at least one vendor purchase item.');
 
       let totalPayable = 0;
       let totalReceivable = 0;
       const items = rawItems.slice(0, 40).map((it, idx) => {
-        const category = PURCHASE_CATEGORIES.includes(it?.category) ? it.category : 'other';
-        const catTitle = { ticket: 'Ticket', hotel: 'Hotel', visa: 'Visa', tour: 'Tours & Transfers', insurance: 'Insurance', other: 'Other' }[category];
+        const rawCat = String(it?.category || 'other');
+        const isBuiltin = PURCHASE_CATEGORIES.includes(rawCat);
+        const isCustom = customCatMap.has(rawCat);
+        const category = isBuiltin || isCustom ? rawCat : 'other';
+        const catTitle = isBuiltin
+          ? { ticket: 'Ticket', hotel: 'Hotel', visa: 'Visa', tour: 'Tours & Transfers', insurance: 'Insurance', other: 'Other' }[category]
+          : (customCatMap.get(category) || it?.categoryLabel || 'Custom Service');
         const vendorName = str(it?.vendorName, 160, { required: true, name: `${catTitle} #${idx + 1} Vendor / Issued By` });
         const quantity = it?.quantity !== '' && it?.quantity !== null && it?.quantity !== undefined ? Math.max(1, Number(it.quantity) || 1) : 1;
         const unitPayable = moneyOpt(it?.unitPayable, `${catTitle} #${idx + 1} Unit Payable`, { required: false });
@@ -1004,7 +1047,7 @@ export default async function handler(req, res) {
         const persons = it?.persons !== '' && it?.persons !== null && it?.persons !== undefined ? Math.max(0, Math.round(Number(it.persons) || 0)) : null;
         const insuranceType = category === 'insurance' ? str(it?.insuranceType, 160, { required: true, name: `Insurance #${idx + 1} Type` }) : str(it?.insuranceType, 160);
         const insuranceDays = it?.insuranceDays !== '' && it?.insuranceDays !== null && it?.insuranceDays !== undefined ? Math.max(0, Math.round(Number(it.insuranceDays) || 0)) : null;
-        const description = category === 'other' ? str(it?.description, 400, { required: true, name: `Item #${idx + 1} Description` }) : str(it?.description, 400);
+        const description = str(it?.description, 400);
 
         const rawCustom = it?.customValues && typeof it.customValues === 'object' ? it.customValues : {};
         const customValues = {};
@@ -1019,6 +1062,7 @@ export default async function handler(req, res) {
         return {
           id: it?.id || id('pit'),
           category,
+          categoryLabel: isCustom ? catTitle : undefined,
           vendorName,
           quantity,
           unitPayable: unitPayable ?? payable,
