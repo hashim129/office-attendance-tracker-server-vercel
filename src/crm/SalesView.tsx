@@ -341,6 +341,38 @@ export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                       {s.status === 'approved' && <Pill tone={s.paymentStatus === 'paid' ? 'green' : 'red'}>{s.paymentStatus === 'paid' ? 'Paid' : 'Not paid'}</Pill>}
                     </div>
                     <div className="flex flex-wrap lg:justify-end gap-1.5">
+                      {canReview && (
+                        <select
+                          aria-label={`Review status for coupon ${s.couponNo}`}
+                          className={`${inputCls} !w-auto !py-1 !px-2 !text-[11px] font-semibold`}
+                          value={s.status}
+                          onChange={(e) => {
+                            const nextStatus = e.target.value as CrmSale['status'];
+                            if (nextStatus === s.status) return;
+                            void act('sale_decide', { id: s.id, status: nextStatus, remarks: s.reviewRemarks || '' });
+                          }}
+                        >
+                          <option value="pending">Review: Pending</option>
+                          <option value="approved">Review: Approved</option>
+                          <option value="declined">Review: Declined</option>
+                        </select>
+                      )}
+                      {canReview && s.status === 'approved' && (
+                        <select
+                          aria-label={`Payment status for coupon ${s.couponNo}`}
+                          className={`${inputCls} !w-auto !py-1 !px-2 !text-[11px] font-semibold`}
+                          value={s.paymentStatus}
+                          onChange={(e) =>
+                            void act('sale_payment', {
+                              id: s.id,
+                              paymentStatus: e.target.value as CrmSale['paymentStatus'],
+                            })
+                          }
+                        >
+                          <option value="unpaid">Payment: Not Paid</option>
+                          <option value="paid">Payment: Paid</option>
+                        </select>
+                      )}
                       {canReview && s.status === 'pending' && (
                         <>
                           <button className={btnPrimary} onClick={() => { setDeciding({ s, status: 'approved' }); setRemarks(''); setError(''); }}><Check className="w-3.5 h-3.5" /> Approve</button>

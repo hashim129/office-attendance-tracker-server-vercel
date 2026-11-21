@@ -38,10 +38,18 @@ type VisaProgressStatus = 'not_started' | 'in_progress' | 'issued';
 type PublicInvoiceStatus = 'unpaid' | 'paid' | 'cancelled';
 
 interface PublicVisaProgress {
-  enabled: true;
+  enabled: boolean;
   status: VisaProgressStatus;
   inProgressDate: string | null;
   issuedDate: string | null;
+  hotelEnabled?: boolean;
+  hotelStatus?: VisaProgressStatus;
+  hotelInProgressDate?: string | null;
+  hotelIssuedDate?: string | null;
+  ticketEnabled?: boolean;
+  ticketStatus?: VisaProgressStatus;
+  ticketInProgressDate?: string | null;
+  ticketIssuedDate?: string | null;
   updatedAt: string | null;
 }
 
@@ -81,6 +89,8 @@ interface PublicInvoiceDTO {
   balance: number;
   status: PublicInvoiceStatus;
   isVisa: boolean;
+  isHotel?: boolean;
+  isTicket?: boolean;
   visaProgress: PublicVisaProgress | null;
   createdAt: string;
   updatedAt: string;
@@ -953,6 +963,25 @@ export default function CustomersPortalPage() {
     const isPaid = inv.status === 'paid' || inv.balance <= 0;
     const hasPartialPayment = !isPaid && inv.advancePaid > 0;
     const receiptsCount = foundData?.receiptsSummary.length || 0;
+    const isPaymentApproved = !isCancelled && (isPaid || hasPartialPayment || receiptsCount > 0);
+    const hasHotel =
+      Boolean(inv.isHotel) ||
+      Boolean(inv.visaProgress?.hotelEnabled) ||
+      /\b(hotel|resort|accommodation|stay|room|suite|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis)\b/i.test(
+        [
+          inv.reference || '',
+          ...inv.sections.flatMap((s) => [s.title || '', ...s.lines.map((l) => l.description || '')]),
+        ].join(' ')
+      );
+    const hasTicket =
+      Boolean(inv.isTicket) ||
+      Boolean(inv.visaProgress?.ticketEnabled) ||
+      /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way)\b/i.test(
+        [
+          inv.reference || '',
+          ...inv.sections.flatMap((s) => [s.title || '', ...s.lines.map((l) => l.description || '')]),
+        ].join(' ')
+      );
 
     const steps: TimelineStep[] = [
       {
@@ -968,29 +997,35 @@ export default function CustomersPortalPage() {
       },
       {
         id: 'payment',
-        title: 'Payment Progress',
+        title: 'Payment Approval',
         subtitle: isCancelled
           ? 'Cancelled'
           : isPaid
-            ? 'Settled in Full'
-            : hasPartialPayment
-              ? 'Advance Received'
-              : 'Awaiting Payment',
+            ? 'Approved & Settled'
+            : hasPartialPayment || receiptsCount > 0
+              ? 'Approved (Advance Received)'
+              : 'Awaiting Payment Approval',
         dateLabel: isCancelled
           ? 'Cancelled'
           : isPaid
             ? `${inv.currency} ${fmtAmount(inv.total)} paid`
             : `${inv.currency} ${fmtAmount(inv.balance)} balance`,
-        state: isCancelled ? 'cancelled' : isPaid ? 'completed' : hasPartialPayment ? 'current' : 'upcoming',
+        state: isCancelled
+          ? 'cancelled'
+          : isPaid
+            ? 'completed'
+            : hasPartialPayment || receiptsCount > 0
+              ? 'completed'
+              : 'current',
         detail: isCancelled
           ? 'This booking invoice is marked as cancelled.'
           : isPaid
-            ? `Full invoice amount of ${inv.currency} ${fmtAmount(inv.total)} is settled${
+            ? `Payment approved — full invoice amount of ${inv.currency} ${fmtAmount(inv.total)} is settled${
                 receiptsCount > 0 ? ` (${receiptsCount} payment receipt${receiptsCount === 1 ? '' : 's'} on file)` : ''
-              }.`
-            : hasPartialPayment
-              ? `Advance of ${inv.currency} ${fmtAmount(inv.advancePaid)} recorded. Remaining balance: ${inv.currency} ${fmtAmount(inv.balance)}.`
-              : `Outstanding balance of ${inv.currency} ${fmtAmount(inv.balance)} is pending.`,
+              }. Downstream visa, hotel, and travel steps are unlocked.`
+            : hasPartialPayment || receiptsCount > 0
+              ? `Payment approved with advance received (${inv.currency} ${fmtAmount(inv.advancePaid)}). Remaining balance: ${inv.currency} ${fmtAmount(inv.balance)}. Downstream processing steps are active.`
+              : `Awaiting payment approval (${inv.currency} ${fmtAmount(inv.balance)} balance due). Subsequent steps unlock one after another once payment is approved.`,
       },
     ];
 
@@ -1003,21 +1038,30 @@ export default function CustomersPortalPage() {
         {
           id: 'visa_progress',
           title: 'Visa Progress',
-          subtitle:
-            vs === 'issued'
+          subtitle: !isPaymentApproved
+            ? 'Awaiting Payment Approval'
+            : vs === 'issued'
               ? 'Visa Issued'
               : vs === 'in_progress'
                 ? 'Visa Started (In Progress)'
                 : 'Visa Not Started',
-          dateLabel:
-            vs === 'issued'
+          dateLabel: !isPaymentApproved
+            ? 'Locked until payment'
+            : vs === 'issued'
               ? issDate || inProgDate || 'Issued'
               : vs === 'in_progress'
                 ? inProgDate || 'In Progress'
                 : 'Not Started',
-          state: isCancelled ? 'cancelled' : vs === 'issued' ? 'completed' : 'current',
-          detail:
-            vs === 'issued'
+          state: isCancelled
+            ? 'cancelled'
+            : !isPaymentApproved
+              ? 'upcoming'
+              : vs === 'issued'
+                ? 'completed'
+                : 'current',
+          detail: !isPaymentApproved
+            ? 'Visa Progress unlocks automatically right after your booking payment is approved.'
+            : vs === 'issued'
               ? `Visa Progress is complete — your visa was issued${issDate ? ` on ${issDate}` : ''}.`
               : vs === 'in_progress'
                 ? `Visa Progress is active — your visa application has started${inProgDate ? ` (started on ${inProgDate})` : ''}.`
@@ -1026,23 +1070,29 @@ export default function CustomersPortalPage() {
         },
         {
           id: 'visa_in_progress',
-          title: vs === 'not_started' ? 'Visa Not Started' : 'Visa Started',
-          subtitle:
-            vs === 'in_progress' || vs === 'issued'
+          title: !isPaymentApproved || vs === 'not_started' ? 'Visa Not Started' : 'Visa Started',
+          subtitle: !isPaymentApproved
+            ? 'Awaiting Payment Approval'
+            : vs === 'in_progress' || vs === 'issued'
               ? inProgDate
                 ? `Started · ${inProgDate}`
                 : 'Application Started'
               : 'Not Started Yet',
-          dateLabel: inProgDate || (vs === 'not_started' ? 'Not Started' : 'Started'),
+          dateLabel: !isPaymentApproved
+            ? 'Pending payment'
+            : inProgDate || (vs === 'not_started' ? 'Not Started' : 'Started'),
           state: isCancelled
             ? 'cancelled'
-            : vs === 'issued'
-              ? 'completed'
-              : vs === 'in_progress'
-                ? 'current'
-                : 'upcoming',
-          detail:
-            vs === 'not_started'
+            : !isPaymentApproved
+              ? 'upcoming'
+              : vs === 'issued'
+                ? 'completed'
+                : vs === 'in_progress'
+                  ? 'current'
+                  : 'upcoming',
+          detail: !isPaymentApproved
+            ? 'This step activates sequentially once Payment Approval is completed.'
+            : vs === 'not_started'
               ? 'Visa Status: Not Started — your visa file is queued and awaiting submission.'
               : inProgDate
                 ? `Visa Status: Started (In Progress) — processing began on ${inProgDate}.`
@@ -1052,11 +1102,22 @@ export default function CustomersPortalPage() {
         {
           id: 'visa_issued',
           title: 'Visa Issued',
-          subtitle: vs === 'issued' ? issDate || 'Approved & Issued' : 'Pending Issuance',
-          dateLabel: issDate || (vs === 'issued' ? 'Issued' : 'Pending'),
-          state: isCancelled ? 'cancelled' : vs === 'issued' ? 'completed' : 'upcoming',
-          detail:
-            vs === 'issued'
+          subtitle: !isPaymentApproved
+            ? 'Awaiting Payment Approval'
+            : vs === 'issued'
+              ? issDate || 'Approved & Issued'
+              : 'Pending Issuance',
+          dateLabel: !isPaymentApproved ? 'Pending' : issDate || (vs === 'issued' ? 'Issued' : 'Pending'),
+          state: isCancelled
+            ? 'cancelled'
+            : !isPaymentApproved
+              ? 'upcoming'
+              : vs === 'issued'
+                ? 'completed'
+                : 'upcoming',
+          detail: !isPaymentApproved
+            ? 'Visa issuance follows sequentially after Payment Approval and Visa Started.'
+            : vs === 'issued'
               ? issDate
                 ? `Your visa was issued on ${issDate}. Please review your travel documents before departure.`
                 : 'Your visa is marked as Issued.'
@@ -1065,8 +1126,102 @@ export default function CustomersPortalPage() {
       );
     }
 
-    const travelReady =
-      !isCancelled && isPaid && (!inv.isVisa || inv.visaProgress?.status === 'issued');
+    if (hasHotel) {
+      const hs: VisaProgressStatus = inv.visaProgress?.hotelStatus || 'not_started';
+      const hInProgDate = niceDate(inv.visaProgress?.hotelInProgressDate);
+      const hIssDate = niceDate(inv.visaProgress?.hotelIssuedDate);
+      const visaGatePassed = !inv.isVisa || inv.visaProgress?.status === 'in_progress' || inv.visaProgress?.status === 'issued';
+      const hotelUnlocked = isPaymentApproved && visaGatePassed;
+
+      steps.push({
+        id: 'hotel_booking',
+        title: 'Hotel Booking',
+        subtitle: !isPaymentApproved
+          ? 'Awaiting Payment Approval'
+          : hs === 'issued'
+            ? hIssDate
+              ? `Confirmed · ${hIssDate}`
+              : 'Reservation Confirmed'
+            : hs === 'in_progress'
+              ? hInProgDate
+                ? `In Progress · ${hInProgDate}`
+                : 'Reservation In Progress'
+              : hotelUnlocked
+                ? 'Smart AI Detected · Queued'
+                : 'Awaiting Prior Step',
+        dateLabel: !isPaymentApproved
+          ? 'Locked until payment'
+          : hs === 'issued'
+            ? hIssDate || 'Confirmed'
+            : hs === 'in_progress'
+              ? hInProgDate || 'In Progress'
+              : 'Queued',
+        state: isCancelled
+          ? 'cancelled'
+          : !isPaymentApproved
+            ? 'upcoming'
+            : hs === 'issued'
+              ? 'completed'
+              : hs === 'in_progress' || hotelUnlocked
+                ? 'current'
+                : 'upcoming',
+        detail: !isPaymentApproved
+          ? 'Smart AI detected a Hotel Booking in your itinerary. Hotel reservation processing unlocks after Payment Approval.'
+          : hs === 'issued'
+            ? `Hotel reservation is confirmed${hIssDate ? ` on ${hIssDate}` : ''}. Your check-in voucher is ready.`
+            : hs === 'in_progress'
+              ? `Hotel booking is actively in progress with the property${hInProgDate ? ` (started ${hInProgDate})` : ''}.`
+              : 'Smart AI detected hotel accommodation in your booking description. Room allocation and voucher confirmation are queued.',
+      });
+    }
+
+    if (hasTicket && !inv.isVisa) {
+      const ts: VisaProgressStatus = inv.visaProgress?.ticketStatus || 'not_started';
+      const tInProgDate = niceDate(inv.visaProgress?.ticketInProgressDate);
+      const tIssDate = niceDate(inv.visaProgress?.ticketIssuedDate);
+      steps.push({
+        id: 'ticket_booking',
+        title: 'Flight Tickets',
+        subtitle: !isPaymentApproved
+          ? 'Awaiting Payment Approval'
+          : ts === 'issued'
+            ? tIssDate
+              ? `Issued · ${tIssDate}`
+              : 'E-Ticket Issued'
+            : ts === 'in_progress'
+              ? tInProgDate
+                ? `In Progress · ${tInProgDate}`
+                : 'Ticketing In Progress'
+              : 'Reservation Queued',
+        dateLabel: !isPaymentApproved
+          ? 'Locked until payment'
+          : ts === 'issued'
+            ? tIssDate || 'Issued'
+            : ts === 'in_progress'
+              ? tInProgDate || 'In Progress'
+              : 'Queued',
+        state: isCancelled
+          ? 'cancelled'
+          : !isPaymentApproved
+            ? 'upcoming'
+            : ts === 'issued'
+              ? 'completed'
+              : ts === 'in_progress'
+                ? 'current'
+                : 'upcoming',
+        detail: !isPaymentApproved
+          ? 'Flight ticketing unlocks after Payment Approval.'
+          : ts === 'issued'
+            ? `Flight e-tickets have been issued${tIssDate ? ` on ${tIssDate}` : ''}.`
+            : ts === 'in_progress'
+              ? 'Airline PNR and ticket issuance are currently in progress.'
+              : 'Flight sector detected in your booking; ticket issuance is queued.',
+      });
+    }
+
+    const visaReady = !inv.isVisa || inv.visaProgress?.status === 'issued';
+    const hotelReady = !hasHotel || inv.visaProgress?.hotelStatus === 'issued' || (!inv.visaProgress?.hotelEnabled && isPaid);
+    const travelReady = !isCancelled && isPaid && visaReady && hotelReady;
 
     steps.push({
       id: 'travel_ready',
@@ -1077,10 +1232,8 @@ export default function CustomersPortalPage() {
       detail: isCancelled
         ? 'Booking is cancelled.'
         : travelReady
-          ? 'Payment is settled and all booking/visa requirements for this invoice are complete.'
-          : inv.isVisa
-            ? 'Travel readiness unlocks once payment is settled and your visa status reaches Issued.'
-            : 'Travel readiness unlocks once the booking payment balance is settled.',
+          ? 'Payment is approved and all visa, hotel, and travel requirements for this booking are complete.'
+          : 'Travel readiness unlocks sequentially once payment is settled and all active visa / hotel milestones are completed.',
     });
 
     return steps;
@@ -1709,7 +1862,15 @@ export default function CustomersPortalPage() {
 
                 <div
                   className={`mt-5 print:mt-2.5 grid grid-cols-1 sm:grid-cols-2 print:grid-cols-3 ${
-                    timelineSteps.length >= 6 ? 'lg:grid-cols-6' : 'lg:grid-cols-3'
+                    timelineSteps.length >= 7
+                      ? 'lg:grid-cols-7'
+                      : timelineSteps.length === 6
+                        ? 'lg:grid-cols-6'
+                        : timelineSteps.length === 5
+                          ? 'lg:grid-cols-5'
+                          : timelineSteps.length === 4
+                            ? 'lg:grid-cols-4'
+                            : 'lg:grid-cols-3'
                   } gap-3 print:gap-2`}
                 >
                   {timelineSteps.map((step, idx) => {
@@ -1835,29 +1996,109 @@ export default function CustomersPortalPage() {
                   )}
                 </AnimatePresence>
 
-                {/* Matched Destination Trip Journey Details (Shown on Screen & Print when destination matches) */}
-                {matchedDestinationIds.length > 0 && (
-                  <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/60 p-3.5 print:p-2.5 space-y-2">
-                    <p className="text-xs font-bold uppercase tracking-wider text-sky-800 flex items-center gap-1.5">
-                      <Compass className="w-3.5 h-3.5 text-sky-600" />
-                      <span>Trip Destination &amp; Journey Highlights</span>
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      {CURATED_DESTINATIONS.filter((d) => matchedDestinationIds.includes(d.id)).map((dest) => (
-                        <div key={dest.id} className="rounded-xl bg-white border border-sky-100 p-2.5 text-xs space-y-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-bold text-slate-900">
-                              {dest.name} ({dest.country})
+                {/* Matched Destination Trip Journey Details & Worldwide HD Photo Showcase (Shown right after Progress Display on Screen & in Print Plan) */}
+                {(() => {
+                  const matchedList = CURATED_DESTINATIONS.filter((d) => matchedDestinationIds.includes(d.id));
+                  const hasHotelInInv =
+                    Boolean(timelineInvoice.isHotel) ||
+                    Boolean(timelineInvoice.visaProgress?.hotelEnabled) ||
+                    /\b(hotel|resort|accommodation|stay|room|suite|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis)\b/i.test(
+                      [
+                        timelineInvoice.reference || '',
+                        ...timelineInvoice.sections.flatMap((s) => [
+                          s.title || '',
+                          ...s.lines.map((l) => l.description || ''),
+                        ]),
+                      ].join(' ')
+                    );
+                  const showcaseDestinations =
+                    matchedList.length > 0 ? matchedList : CURATED_DESTINATIONS.slice(0, 3);
+                  const galleryPhotos = showcaseDestinations
+                    .flatMap((dest) =>
+                      dest.photos.map((url, pIdx) => ({
+                        url,
+                        caption: dest.photoCaptions?.[pIdx] || `${dest.name}, ${dest.country}`,
+                        destName: dest.name,
+                        country: dest.country,
+                        region: dest.region,
+                      }))
+                    )
+                    .slice(0, 6);
+
+                  return (
+                    <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/60 p-3.5 print:p-2.5 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-bold uppercase tracking-wider text-sky-800 flex items-center gap-1.5">
+                          <Compass className="w-3.5 h-3.5 text-sky-600" />
+                          <span>
+                            {matchedList.length > 0
+                              ? 'Trip Destination, Hotel & Worldwide HD Visual Plan'
+                              : 'Worldwide Destination & Luxury Travel HD Visual Plan'}
+                          </span>
+                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {hasHotelInInv && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 px-2.5 py-0.5 text-[10px] font-bold">
+                              <Sparkles className="w-3 h-3 text-emerald-700" />
+                              Smart AI: Hotel Booking Included
                             </span>
-                            <span className="text-[11px] font-semibold text-sky-700">{dest.bestSeason}</span>
-                          </div>
-                          <p className="text-slate-600 text-[11px]">{dest.tagline}</p>
-                          <p className="text-[11px] font-medium text-emerald-800">{dest.visaCue} · {dest.packageCue}</p>
+                          )}
+                          <span className="rounded-full bg-white border border-sky-200 px-2.5 py-0.5 text-[10px] font-semibold text-sky-800">
+                            HD Destination Photography · Included in Print Plan
+                          </span>
                         </div>
-                      ))}
+                      </div>
+
+                      {matchedList.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {matchedList.map((dest) => (
+                            <div
+                              key={dest.id}
+                              className="rounded-xl bg-white border border-sky-100 p-2.5 text-xs space-y-1"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-bold text-slate-900">
+                                  {dest.name} ({dest.country})
+                                </span>
+                                <span className="text-[11px] font-semibold text-sky-700">
+                                  {dest.bestSeason}
+                                </span>
+                              </div>
+                              <p className="text-slate-600 text-[11px]">{dest.tagline}</p>
+                              <p className="text-[11px] font-medium text-emerald-800">
+                                {dest.visaCue} · {dest.packageCue}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* HD Destination & Hotel Pictures Grid (Rendered on Screen & Printed in Print Plan after Progress Display) */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 print:grid-cols-3 gap-2.5 print:gap-2">
+                        {galleryPhotos.map((ph, gIdx) => (
+                          <div
+                            key={`${ph.url}-${gIdx}`}
+                            className="group relative rounded-xl overflow-hidden border border-sky-200/80 bg-slate-900 shadow-2xs"
+                          >
+                            <img
+                              src={ph.url}
+                              alt={`${ph.destName} — ${ph.caption}`}
+                              className="w-full h-28 sm:h-32 print:h-24 object-cover object-center"
+                            />
+                            <div className="bg-white/95 px-2.5 py-1.5 border-t border-slate-100">
+                              <p className="text-[11px] print:text-[10px] font-bold text-slate-900 truncate">
+                                {ph.destName} · {ph.country}
+                              </p>
+                              <p className="text-[10px] print:text-[9px] text-slate-600 truncate">
+                                {ph.caption}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             )}
 

@@ -69,10 +69,26 @@ const parseJsonObj = (v, fallback = {}) => {
 };
 const VISA_STATUSES = ['not_started', 'in_progress', 'issued'];
 const VISA_WORD_RE = /\bvisa\b/i;
+const HOTEL_WORD_RE = /\b(hotel|resort|accommodation|stay|room|suite|makkah\s+hotel|madinah\s+hotel|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis)\b/i;
+const TICKET_WORD_RE = /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way)\b/i;
 function hasVisaKeyword(sections) {
   return asArray(sections).some((sec) => {
     if (VISA_WORD_RE.test(String(sec?.title || ''))) return true;
     return asArray(sec?.lines).some((ln) => VISA_WORD_RE.test(String(ln?.description || '')));
+  });
+}
+function hasHotelKeyword(sections, reference = '', notes = '') {
+  if (HOTEL_WORD_RE.test(String(reference || '')) || HOTEL_WORD_RE.test(String(notes || ''))) return true;
+  return asArray(sections).some((sec) => {
+    if (HOTEL_WORD_RE.test(String(sec?.title || ''))) return true;
+    return asArray(sec?.lines).some((ln) => HOTEL_WORD_RE.test(String(ln?.description || '')));
+  });
+}
+function hasTicketKeyword(sections, reference = '') {
+  if (TICKET_WORD_RE.test(String(reference || ''))) return true;
+  return asArray(sections).some((sec) => {
+    if (TICKET_WORD_RE.test(String(sec?.title || ''))) return true;
+    return asArray(sec?.lines).some((ln) => TICKET_WORD_RE.test(String(ln?.description || '')));
   });
 }
 const strictDateOnly = (v, name) => {
@@ -104,8 +120,8 @@ async function isCustomerPortalBetaEnabled() {
   return data.customerPortalBetaEnabled !== false;
 }
 function normalizeVisaProgress(raw, existing = null) {
-  const enabled = raw?.enabled !== false;
-  const status = String(raw?.status || 'not_started');
+  const enabled = raw?.enabled !== undefined ? raw.enabled !== false : (existing?.enabled !== undefined ? existing.enabled !== false : true);
+  const status = String(raw?.status !== undefined ? raw.status : (existing?.status || 'not_started'));
   if (!VISA_STATUSES.includes(status)) throw bad('Choose Not Started, In Progress, or Issued.');
   const exInProg = safeDateOnly(existing?.inProgressDate);
   const exIssued = safeDateOnly(existing?.issuedDate);
@@ -115,23 +131,70 @@ function normalizeVisaProgress(raw, existing = null) {
   const issuedDate = raw?.issuedDate !== undefined
     ? strictDateOnly(raw.issuedDate, 'Issued date')
     : (status === 'issued' ? (exIssued || todayPktDate()) : null);
+
+  const hotelEnabled = raw?.hotelEnabled !== undefined ? Boolean(raw.hotelEnabled) : Boolean(existing?.hotelEnabled);
+  const hotelStatus = String(raw?.hotelStatus !== undefined ? raw.hotelStatus : (existing?.hotelStatus || 'not_started'));
+  if (!VISA_STATUSES.includes(hotelStatus)) throw bad('Choose Not Started, In Progress, or Confirmed for Hotel Booking.');
+  const exHotelInProg = safeDateOnly(existing?.hotelInProgressDate);
+  const exHotelIssued = safeDateOnly(existing?.hotelIssuedDate);
+  const hotelInProgressDate = raw?.hotelInProgressDate !== undefined
+    ? strictDateOnly(raw.hotelInProgressDate, 'Hotel In Progress date')
+    : (hotelStatus === 'in_progress' ? (exHotelInProg || todayPktDate()) : hotelStatus === 'issued' ? exHotelInProg : null);
+  const hotelIssuedDate = raw?.hotelIssuedDate !== undefined
+    ? strictDateOnly(raw.hotelIssuedDate, 'Hotel Confirmed date')
+    : (hotelStatus === 'issued' ? (exHotelIssued || todayPktDate()) : null);
+
+  const ticketEnabled = raw?.ticketEnabled !== undefined ? Boolean(raw.ticketEnabled) : Boolean(existing?.ticketEnabled);
+  const ticketStatus = String(raw?.ticketStatus !== undefined ? raw.ticketStatus : (existing?.ticketStatus || 'not_started'));
+  if (!VISA_STATUSES.includes(ticketStatus)) throw bad('Choose Not Started, In Progress, or Issued for Air Tickets.');
+  const exTicketInProg = safeDateOnly(existing?.ticketInProgressDate);
+  const exTicketIssued = safeDateOnly(existing?.ticketIssuedDate);
+  const ticketInProgressDate = raw?.ticketInProgressDate !== undefined
+    ? strictDateOnly(raw.ticketInProgressDate, 'Ticket In Progress date')
+    : (ticketStatus === 'in_progress' ? (exTicketInProg || todayPktDate()) : ticketStatus === 'issued' ? exTicketInProg : null);
+  const ticketIssuedDate = raw?.ticketIssuedDate !== undefined
+    ? strictDateOnly(raw.ticketIssuedDate, 'Ticket Issued date')
+    : (ticketStatus === 'issued' ? (exTicketIssued || todayPktDate()) : null);
+
   return {
     enabled,
     status,
     inProgressDate,
     issuedDate,
+    hotelEnabled,
+    hotelStatus,
+    hotelInProgressDate,
+    hotelIssuedDate,
+    ticketEnabled,
+    ticketStatus,
+    ticketInProgressDate,
+    ticketIssuedDate,
     updatedAt: nowIso(),
   };
 }
 function formatVisaProgress(raw, rowUpdatedAt = null) {
   const vp = parseJsonObj(raw, null);
-  if (!vp || vp.enabled !== true) return null;
+  if (!vp) return null;
+  const enabled = vp.enabled === true;
+  const hotelEnabled = vp.hotelEnabled === true;
+  const ticketEnabled = vp.ticketEnabled === true;
+  if (!enabled && !hotelEnabled && !ticketEnabled) return null;
   const status = VISA_STATUSES.includes(vp.status) ? vp.status : 'not_started';
+  const hotelStatus = VISA_STATUSES.includes(vp.hotelStatus) ? vp.hotelStatus : 'not_started';
+  const ticketStatus = VISA_STATUSES.includes(vp.ticketStatus) ? vp.ticketStatus : 'not_started';
   return {
-    enabled: true,
+    enabled,
     status,
     inProgressDate: safeDateOnly(vp.inProgressDate),
     issuedDate: safeDateOnly(vp.issuedDate),
+    hotelEnabled,
+    hotelStatus,
+    hotelInProgressDate: safeDateOnly(vp.hotelInProgressDate),
+    hotelIssuedDate: safeDateOnly(vp.hotelIssuedDate),
+    ticketEnabled,
+    ticketStatus,
+    ticketInProgressDate: safeDateOnly(vp.ticketInProgressDate),
+    ticketIssuedDate: safeDateOnly(vp.ticketIssuedDate),
     updatedAt: vp.updatedAt || rowUpdatedAt || null,
   };
 }
@@ -944,27 +1007,78 @@ export default async function handler(req, res) {
       let visaOp = null; // null | 'delete' | 'upsert'
       let visaObj = null;
       if (betaEnabled && !vendorBill) {
+        const autoVisa = hasVisaKeyword(sections);
+        const autoHotel = hasHotelKeyword(sections, base.reference, base.notes);
+        const autoTicket = hasTicketKeyword(sections, base.reference);
         if (x.visaProgress === undefined) {
           const existingVisaRow = existing ? await getOne('crm_company', `visa-${existing.id}`) : null;
           const existingVp = existingVisaRow
             ? formatVisaProgress(existingVisaRow.data, existingVisaRow.updated_at || null)
             : null;
           if (existingVp) {
-            visaObj = existingVp;
-          } else if (hasVisaKeyword(sections)) {
             visaObj = normalizeVisaProgress(
-              { enabled: true, status: 'not_started', inProgressDate: null, issuedDate: null },
+              {
+                ...existingVp,
+                enabled: existingVp.enabled || autoVisa,
+                hotelEnabled: existingVp.hotelEnabled || autoHotel,
+                ticketEnabled: existingVp.ticketEnabled || autoTicket,
+              },
+              existingVp
+            );
+            visaOp = 'upsert';
+          } else if (autoVisa || autoHotel || autoTicket) {
+            visaObj = normalizeVisaProgress(
+              {
+                enabled: autoVisa,
+                status: 'not_started',
+                inProgressDate: null,
+                issuedDate: null,
+                hotelEnabled: autoHotel,
+                hotelStatus: 'not_started',
+                hotelInProgressDate: null,
+                hotelIssuedDate: null,
+                ticketEnabled: autoTicket,
+                ticketStatus: 'not_started',
+                ticketInProgressDate: null,
+                ticketIssuedDate: null,
+              },
               null
             );
             visaOp = 'upsert';
           }
-        } else if (x.visaProgress === null || x.visaProgress === false || x.visaProgress?.enabled === false) {
+        } else if (
+          x.visaProgress === null ||
+          x.visaProgress === false ||
+          (x.visaProgress?.enabled === false &&
+            x.visaProgress?.hotelEnabled !== true &&
+            x.visaProgress?.ticketEnabled !== true)
+        ) {
           visaOp = existing ? 'delete' : null;
           visaObj = null;
         } else {
           const existingVisaRow = existing ? await getOne('crm_company', `visa-${existing.id}`) : null;
           const existingVp = existingVisaRow ? parseJsonObj(existingVisaRow.data, null) : null;
-          visaObj = normalizeVisaProgress({ ...x.visaProgress, enabled: true }, existingVp);
+          const nextEnabled =
+            x.visaProgress.enabled !== undefined
+              ? x.visaProgress.enabled !== false
+              : (existingVp?.enabled === true || autoVisa);
+          const nextHotelEnabled =
+            x.visaProgress.hotelEnabled !== undefined
+              ? Boolean(x.visaProgress.hotelEnabled)
+              : (existingVp?.hotelEnabled === true || autoHotel);
+          const nextTicketEnabled =
+            x.visaProgress.ticketEnabled !== undefined
+              ? Boolean(x.visaProgress.ticketEnabled)
+              : (existingVp?.ticketEnabled === true || autoTicket);
+          visaObj = normalizeVisaProgress(
+            {
+              ...x.visaProgress,
+              enabled: nextEnabled,
+              hotelEnabled: nextHotelEnabled,
+              ticketEnabled: nextTicketEnabled,
+            },
+            existingVp
+          );
           visaOp = 'upsert';
         }
       }
@@ -1006,15 +1120,40 @@ export default async function handler(req, res) {
             status: body.status,
             inProgressDate: body.inProgressDate,
             issuedDate: body.issuedDate,
+            hotelEnabled: body.hotelEnabled,
+            hotelStatus: body.hotelStatus,
+            hotelInProgressDate: body.hotelInProgressDate,
+            hotelIssuedDate: body.hotelIssuedDate,
+            ticketEnabled: body.ticketEnabled,
+            ticketStatus: body.ticketStatus,
+            ticketInProgressDate: body.ticketInProgressDate,
+            ticketIssuedDate: body.ticketIssuedDate,
           };
       const visaRowId = `visa-${existing.id}`;
-      if (vpInput.enabled === false) {
+      const existingVisaRow = await getOne('crm_company', visaRowId);
+      const existingVp = existingVisaRow ? parseJsonObj(existingVisaRow.data, null) : null;
+      if (
+        vpInput.enabled === false &&
+        vpInput.hotelEnabled !== true &&
+        vpInput.ticketEnabled !== true &&
+        !existingVp?.hotelEnabled &&
+        !existingVp?.ticketEnabled
+      ) {
         await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(visaRowId)}`, { method: 'DELETE' });
         return res.status(200).json({ ok: true, visaProgress: null, invoice: mapInvoice(existing, null) });
       }
-      const existingVisaRow = await getOne('crm_company', visaRowId);
-      const existingVp = existingVisaRow ? parseJsonObj(existingVisaRow.data, null) : null;
-      const vpObj = normalizeVisaProgress({ ...vpInput, enabled: true }, existingVp);
+      const autoVisa = hasVisaKeyword(existing.sections);
+      const autoHotel = hasHotelKeyword(existing.sections, existing.reference, existing.notes);
+      const autoTicket = hasTicketKeyword(existing.sections, existing.reference);
+      const vpObj = normalizeVisaProgress(
+        {
+          ...vpInput,
+          enabled: vpInput.enabled !== undefined ? vpInput.enabled !== false : (existingVp?.enabled === true || autoVisa || vpInput.status !== undefined),
+          hotelEnabled: vpInput.hotelEnabled !== undefined ? Boolean(vpInput.hotelEnabled) : (existingVp?.hotelEnabled === true || autoHotel || vpInput.hotelStatus !== undefined),
+          ticketEnabled: vpInput.ticketEnabled !== undefined ? Boolean(vpInput.ticketEnabled) : (existingVp?.ticketEnabled === true || autoTicket || vpInput.ticketStatus !== undefined),
+        },
+        existingVp
+      );
       await upsert('crm_company', { id: visaRowId, data: vpObj, updated_at: vpObj.updatedAt });
       return res.status(200).json({ ok: true, visaProgress: vpObj, invoice: mapInvoice(existing, vpObj) });
     }
@@ -1117,6 +1256,20 @@ export default async function handler(req, res) {
       if (!existing) throw notFound('Receipt not found.');
       if (!(isAdmin || me.role === 'accounts' || me.role === 'ceo' || existing.created_by === me.id)) throw forbidden();
       return res.status(200).json({ ok: true, image: existing.proof_image || null });
+    }
+
+    if (action === 'receipt_payment_type') {
+      if (!isAdmin && me.role !== 'accounts') throw forbidden('Only Accounts, Admin, or CEO can change the receipt payment status.');
+      const existing = await getOne('crm_receipts', body.id);
+      if (!existing) throw notFound('Receipt not found.');
+      const paymentType = body.paymentType === 'partial' ? 'partial' : 'full';
+      const at = nowIso();
+      const row = { ...existing, payment_type: paymentType, updated_at: at };
+      await upsert('crm_receipts', row);
+      if (existing.created_by !== me.id) {
+        await notify([existing.created_by], 'receipt', row.id, `Your receipt ${existing.receipt_no} was marked as ${paymentType === 'full' ? 'FULL PAYMENT' : 'PARTIAL PAYMENT'}.`, me.id);
+      }
+      return res.status(200).json({ ok: true, receipt: mapReceipt(row) });
     }
 
     if (action === 'receipt_delete') {

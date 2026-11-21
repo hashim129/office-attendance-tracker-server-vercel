@@ -229,10 +229,29 @@ function validDateOnly(d) {
   return s;
 }
 
+const HOTEL_WORD_RE = /\b(hotel|resort|accommodation|stay|room|suite|makkah\s+hotel|madinah\s+hotel|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis)\b/i;
+const TICKET_WORD_RE = /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way)\b/i;
+
 function hasVisaKeyword(sections) {
   return parseJsonArr(sections).some((sec) => {
     if (/\bvisa\b/i.test(String(sec?.title || ''))) return true;
     return parseJsonArr(sec?.lines).some((ln) => /\bvisa\b/i.test(String(ln?.description || '')));
+  });
+}
+
+function hasHotelKeyword(sections, reference = '') {
+  if (HOTEL_WORD_RE.test(String(reference || ''))) return true;
+  return parseJsonArr(sections).some((sec) => {
+    if (HOTEL_WORD_RE.test(String(sec?.title || ''))) return true;
+    return parseJsonArr(sec?.lines).some((ln) => HOTEL_WORD_RE.test(String(ln?.description || '')));
+  });
+}
+
+function hasTicketKeyword(sections, reference = '') {
+  if (TICKET_WORD_RE.test(String(reference || ''))) return true;
+  return parseJsonArr(sections).some((sec) => {
+    if (TICKET_WORD_RE.test(String(sec?.title || ''))) return true;
+    return parseJsonArr(sec?.lines).some((ln) => TICKET_WORD_RE.test(String(ln?.description || '')));
   });
 }
 
@@ -609,23 +628,41 @@ export default async function handler(req, res) {
       const visaEntry = visaMap.get(r.id);
       const vp = visaEntry?.data || null;
       const isVisa = Boolean(vp?.enabled) || hasVisaKeyword(r.sections);
+      const isHotel = Boolean(vp?.hotelEnabled) || hasHotelKeyword(r.sections, r.reference);
+      const isTicket = Boolean(vp?.ticketEnabled) || hasTicketKeyword(r.sections, r.reference);
       let visaProgress = null;
 
-      if (isVisa) {
+      if (isVisa || isHotel || isTicket) {
         const status = ['not_started', 'in_progress', 'issued'].includes(vp?.status)
           ? vp.status
           : 'not_started';
+        const hotelStatus = ['not_started', 'in_progress', 'issued'].includes(vp?.hotelStatus)
+          ? vp.hotelStatus
+          : 'not_started';
+        const ticketStatus = ['not_started', 'in_progress', 'issued'].includes(vp?.ticketStatus)
+          ? vp.ticketStatus
+          : 'not_started';
         visaProgress = {
-          enabled: true,
+          enabled: isVisa,
           status,
           inProgressDate: validDateOnly(vp?.inProgressDate),
           issuedDate: validDateOnly(vp?.issuedDate),
+          hotelEnabled: isHotel,
+          hotelStatus,
+          hotelInProgressDate: validDateOnly(vp?.hotelInProgressDate),
+          hotelIssuedDate: validDateOnly(vp?.hotelIssuedDate),
+          ticketEnabled: isTicket,
+          ticketStatus,
+          ticketInProgressDate: validDateOnly(vp?.ticketInProgressDate),
+          ticketIssuedDate: validDateOnly(vp?.ticketIssuedDate),
           updatedAt: vp?.updatedAt || visaEntry?.updatedAt || null,
         };
-        visaStats.total += 1;
-        if (status === 'issued') visaStats.issued += 1;
-        else if (status === 'in_progress') visaStats.inProgress += 1;
-        else visaStats.notStarted += 1;
+        if (isVisa) {
+          visaStats.total += 1;
+          if (status === 'issued') visaStats.issued += 1;
+          else if (status === 'in_progress') visaStats.inProgress += 1;
+          else visaStats.notStarted += 1;
+        }
       }
 
       return {
@@ -649,6 +686,8 @@ export default async function handler(req, res) {
         balance: num(r.balance),
         status: r.status || 'unpaid',
         isVisa,
+        isHotel,
+        isTicket,
         visaProgress,
         createdAt: r.created_at,
         updatedAt: r.updated_at,

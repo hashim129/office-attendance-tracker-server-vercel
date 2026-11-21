@@ -35,20 +35,53 @@ interface FormState {
   visaStatus: VisaProgressStatus;
   visaInProgressDate: string;
   visaIssuedDate: string;
+  hotelEnabled: boolean;
+  hotelStatus: VisaProgressStatus;
+  hotelInProgressDate: string;
+  hotelIssuedDate: string;
+  ticketEnabled: boolean;
+  ticketStatus: VisaProgressStatus;
+  ticketInProgressDate: string;
+  ticketIssuedDate: string;
 }
 
 const today = () => new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd in the person's own time zone
 const VISA_WORD_RE = /\bvisa\b/i;
+const HOTEL_WORD_RE = /\b(hotel|resort|accommodation|stay|room|suite|makkah\s+hotel|madinah\s+hotel|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis)\b/i;
+const TICKET_WORD_RE = /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way)\b/i;
 const VISA_STATUS_LABEL: Record<VisaProgressStatus, string> = {
   not_started: 'Not Started',
   in_progress: 'In Progress',
   issued: 'Issued',
 };
+const HOTEL_STATUS_LABEL: Record<VisaProgressStatus, string> = {
+  not_started: 'Not Started',
+  in_progress: 'In Progress',
+  issued: 'Confirmed',
+};
 const visaTone = (s: VisaProgressStatus): 'slate' | 'amber' | 'green' => (s === 'issued' ? 'green' : s === 'in_progress' ? 'amber' : 'slate');
 const hasVisaKeyword = (sections?: Array<{ title?: string; lines?: Array<{ description?: string }> }>): boolean =>
   (sections || []).some((sec) => VISA_WORD_RE.test(String(sec?.title || '')) || (sec?.lines || []).some((ln) => VISA_WORD_RE.test(String(ln?.description || ''))));
+const hasHotelKeyword = (
+  sections?: Array<{ title?: string; lines?: Array<{ description?: string }> }>,
+  reference = '',
+  notes = ''
+): boolean =>
+  HOTEL_WORD_RE.test(String(reference || '')) ||
+  HOTEL_WORD_RE.test(String(notes || '')) ||
+  (sections || []).some((sec) => HOTEL_WORD_RE.test(String(sec?.title || '')) || (sec?.lines || []).some((ln) => HOTEL_WORD_RE.test(String(ln?.description || ''))));
+const hasTicketKeyword = (
+  sections?: Array<{ title?: string; lines?: Array<{ description?: string }> }>,
+  reference = ''
+): boolean =>
+  TICKET_WORD_RE.test(String(reference || '')) ||
+  (sections || []).some((sec) => TICKET_WORD_RE.test(String(sec?.title || '')) || (sec?.lines || []).some((ln) => TICKET_WORD_RE.test(String(ln?.description || ''))));
 const isVisaInvoice = (inv: CrmInvoice): boolean =>
   (inv.kind || 'customer') !== 'vendor' && (Boolean(inv.visaProgress?.enabled) || hasVisaKeyword(inv.sections));
+const isHotelInvoice = (inv: CrmInvoice): boolean =>
+  (inv.kind || 'customer') !== 'vendor' && (Boolean(inv.visaProgress?.hotelEnabled) || hasHotelKeyword(inv.sections, inv.reference, inv.notes));
+const isTicketInvoice = (inv: CrmInvoice): boolean =>
+  (inv.kind || 'customer') !== 'vendor' && (Boolean(inv.visaProgress?.ticketEnabled) || hasTicketKeyword(inv.sections, inv.reference));
 /** An invoice has vendor lines to pay (office record). */
 const hasVendorLines = (i: CrmInvoice) => (i.kind || 'customer') === 'customer' && (i.vendors || []).some((v) => v.name || (v.amount ?? 0) > 0);
 /** Paid on every side: the customer side, and the vendor side too when the invoice has vendors. */
@@ -62,6 +95,8 @@ const blankForm = (kind: 'customer' | 'vendor' = 'customer', companyNtn = ''): F
   kind, crmId: '', customerName: '', customerPhone: '', reference: '', ntn: companyNtn, showNtn: true, vendors: kind === 'customer' ? [blankVendor('PKR')] : [], invoiceDate: today(), dueDate: '', currency: 'PKR',
   sections: [{ title: '', key: uid(), locked: false, lines: [blankLine('PKR')] }], taxLabel: 'Tax', taxRate: kind === 'vendor' ? '' : '6', discount: '', advancePaid: '', notes: '',
   visaEnabled: false, visaStatus: 'not_started', visaInProgressDate: '', visaIssuedDate: '',
+  hotelEnabled: false, hotelStatus: 'not_started', hotelInProgressDate: '', hotelIssuedDate: '',
+  ticketEnabled: false, ticketStatus: 'not_started', ticketInProgressDate: '', ticketIssuedDate: '',
 });
 const PRESETS = ['Package', 'Visa Charges', 'Air Tickets', 'Hotel', 'Transfers', 'Insurance', 'Service Charges'];
 const num = (v: string) => (v.trim() === '' ? NaN : Number(v));
@@ -115,6 +150,14 @@ function toForm(inv: CrmInvoice, companyNtn = ''): FormState {
     visaStatus: inv.visaProgress?.status || 'not_started',
     visaInProgressDate: inv.visaProgress?.inProgressDate || '',
     visaIssuedDate: inv.visaProgress?.issuedDate || '',
+    hotelEnabled: Boolean(inv.visaProgress?.hotelEnabled) || hasHotelKeyword(inv.sections, inv.reference, inv.notes),
+    hotelStatus: inv.visaProgress?.hotelStatus || 'not_started',
+    hotelInProgressDate: inv.visaProgress?.hotelInProgressDate || '',
+    hotelIssuedDate: inv.visaProgress?.hotelIssuedDate || '',
+    ticketEnabled: Boolean(inv.visaProgress?.ticketEnabled) || hasTicketKeyword(inv.sections, inv.reference),
+    ticketStatus: inv.visaProgress?.ticketStatus || 'not_started',
+    ticketInProgressDate: inv.visaProgress?.ticketInProgressDate || '',
+    ticketIssuedDate: inv.visaProgress?.ticketIssuedDate || '',
   };
 }
 
@@ -220,7 +263,19 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
   const [filter, setFilter] = useState<'all' | 'unpaid' | 'paid' | 'cancelled'>('all');
   const [query, setQuery] = useState('');
   const [canShare, setCanShare] = useState(false);
-  const [visaDrafts, setVisaDrafts] = useState<Record<string, { inProgressDate: string; issuedDate: string }>>({});
+  const [visaDrafts, setVisaDrafts] = useState<
+    Record<
+      string,
+      {
+        inProgressDate: string;
+        issuedDate: string;
+        hotelInProgressDate: string;
+        hotelIssuedDate: string;
+        ticketInProgressDate: string;
+        ticketIssuedDate: string;
+      }
+    >
+  >({});
   const [visaBusyId, setVisaBusyId] = useState<string | null>(null);
 
   useEffect(() => { void crm.refresh(); // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -317,11 +372,38 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
       visaIssuedDate: status === 'issued' ? (form.visaIssuedDate || today()) : '',
     });
   };
+  const setFormHotelStatus = (status: VisaProgressStatus) => {
+    if (!form) return;
+    patch({
+      hotelStatus: status,
+      hotelInProgressDate: status === 'not_started' ? '' : (status === 'in_progress' && !form.hotelInProgressDate ? today() : form.hotelInProgressDate),
+      hotelIssuedDate: status === 'issued' ? (form.hotelIssuedDate || today()) : '',
+    });
+  };
+  const setFormTicketStatus = (status: VisaProgressStatus) => {
+    if (!form) return;
+    patch({
+      ticketStatus: status,
+      ticketInProgressDate: status === 'not_started' ? '' : (status === 'in_progress' && !form.ticketInProgressDate ? today() : form.ticketInProgressDate),
+      ticketIssuedDate: status === 'issued' ? (form.ticketIssuedDate || today()) : '',
+    });
+  };
   const saveCardVisa = async (
     inv: CrmInvoice,
     nextStatus: VisaProgressStatus,
     inProgressDate: string | null,
-    issuedDate: string | null
+    issuedDate: string | null,
+    extra?: {
+      enabled?: boolean;
+      hotelEnabled?: boolean;
+      hotelStatus?: VisaProgressStatus;
+      hotelInProgressDate?: string | null;
+      hotelIssuedDate?: string | null;
+      ticketEnabled?: boolean;
+      ticketStatus?: VisaProgressStatus;
+      ticketInProgressDate?: string | null;
+      ticketIssuedDate?: string | null;
+    }
   ) => {
     if (!customerPortalBetaEnabled || visaBusyId === inv.id) return;
     setVisaBusyId(inv.id);
@@ -329,10 +411,18 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
     try {
       await updateInvoiceVisaProgress({
         id: inv.id,
-        enabled: true,
+        enabled: extra?.enabled !== undefined ? extra.enabled : isVisaInvoice(inv),
         status: nextStatus,
         inProgressDate,
         issuedDate,
+        ...(extra?.hotelEnabled !== undefined ? { hotelEnabled: extra.hotelEnabled } : {}),
+        ...(extra?.hotelStatus !== undefined ? { hotelStatus: extra.hotelStatus } : {}),
+        ...(extra?.hotelInProgressDate !== undefined ? { hotelInProgressDate: extra.hotelInProgressDate } : {}),
+        ...(extra?.hotelIssuedDate !== undefined ? { hotelIssuedDate: extra.hotelIssuedDate } : {}),
+        ...(extra?.ticketEnabled !== undefined ? { ticketEnabled: extra.ticketEnabled } : {}),
+        ...(extra?.ticketStatus !== undefined ? { ticketStatus: extra.ticketStatus } : {}),
+        ...(extra?.ticketInProgressDate !== undefined ? { ticketInProgressDate: extra.ticketInProgressDate } : {}),
+        ...(extra?.ticketIssuedDate !== undefined ? { ticketIssuedDate: extra.ticketIssuedDate } : {}),
       });
       setVisaDrafts((prev) => {
         const next = { ...prev };
@@ -341,7 +431,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
       });
       await crm.refresh();
     } catch (err: any) {
-      setError(err?.message || 'Could not update Visa progress.');
+      setError(err?.message || 'Could not update progress status.');
     } finally {
       setVisaBusyId(null);
     }
@@ -371,8 +461,25 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
   };
 
   const buildPayload = (lockIdx: number | null) => {
-    const { visaEnabled, visaStatus, visaInProgressDate, visaIssuedDate, ...rest } = form!;
+    const {
+      visaEnabled,
+      visaStatus,
+      visaInProgressDate,
+      visaIssuedDate,
+      hotelEnabled,
+      hotelStatus,
+      hotelInProgressDate,
+      hotelIssuedDate,
+      ticketEnabled,
+      ticketStatus,
+      ticketInProgressDate,
+      ticketIssuedDate,
+      ...rest
+    } = form!;
     const visaActive = hasVisaKeyword(form!.sections) || visaEnabled;
+    const hotelActive = hasHotelKeyword(form!.sections, form!.reference, form!.notes) || hotelEnabled;
+    const ticketActive = hasTicketKeyword(form!.sections, form!.reference) || ticketEnabled;
+    const anyTrackerActive = visaActive || hotelActive || ticketActive;
     return {
       ...rest,
       vendors: (form!.vendors || []).filter((v) => v.name.trim() || v.description.trim() || v.unitPrice.trim() || v.units.trim() || v.amount.trim() || v.bank.trim()),
@@ -387,18 +494,34 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
       }),
       ...(customerPortalBetaEnabled && form!.kind === 'customer'
         ? {
-            visaProgress: visaActive
+            visaProgress: anyTrackerActive
               ? {
-                  enabled: true,
-                  status: visaStatus,
-                  inProgressDate: visaInProgressDate.trim() || null,
-                  issuedDate: visaIssuedDate.trim() || null,
+                  enabled: visaActive,
+                  status: visaActive ? visaStatus : ('not_started' as const),
+                  inProgressDate: visaActive ? (visaInProgressDate.trim() || null) : null,
+                  issuedDate: visaActive ? (visaIssuedDate.trim() || null) : null,
+                  hotelEnabled: hotelActive,
+                  hotelStatus: hotelActive ? hotelStatus : ('not_started' as const),
+                  hotelInProgressDate: hotelActive ? (hotelInProgressDate.trim() || null) : null,
+                  hotelIssuedDate: hotelActive ? (hotelIssuedDate.trim() || null) : null,
+                  ticketEnabled: ticketActive,
+                  ticketStatus: ticketActive ? ticketStatus : ('not_started' as const),
+                  ticketInProgressDate: ticketActive ? (ticketInProgressDate.trim() || null) : null,
+                  ticketIssuedDate: ticketActive ? (ticketIssuedDate.trim() || null) : null,
                 }
               : {
                   enabled: false,
                   status: 'not_started' as const,
                   inProgressDate: null,
                   issuedDate: null,
+                  hotelEnabled: false,
+                  hotelStatus: 'not_started' as const,
+                  hotelInProgressDate: null,
+                  hotelIssuedDate: null,
+                  ticketEnabled: false,
+                  ticketStatus: 'not_started' as const,
+                  ticketInProgressDate: null,
+                  ticketIssuedDate: null,
                 },
           }
         : {}),
@@ -576,12 +699,35 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
               }
             });
             const showVisa = customerPortalBetaEnabled && !vendorSide && isVisaInvoice(i);
+            const showHotel = customerPortalBetaEnabled && !vendorSide && isHotelInvoice(i);
+            const showTicket = customerPortalBetaEnabled && !vendorSide && isTicketInvoice(i);
+            const showAnyTracker = showVisa || showHotel || showTicket;
             const vp = i.visaProgress;
             const vStatus: VisaProgressStatus = vp?.status || 'not_started';
+            const hStatus: VisaProgressStatus = vp?.hotelStatus || 'not_started';
+            const tStatus: VisaProgressStatus = vp?.ticketStatus || 'not_started';
             const savedInProg = vp?.inProgressDate || '';
             const savedIssued = vp?.issuedDate || '';
-            const vDraft = visaDrafts[i.id] ?? { inProgressDate: savedInProg, issuedDate: savedIssued };
-            const vDirty = vDraft.inProgressDate !== savedInProg || vDraft.issuedDate !== savedIssued;
+            const savedHotelInProg = vp?.hotelInProgressDate || '';
+            const savedHotelIssued = vp?.hotelIssuedDate || '';
+            const savedTicketInProg = vp?.ticketInProgressDate || '';
+            const savedTicketIssued = vp?.ticketIssuedDate || '';
+            const vDraft = visaDrafts[i.id] ?? {
+              inProgressDate: savedInProg,
+              issuedDate: savedIssued,
+              hotelInProgressDate: savedHotelInProg,
+              hotelIssuedDate: savedHotelIssued,
+              ticketInProgressDate: savedTicketInProg,
+              ticketIssuedDate: savedTicketIssued,
+            };
+            const vDirty =
+              vDraft.inProgressDate !== savedInProg ||
+              vDraft.issuedDate !== savedIssued ||
+              vDraft.hotelInProgressDate !== savedHotelInProg ||
+              vDraft.hotelIssuedDate !== savedHotelIssued ||
+              vDraft.ticketInProgressDate !== savedTicketInProg ||
+              vDraft.ticketIssuedDate !== savedTicketIssued;
+            const isPaymentApproved = i.status === 'paid' || i.advancePaid > 0 || i.balance <= 0;
 
             return (
               <div key={i.id} className={`${cardCls} p-4 ${fullyPaid(i) ? '!bg-emerald-100/80 !border-emerald-300 dark:!bg-emerald-950/40 dark:!border-emerald-800/70' : ''}`}>
@@ -602,6 +748,8 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                           <span className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{i.customerName}</span>
                           <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? 'Paid' : i.status === 'cancelled' ? 'Cancelled' : 'Unpaid'}</Pill>
                           {showVisa && <Pill tone={visaTone(vStatus)}>Visa: {VISA_STATUS_LABEL[vStatus]}</Pill>}
+                          {showHotel && <Pill tone={visaTone(hStatus)}>Hotel: {HOTEL_STATUS_LABEL[hStatus]}</Pill>}
+                          {showTicket && <Pill tone={visaTone(tStatus)}>Ticket: {VISA_STATUS_LABEL[tStatus]}</Pill>}
                           {i.reference && <Pill tone="slate">Ref {i.reference}</Pill>}
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -614,81 +762,366 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                       </div>
                     </div>
 
-                    {showVisa && (
-                      <div className="rounded-lg border border-indigo-200/80 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/25 p-2.5 space-y-2">
+                    {showAnyTracker && (
+                      <div className="rounded-lg border border-indigo-200/80 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/25 p-2.5 space-y-2.5">
+                        {/* Sequential Step Progress Strip */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-indigo-200/60 dark:border-indigo-900/50">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-200">
+                            Customer Portal Process Steps
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              isPaymentApproved
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                                : 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                            }`}
+                          >
+                            {isPaymentApproved
+                              ? '✓ Payment Approved — Active Steps Unlocked'
+                              : '⏳ Awaiting Payment Approval (Sequential Gate)'}
+                          </span>
+                        </div>
+
                         {canUpdateVisa(i) ? (
                           <>
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">Visa Progress</span>
-                              <select
-                                aria-label={`Visa status for ${i.invoiceNo}`}
-                                className={`${inputCls} !w-auto !py-1 !text-xs`}
-                                value={vStatus}
-                                disabled={visaBusyId === i.id}
-                                onChange={(e) => {
-                                  const nextStatus = e.target.value as VisaProgressStatus;
-                                  const nextInProgress = nextStatus === 'not_started'
-                                    ? null
-                                    : nextStatus === 'in_progress'
-                                      ? (vDraft.inProgressDate.trim() || today())
-                                      : (vDraft.inProgressDate.trim() || null);
-                                  const nextIssued = nextStatus === 'issued'
-                                    ? (vDraft.issuedDate.trim() || today())
-                                    : null;
-                                  void saveCardVisa(i, nextStatus, nextInProgress, nextIssued);
-                                }}
-                              >
-                                <option value="not_started">Not Started</option>
-                                <option value="in_progress">In Progress</option>
-                                <option value="issued">Issued</option>
-                              </select>
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              <label className="block space-y-0.5">
-                                <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
-                                  In Progress Date{savedInProg ? ` (${niceDate(savedInProg)})` : ''}
-                                </span>
-                                <input
-                                  type="date"
-                                  aria-label={`In Progress Date for ${i.invoiceNo}`}
-                                  className={`${inputCls} !py-1 !text-xs`}
-                                  value={vDraft.inProgressDate}
-                                  disabled={visaBusyId === i.id}
-                                  onChange={(e) => setVisaDrafts((prev) => ({
-                                    ...prev,
-                                    [i.id]: { inProgressDate: e.target.value, issuedDate: vDraft.issuedDate },
-                                  }))}
-                                />
-                              </label>
-                              <label className="block space-y-0.5">
-                                <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
-                                  Issued Date{savedIssued ? ` (${niceDate(savedIssued)})` : ''}
-                                </span>
-                                <input
-                                  type="date"
-                                  aria-label={`Issued Date for ${i.invoiceNo}`}
-                                  className={`${inputCls} !py-1 !text-xs`}
-                                  value={vDraft.issuedDate}
-                                  disabled={visaBusyId === i.id}
-                                  onChange={(e) => setVisaDrafts((prev) => ({
-                                    ...prev,
-                                    [i.id]: { inProgressDate: vDraft.inProgressDate, issuedDate: e.target.value },
-                                  }))}
-                                />
-                              </label>
-                            </div>
+                            {showVisa && (
+                              <div className="space-y-1.5">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
+                                    Visa Progress
+                                  </span>
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {(['not_started', 'in_progress', 'issued'] as const).map((st) => (
+                                      <button
+                                        key={st}
+                                        type="button"
+                                        disabled={visaBusyId === i.id}
+                                        onClick={() => {
+                                          const nextInProgress =
+                                            st === 'not_started'
+                                              ? null
+                                              : st === 'in_progress'
+                                                ? vDraft.inProgressDate.trim() || today()
+                                                : vDraft.inProgressDate.trim() || savedInProg || today();
+                                          const nextIssued =
+                                            st === 'issued' ? vDraft.issuedDate.trim() || today() : null;
+                                          void saveCardVisa(i, st, nextInProgress, nextIssued, {
+                                            enabled: true,
+                                            hotelEnabled: showHotel,
+                                            hotelStatus: hStatus,
+                                            hotelInProgressDate: vDraft.hotelInProgressDate.trim() || null,
+                                            hotelIssuedDate: vDraft.hotelIssuedDate.trim() || null,
+                                            ticketEnabled: showTicket,
+                                            ticketStatus: tStatus,
+                                            ticketInProgressDate: vDraft.ticketInProgressDate.trim() || null,
+                                            ticketIssuedDate: vDraft.ticketIssuedDate.trim() || null,
+                                          });
+                                        }}
+                                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                                          vStatus === st
+                                            ? st === 'issued'
+                                              ? 'bg-emerald-600 text-white border-emerald-600'
+                                              : st === 'in_progress'
+                                                ? 'bg-amber-500 text-white border-amber-500'
+                                                : 'bg-slate-700 text-white border-slate-700'
+                                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        {VISA_STATUS_LABEL[st]}
+                                      </button>
+                                    ))}
+                                    <select
+                                      aria-label={`Visa status for ${i.invoiceNo}`}
+                                      className={`${inputCls} !w-auto !py-0.5 !px-2 !text-[11px]`}
+                                      value={vStatus}
+                                      disabled={visaBusyId === i.id}
+                                      onChange={(e) => {
+                                        const nextStatus = e.target.value as VisaProgressStatus;
+                                        const nextInProgress =
+                                          nextStatus === 'not_started'
+                                            ? null
+                                            : nextStatus === 'in_progress'
+                                              ? vDraft.inProgressDate.trim() || today()
+                                              : vDraft.inProgressDate.trim() || null;
+                                        const nextIssued =
+                                          nextStatus === 'issued' ? vDraft.issuedDate.trim() || today() : null;
+                                        void saveCardVisa(i, nextStatus, nextInProgress, nextIssued, {
+                                          enabled: true,
+                                          hotelEnabled: showHotel,
+                                          hotelStatus: hStatus,
+                                          hotelInProgressDate: vDraft.hotelInProgressDate.trim() || null,
+                                          hotelIssuedDate: vDraft.hotelIssuedDate.trim() || null,
+                                          ticketEnabled: showTicket,
+                                          ticketStatus: tStatus,
+                                          ticketInProgressDate: vDraft.ticketInProgressDate.trim() || null,
+                                          ticketIssuedDate: vDraft.ticketIssuedDate.trim() || null,
+                                        });
+                                      }}
+                                    >
+                                      <option value="not_started">Not Started</option>
+                                      <option value="in_progress">In Progress</option>
+                                      <option value="issued">Issued</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <label className="block space-y-0.5">
+                                    <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                                      In Progress Date{savedInProg ? ` (${niceDate(savedInProg)})` : ''}
+                                    </span>
+                                    <input
+                                      type="date"
+                                      aria-label={`In Progress Date for ${i.invoiceNo}`}
+                                      className={`${inputCls} !py-1 !text-xs`}
+                                      value={vDraft.inProgressDate}
+                                      disabled={visaBusyId === i.id}
+                                      onChange={(e) =>
+                                        setVisaDrafts((prev) => ({
+                                          ...prev,
+                                          [i.id]: { ...vDraft, inProgressDate: e.target.value },
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                  <label className="block space-y-0.5">
+                                    <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                                      Issued Date{savedIssued ? ` (${niceDate(savedIssued)})` : ''}
+                                    </span>
+                                    <input
+                                      type="date"
+                                      aria-label={`Issued Date for ${i.invoiceNo}`}
+                                      className={`${inputCls} !py-1 !text-xs`}
+                                      value={vDraft.issuedDate}
+                                      disabled={visaBusyId === i.id}
+                                      onChange={(e) =>
+                                        setVisaDrafts((prev) => ({
+                                          ...prev,
+                                          [i.id]: { ...vDraft, issuedDate: e.target.value },
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                            )}
+
+                            {showHotel && (
+                              <div className="space-y-1.5 pt-2 border-t border-indigo-200/60 dark:border-indigo-900/50">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
+                                    Hotel Booking Progress (Smart AI Detected)
+                                  </span>
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {(['not_started', 'in_progress', 'issued'] as const).map((st) => (
+                                      <button
+                                        key={st}
+                                        type="button"
+                                        disabled={visaBusyId === i.id}
+                                        onClick={() => {
+                                          const nextHotelInProg =
+                                            st === 'not_started'
+                                              ? null
+                                              : st === 'in_progress'
+                                                ? vDraft.hotelInProgressDate.trim() || today()
+                                                : vDraft.hotelInProgressDate.trim() || savedHotelInProg || today();
+                                          const nextHotelIssued =
+                                            st === 'issued' ? vDraft.hotelIssuedDate.trim() || today() : null;
+                                          void saveCardVisa(
+                                            i,
+                                            vStatus,
+                                            vDraft.inProgressDate.trim() || null,
+                                            vDraft.issuedDate.trim() || null,
+                                            {
+                                              enabled: showVisa,
+                                              hotelEnabled: true,
+                                              hotelStatus: st,
+                                              hotelInProgressDate: nextHotelInProg,
+                                              hotelIssuedDate: nextHotelIssued,
+                                              ticketEnabled: showTicket,
+                                              ticketStatus: tStatus,
+                                              ticketInProgressDate: vDraft.ticketInProgressDate.trim() || null,
+                                              ticketIssuedDate: vDraft.ticketIssuedDate.trim() || null,
+                                            }
+                                          );
+                                        }}
+                                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                                          hStatus === st
+                                            ? st === 'issued'
+                                              ? 'bg-emerald-600 text-white border-emerald-600'
+                                              : st === 'in_progress'
+                                                ? 'bg-amber-500 text-white border-amber-500'
+                                                : 'bg-slate-700 text-white border-slate-700'
+                                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        {HOTEL_STATUS_LABEL[st]}
+                                      </button>
+                                    ))}
+                                    <select
+                                      aria-label={`Hotel status for ${i.invoiceNo}`}
+                                      className={`${inputCls} !w-auto !py-0.5 !px-2 !text-[11px]`}
+                                      value={hStatus}
+                                      disabled={visaBusyId === i.id}
+                                      onChange={(e) => {
+                                        const nextHotelStatus = e.target.value as VisaProgressStatus;
+                                        const nextHotelInProg =
+                                          nextHotelStatus === 'not_started'
+                                            ? null
+                                            : nextHotelStatus === 'in_progress'
+                                              ? vDraft.hotelInProgressDate.trim() || today()
+                                              : vDraft.hotelInProgressDate.trim() || null;
+                                        const nextHotelIssued =
+                                          nextHotelStatus === 'issued'
+                                            ? vDraft.hotelIssuedDate.trim() || today()
+                                            : null;
+                                        void saveCardVisa(
+                                          i,
+                                          vStatus,
+                                          vDraft.inProgressDate.trim() || null,
+                                          vDraft.issuedDate.trim() || null,
+                                          {
+                                            enabled: showVisa,
+                                            hotelEnabled: true,
+                                            hotelStatus: nextHotelStatus,
+                                            hotelInProgressDate: nextHotelInProg,
+                                            hotelIssuedDate: nextHotelIssued,
+                                            ticketEnabled: showTicket,
+                                            ticketStatus: tStatus,
+                                            ticketInProgressDate: vDraft.ticketInProgressDate.trim() || null,
+                                            ticketIssuedDate: vDraft.ticketIssuedDate.trim() || null,
+                                          }
+                                        );
+                                      }}
+                                    >
+                                      <option value="not_started">Not Started</option>
+                                      <option value="in_progress">In Progress</option>
+                                      <option value="issued">Confirmed</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <label className="block space-y-0.5">
+                                    <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                                      Hotel In Progress Date{savedHotelInProg ? ` (${niceDate(savedHotelInProg)})` : ''}
+                                    </span>
+                                    <input
+                                      type="date"
+                                      aria-label={`Hotel In Progress Date for ${i.invoiceNo}`}
+                                      className={`${inputCls} !py-1 !text-xs`}
+                                      value={vDraft.hotelInProgressDate}
+                                      disabled={visaBusyId === i.id}
+                                      onChange={(e) =>
+                                        setVisaDrafts((prev) => ({
+                                          ...prev,
+                                          [i.id]: { ...vDraft, hotelInProgressDate: e.target.value },
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                  <label className="block space-y-0.5">
+                                    <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                                      Hotel Confirmed Date{savedHotelIssued ? ` (${niceDate(savedHotelIssued)})` : ''}
+                                    </span>
+                                    <input
+                                      type="date"
+                                      aria-label={`Hotel Confirmed Date for ${i.invoiceNo}`}
+                                      className={`${inputCls} !py-1 !text-xs`}
+                                      value={vDraft.hotelIssuedDate}
+                                      disabled={visaBusyId === i.id}
+                                      onChange={(e) =>
+                                        setVisaDrafts((prev) => ({
+                                          ...prev,
+                                          [i.id]: { ...vDraft, hotelIssuedDate: e.target.value },
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                            )}
+
+                            {showTicket && (
+                              <div className="space-y-1.5 pt-2 border-t border-indigo-200/60 dark:border-indigo-900/50">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
+                                    Flight / Ticket Progress
+                                  </span>
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {(['not_started', 'in_progress', 'issued'] as const).map((st) => (
+                                      <button
+                                        key={st}
+                                        type="button"
+                                        disabled={visaBusyId === i.id}
+                                        onClick={() => {
+                                          const nextTicketInProg =
+                                            st === 'not_started'
+                                              ? null
+                                              : st === 'in_progress'
+                                                ? vDraft.ticketInProgressDate.trim() || today()
+                                                : vDraft.ticketInProgressDate.trim() || savedTicketInProg || today();
+                                          const nextTicketIssued =
+                                            st === 'issued' ? vDraft.ticketIssuedDate.trim() || today() : null;
+                                          void saveCardVisa(
+                                            i,
+                                            vStatus,
+                                            vDraft.inProgressDate.trim() || null,
+                                            vDraft.issuedDate.trim() || null,
+                                            {
+                                              enabled: showVisa,
+                                              hotelEnabled: showHotel,
+                                              hotelStatus: hStatus,
+                                              hotelInProgressDate: vDraft.hotelInProgressDate.trim() || null,
+                                              hotelIssuedDate: vDraft.hotelIssuedDate.trim() || null,
+                                              ticketEnabled: true,
+                                              ticketStatus: st,
+                                              ticketInProgressDate: nextTicketInProg,
+                                              ticketIssuedDate: nextTicketIssued,
+                                            }
+                                          );
+                                        }}
+                                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                                          tStatus === st
+                                            ? st === 'issued'
+                                              ? 'bg-emerald-600 text-white border-emerald-600'
+                                              : st === 'in_progress'
+                                                ? 'bg-amber-500 text-white border-amber-500'
+                                                : 'bg-slate-700 text-white border-slate-700'
+                                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        {VISA_STATUS_LABEL[st]}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
                             {vDirty && (
                               <div className="flex flex-wrap items-center gap-2 pt-0.5">
                                 <button
                                   type="button"
                                   className={`${btnPrimary} !py-1 !px-2.5 !text-[11px]`}
                                   disabled={visaBusyId === i.id}
-                                  onClick={() => void saveCardVisa(
-                                    i,
-                                    vStatus,
-                                    vDraft.inProgressDate.trim() || null,
-                                    vDraft.issuedDate.trim() || null
-                                  )}
+                                  onClick={() =>
+                                    void saveCardVisa(
+                                      i,
+                                      vStatus,
+                                      vDraft.inProgressDate.trim() || null,
+                                      vDraft.issuedDate.trim() || null,
+                                      {
+                                        enabled: showVisa,
+                                        hotelEnabled: showHotel,
+                                        hotelStatus: hStatus,
+                                        hotelInProgressDate: vDraft.hotelInProgressDate.trim() || null,
+                                        hotelIssuedDate: vDraft.hotelIssuedDate.trim() || null,
+                                        ticketEnabled: showTicket,
+                                        ticketStatus: tStatus,
+                                        ticketInProgressDate: vDraft.ticketInProgressDate.trim() || null,
+                                        ticketIssuedDate: vDraft.ticketIssuedDate.trim() || null,
+                                      }
+                                    )
+                                  }
                                 >
                                   {visaBusyId === i.id ? 'Saving…' : 'Save dates'}
                                 </button>
@@ -696,11 +1129,13 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                                   type="button"
                                   className={`${btnGhost} !py-1 !px-2 !text-[11px]`}
                                   disabled={visaBusyId === i.id}
-                                  onClick={() => setVisaDrafts((prev) => {
-                                    const next = { ...prev };
-                                    delete next[i.id];
-                                    return next;
-                                  })}
+                                  onClick={() =>
+                                    setVisaDrafts((prev) => {
+                                      const next = { ...prev };
+                                      delete next[i.id];
+                                      return next;
+                                    })
+                                  }
                                 >
                                   Reset
                                 </button>
@@ -709,19 +1144,51 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                           </>
                         ) : (
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-700 dark:text-slate-200">
-                            <span className="font-bold text-indigo-900 dark:text-indigo-200">Visa: {VISA_STATUS_LABEL[vStatus]}</span>
-                            <span>In Progress: <b>{savedInProg ? niceDate(savedInProg) : '—'}</b></span>
-                            <span>Issued: <b>{savedIssued ? niceDate(savedIssued) : '—'}</b></span>
+                            {showVisa && (
+                              <>
+                                <span className="font-bold text-indigo-900 dark:text-indigo-200">
+                                  Visa: {VISA_STATUS_LABEL[vStatus]}
+                                </span>
+                                <span>In Progress: <b>{savedInProg ? niceDate(savedInProg) : '—'}</b></span>
+                                <span>Issued: <b>{savedIssued ? niceDate(savedIssued) : '—'}</b></span>
+                              </>
+                            )}
+                            {showHotel && (
+                              <span className="font-bold text-indigo-900 dark:text-indigo-200">
+                                Hotel: {HOTEL_STATUS_LABEL[hStatus]}
+                              </span>
+                            )}
+                            {showTicket && (
+                              <span className="font-bold text-indigo-900 dark:text-indigo-200">
+                                Ticket: {VISA_STATUS_LABEL[tStatus]}
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
                     )}
 
-                    <div className="flex flex-wrap gap-1.5 pt-1">
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
                       <button className={btnGhost} onClick={() => setView(i)}><Eye className="w-3.5 h-3.5" /> View</button>
                       <button className={btnPrimary} onClick={() => void pdf(i)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
                       {canShare && <button className={btnGhost} onClick={() => void share(i)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
                       {canEdit(i) && <button className={btnGhost} onClick={() => { setForm(toForm(i, company.ntn || '')); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
+                      {isStaff && (
+                        <select
+                          aria-label={`Invoice status for ${i.invoiceNo}`}
+                          className={`${inputCls} !w-auto !py-1 !px-2.5 !text-xs font-semibold`}
+                          value={i.status}
+                          onChange={(e) => {
+                            const next = e.target.value as CrmInvoice['status'];
+                            if (next === 'cancelled' && !window.confirm(`Cancel invoice ${i.invoiceNo}?`)) return;
+                            void act('invoice_status', { id: i.id, status: next });
+                          }}
+                        >
+                          <option value="unpaid">Status: Unpaid</option>
+                          <option value="paid">Status: Paid (Payment Approved)</option>
+                          <option value="cancelled">Status: Cancelled</option>
+                        </select>
+                      )}
                       {isStaff && i.status !== 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'paid' })}>Mark paid</button>}
                       {isStaff && i.status === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Mark unpaid</button>}
                       {(isStaff || i.createdBy === currentUser.id) && i.status === 'unpaid' && <button className={btnGhost} onClick={() => { if (window.confirm(`Cancel invoice ${i.invoiceNo}?`)) void act('invoice_status', { id: i.id, status: 'cancelled' }); }}>Cancel invoice</button>}
@@ -940,51 +1407,149 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
             {customerPortalBetaEnabled && form.kind === 'customer' && (() => {
               const visaAutoDetected = hasVisaKeyword(form.sections);
               const visaTrackingActive = visaAutoDetected || form.visaEnabled;
+              const hotelAutoDetected = hasHotelKeyword(form.sections, form.reference, form.notes);
+              const hotelTrackingActive = hotelAutoDetected || form.hotelEnabled;
+              const ticketAutoDetected = hasTicketKeyword(form.sections, form.reference);
+              const ticketTrackingActive = ticketAutoDetected || form.ticketEnabled;
               return (
-                <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 p-3.5 space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={visaTrackingActive}
-                        disabled={visaAutoDetected}
-                        onChange={(e) => patch({ visaEnabled: e.target.checked })}
-                      />
-                      Track Visa progress on Customers Page
-                    </label>
-                    {visaAutoDetected && <Pill tone="blue">Auto-detected from Visa item</Pill>}
-                  </div>
-                  {visaTrackingActive && (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <Field label="Visa progress status">
-                        <select
-                          className={inputCls}
-                          value={form.visaStatus}
-                          onChange={(e) => setFormVisaStatus(e.target.value as VisaProgressStatus)}
-                        >
-                          <option value="not_started">Not Started</option>
-                          <option value="in_progress">In Progress</option>
-                          <option value="issued">Issued</option>
-                        </select>
-                      </Field>
-                      <Field label="In Progress date">
+                <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 p-3.5 space-y-3.5">
+                  <div className="space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">
                         <input
-                          type="date"
-                          className={inputCls}
-                          value={form.visaInProgressDate}
-                          onChange={(e) => patch({ visaInProgressDate: e.target.value })}
+                          type="checkbox"
+                          checked={visaTrackingActive}
+                          disabled={visaAutoDetected}
+                          onChange={(e) => patch({ visaEnabled: e.target.checked })}
                         />
-                      </Field>
-                      <Field label="Issued date">
-                        <input
-                          type="date"
-                          className={inputCls}
-                          value={form.visaIssuedDate}
-                          onChange={(e) => patch({ visaIssuedDate: e.target.value })}
-                        />
-                      </Field>
+                        Track Visa progress on Customers Page
+                      </label>
+                      {visaAutoDetected && <Pill tone="blue">Auto-detected from Visa item</Pill>}
                     </div>
-                  )}
+                    {visaTrackingActive && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <Field label="Visa progress status">
+                          <select
+                            className={inputCls}
+                            value={form.visaStatus}
+                            onChange={(e) => setFormVisaStatus(e.target.value as VisaProgressStatus)}
+                          >
+                            <option value="not_started">Not Started</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="issued">Issued</option>
+                          </select>
+                        </Field>
+                        <Field label="In Progress date">
+                          <input
+                            type="date"
+                            className={inputCls}
+                            value={form.visaInProgressDate}
+                            onChange={(e) => patch({ visaInProgressDate: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="Issued date">
+                          <input
+                            type="date"
+                            className={inputCls}
+                            value={form.visaIssuedDate}
+                            onChange={(e) => patch({ visaIssuedDate: e.target.value })}
+                          />
+                        </Field>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-2.5 border-t border-indigo-200/60 dark:border-indigo-900/50 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={hotelTrackingActive}
+                          disabled={hotelAutoDetected}
+                          onChange={(e) => patch({ hotelEnabled: e.target.checked })}
+                        />
+                        Track Hotel Booking progress on Customers Page (Smart AI Auto-Detection)
+                      </label>
+                      {hotelAutoDetected && <Pill tone="green">Smart AI Detected Hotel Booking</Pill>}
+                    </div>
+                    {hotelTrackingActive && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <Field label="Hotel booking status">
+                          <select
+                            className={inputCls}
+                            value={form.hotelStatus}
+                            onChange={(e) => setFormHotelStatus(e.target.value as VisaProgressStatus)}
+                          >
+                            <option value="not_started">Not Started</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="issued">Confirmed</option>
+                          </select>
+                        </Field>
+                        <Field label="Hotel In Progress date">
+                          <input
+                            type="date"
+                            className={inputCls}
+                            value={form.hotelInProgressDate}
+                            onChange={(e) => patch({ hotelInProgressDate: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="Hotel Confirmed date">
+                          <input
+                            type="date"
+                            className={inputCls}
+                            value={form.hotelIssuedDate}
+                            onChange={(e) => patch({ hotelIssuedDate: e.target.value })}
+                          />
+                        </Field>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-2.5 border-t border-indigo-200/60 dark:border-indigo-900/50 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={ticketTrackingActive}
+                          disabled={ticketAutoDetected}
+                          onChange={(e) => patch({ ticketEnabled: e.target.checked })}
+                        />
+                        Track Flight / Air Ticket progress on Customers Page
+                      </label>
+                      {ticketAutoDetected && <Pill tone="blue">Auto-detected from Ticket item</Pill>}
+                    </div>
+                    {ticketTrackingActive && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <Field label="Flight / Ticket status">
+                          <select
+                            className={inputCls}
+                            value={form.ticketStatus}
+                            onChange={(e) => setFormTicketStatus(e.target.value as VisaProgressStatus)}
+                          >
+                            <option value="not_started">Not Started</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="issued">Issued</option>
+                          </select>
+                        </Field>
+                        <Field label="Ticket In Progress date">
+                          <input
+                            type="date"
+                            className={inputCls}
+                            value={form.ticketInProgressDate}
+                            onChange={(e) => patch({ ticketInProgressDate: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="Ticket Issued date">
+                          <input
+                            type="date"
+                            className={inputCls}
+                            value={form.ticketIssuedDate}
+                            onChange={(e) => patch({ ticketIssuedDate: e.target.value })}
+                          />
+                        </Field>
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })()}

@@ -167,6 +167,14 @@ export interface VisaProgress {
   status: VisaProgressStatus;
   inProgressDate: string | null; // YYYY-MM-DD
   issuedDate: string | null;     // YYYY-MM-DD
+  hotelEnabled?: boolean;
+  hotelStatus?: VisaProgressStatus;
+  hotelInProgressDate?: string | null;
+  hotelIssuedDate?: string | null;
+  ticketEnabled?: boolean;
+  ticketStatus?: VisaProgressStatus;
+  ticketInProgressDate?: string | null;
+  ticketIssuedDate?: string | null;
   updatedAt?: string | null;
 }
 
@@ -405,9 +413,17 @@ export async function crmCall<T = any>(action: string, payload: Record<string, u
 export interface UpdateInvoiceVisaProgressInput {
   id: string;
   enabled?: boolean;
-  status: VisaProgressStatus;
+  status?: VisaProgressStatus;
   inProgressDate?: string | null;
   issuedDate?: string | null;
+  hotelEnabled?: boolean;
+  hotelStatus?: VisaProgressStatus;
+  hotelInProgressDate?: string | null;
+  hotelIssuedDate?: string | null;
+  ticketEnabled?: boolean;
+  ticketStatus?: VisaProgressStatus;
+  ticketInProgressDate?: string | null;
+  ticketIssuedDate?: string | null;
 }
 
 export async function updateInvoiceVisaProgress(
@@ -415,11 +431,19 @@ export async function updateInvoiceVisaProgress(
 ): Promise<{ ok: boolean; invoice: CrmInvoice; visaProgress?: VisaProgress | null }> {
   const payload: Record<string, unknown> = {
     id: input.id,
-    status: input.status,
   };
+  if (input.status !== undefined) payload.status = input.status;
   if (input.enabled !== undefined) payload.enabled = input.enabled;
   if (input.inProgressDate !== undefined) payload.inProgressDate = input.inProgressDate;
   if (input.issuedDate !== undefined) payload.issuedDate = input.issuedDate;
+  if (input.hotelEnabled !== undefined) payload.hotelEnabled = input.hotelEnabled;
+  if (input.hotelStatus !== undefined) payload.hotelStatus = input.hotelStatus;
+  if (input.hotelInProgressDate !== undefined) payload.hotelInProgressDate = input.hotelInProgressDate;
+  if (input.hotelIssuedDate !== undefined) payload.hotelIssuedDate = input.hotelIssuedDate;
+  if (input.ticketEnabled !== undefined) payload.ticketEnabled = input.ticketEnabled;
+  if (input.ticketStatus !== undefined) payload.ticketStatus = input.ticketStatus;
+  if (input.ticketInProgressDate !== undefined) payload.ticketInProgressDate = input.ticketInProgressDate;
+  if (input.ticketIssuedDate !== undefined) payload.ticketIssuedDate = input.ticketIssuedDate;
   return crmCall<{ ok: boolean; invoice: CrmInvoice; visaProgress?: VisaProgress | null }>(
     'invoice_visa_update',
     payload

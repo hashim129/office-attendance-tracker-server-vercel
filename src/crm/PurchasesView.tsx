@@ -694,6 +694,16 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
     }
   };
 
+  const changePurchaseStatus = async (p: CrmPurchase, status: 'unpaid' | 'partial' | 'paid') => {
+    try {
+      const res = await crmCall<{ purchase: CrmPurchase }>('purchase_status', { id: p.id, status });
+      await crm.refresh();
+      if (viewing?.id === p.id) setViewing(res.purchase);
+    } catch (e: any) {
+      window.alert(e?.message || 'Could not update purchase payment status.');
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Header Card */}
@@ -1007,6 +1017,20 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
+                  {isStaff && (
+                    <select
+                      aria-label={`Payment status for ${p.purchaseNo}`}
+                      className={`${inputCls} !w-auto !py-1 !px-2.5 !text-xs font-semibold`}
+                      value={p.status}
+                      onChange={(e) =>
+                        void changePurchaseStatus(p, e.target.value as 'unpaid' | 'partial' | 'paid')
+                      }
+                    >
+                      <option value="unpaid">Payment: Unpaid / Credit</option>
+                      <option value="partial">Payment: Partially Paid</option>
+                      <option value="paid">Payment: Paid</option>
+                    </select>
+                  )}
                   <button type="button" onClick={() => setViewing(p)} className={btnGhost}>
                     <Eye className="w-3.5 h-3.5" /> View
                   </button>

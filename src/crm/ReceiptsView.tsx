@@ -183,6 +183,19 @@ export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) =
       setError(err?.message || 'Could not delete.');
     }
   };
+  const changeReceiptPaymentType = async (r: CrmReceipt, nextType: 'full' | 'partial') => {
+    setError('');
+    try {
+      const res = await crmCall<{ receipt: CrmReceipt }>('receipt_payment_type', {
+        id: r.id,
+        paymentType: nextType,
+      });
+      await crm.refresh();
+      if (view?.id === r.id) setView(res.receipt);
+    } catch (err: any) {
+      setError(err?.message || 'Could not update receipt payment status.');
+    }
+  };
 
   const balanceOf = (r: CrmReceipt) => Math.max(0, r.totalAmount - r.amountReceived);
 
@@ -225,11 +238,22 @@ export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) =
                   {r.paymentType === 'partial' && balanceOf(r) > 0 && <p className="text-[11px] text-slate-500">Balance <b className="font-mono text-amber-600">{r.currency} {fmtAmount(balanceOf(r))}</b></p>}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-1.5 mt-3">
+              <div className="flex flex-wrap items-center gap-1.5 mt-3">
                 <button className={btnGhost} onClick={() => setView(r)}><Eye className="w-3.5 h-3.5" /> View</button>
                 <button className={btnPrimary} onClick={() => void pdf(r)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
                 {canShare && <button className={btnGhost} onClick={() => void share(r)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
                 {canEdit(r) && <button className={btnGhost} onClick={() => { setForm(toForm(r)); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
+                {isStaff && (
+                  <select
+                    aria-label={`Receipt payment status for ${r.receiptNo}`}
+                    className={`${inputCls} !w-auto !py-1 !px-2.5 !text-xs font-semibold`}
+                    value={r.paymentType}
+                    onChange={(e) => void changeReceiptPaymentType(r, e.target.value as 'full' | 'partial')}
+                  >
+                    <option value="full">Status: Full Payment (Approved)</option>
+                    <option value="partial">Status: Partial Payment</option>
+                  </select>
+                )}
                 {isAdmin && <button className={btnDanger} aria-label="Delete receipt" onClick={() => void remove(r)}><Trash2 className="w-3.5 h-3.5" /></button>}
               </div>
             </div>
