@@ -862,8 +862,7 @@ export default function CustomersPortalPage() {
         setTimelineInvoiceId(firstVisa?.id || '');
         if (firstVisa?.isVisa && firstVisa.visaProgress) {
           if (firstVisa.visaProgress.status === 'issued') setActiveStepId('visa_issued');
-          else if (firstVisa.visaProgress.status === 'in_progress') setActiveStepId('visa_in_progress');
-          else setActiveStepId('visa_not_started');
+          else setActiveStepId('visa_progress');
         } else {
           setActiveStepId('booking');
         }
@@ -1002,24 +1001,39 @@ export default function CustomersPortalPage() {
 
       steps.push(
         {
-          id: 'visa_not_started',
-          title: 'Visa Not Started',
-          subtitle: vs === 'not_started' ? 'Queued' : 'Completed',
-          dateLabel: vs === 'not_started' ? 'Pending start' : 'Passed',
-          state: isCancelled ? 'cancelled' : vs === 'not_started' ? 'current' : 'completed',
+          id: 'visa_progress',
+          title: 'Visa Progress',
+          subtitle:
+            vs === 'issued'
+              ? 'Visa Issued'
+              : vs === 'in_progress'
+                ? 'Visa Started (In Progress)'
+                : 'Visa Not Started',
+          dateLabel:
+            vs === 'issued'
+              ? issDate || inProgDate || 'Issued'
+              : vs === 'in_progress'
+                ? inProgDate || 'In Progress'
+                : 'Not Started',
+          state: isCancelled ? 'cancelled' : vs === 'issued' ? 'completed' : 'current',
           detail:
-            vs === 'not_started'
-              ? 'Your visa invoice is registered and queued with our visa processing desk.'
-              : 'Initial visa file registration completed and moved into active processing.',
+            vs === 'issued'
+              ? `Visa Progress is complete — your visa was issued${issDate ? ` on ${issDate}` : ''}.`
+              : vs === 'in_progress'
+                ? `Visa Progress is active — your visa application has started${inProgDate ? ` (started on ${inProgDate})` : ''}.`
+                : 'Visa Progress is registered — visa processing has not started yet.',
+          meta: inv.visaProgress.updatedAt ? `Last updated: ${niceTimestamp(inv.visaProgress.updatedAt)}` : undefined,
         },
         {
           id: 'visa_in_progress',
-          title: 'Visa In Progress',
+          title: vs === 'not_started' ? 'Visa Not Started' : 'Visa Started',
           subtitle:
             vs === 'in_progress' || vs === 'issued'
-              ? inProgDate || 'Date not recorded'
-              : 'Pending',
-          dateLabel: inProgDate || (vs === 'not_started' ? 'Pending' : 'Date not recorded'),
+              ? inProgDate
+                ? `Started · ${inProgDate}`
+                : 'Application Started'
+              : 'Not Started Yet',
+          dateLabel: inProgDate || (vs === 'not_started' ? 'Not Started' : 'Started'),
           state: isCancelled
             ? 'cancelled'
             : vs === 'issued'
@@ -1029,23 +1043,23 @@ export default function CustomersPortalPage() {
                 : 'upcoming',
           detail:
             vs === 'not_started'
-              ? 'Visa application submission has not started yet.'
+              ? 'Visa Status: Not Started — your visa file is queued and awaiting submission.'
               : inProgDate
-                ? `Visa processing started on ${inProgDate}.`
-                : 'Visa application is in processing (In Progress date not recorded).',
+                ? `Visa Status: Started (In Progress) — processing began on ${inProgDate}.`
+                : 'Visa Status: Started (In Progress) — application is actively under processing.',
           meta: inv.visaProgress.updatedAt ? `Last updated: ${niceTimestamp(inv.visaProgress.updatedAt)}` : undefined,
         },
         {
           id: 'visa_issued',
           title: 'Visa Issued',
-          subtitle: vs === 'issued' ? issDate || 'Date not recorded' : 'Pending',
-          dateLabel: issDate || (vs === 'issued' ? 'Date not recorded' : 'Pending'),
+          subtitle: vs === 'issued' ? issDate || 'Approved & Issued' : 'Pending Issuance',
+          dateLabel: issDate || (vs === 'issued' ? 'Issued' : 'Pending'),
           state: isCancelled ? 'cancelled' : vs === 'issued' ? 'completed' : 'upcoming',
           detail:
             vs === 'issued'
               ? issDate
                 ? `Your visa was issued on ${issDate}. Please review your travel documents before departure.`
-                : 'Your visa is marked as Issued (Issued date not recorded).'
+                : 'Your visa is marked as Issued.'
               : 'Your visa issuance date will appear here once approved and recorded by our team.',
         }
       );
@@ -1432,17 +1446,17 @@ export default function CustomersPortalPage() {
 
         {/* Interactive Booking Results & Print Container */}
         {foundData && (
-          <section className="print-container space-y-6">
+          <section className="print-container space-y-6 print:space-y-3">
             {/* Print-Only Branded Header */}
-            <div className="hidden print-only border-b border-slate-300 pb-4 mb-4">
+            <div className="hidden print-only border-b border-slate-300 pb-3 mb-2">
               <div className="flex items-center justify-between gap-4">
                 <img
                   src="/bahaar-logo.png"
                   alt="Bahaar Journeys"
-                  className="h-11 w-auto object-contain"
+                  className="h-10 w-auto object-contain"
                 />
                 <div className="text-right text-xs text-slate-600">
-                  <p className="font-bold text-slate-900 text-sm">Customer Booking &amp; Visa Summary</p>
+                  <p className="font-bold text-slate-900 text-sm">Customer Trip Journey, Booking &amp; Visa Summary</p>
                   <p>Reference: {foundData.query}</p>
                   <p>Printed: {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
                 </div>
@@ -1450,7 +1464,7 @@ export default function CustomersPortalPage() {
             </div>
 
             {/* Customer Overview & Multi-Invoice Filter Bar */}
-            <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-xs print-break-inside-avoid">
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 print:p-3.5 shadow-xs print-break-inside-avoid">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">
@@ -1539,7 +1553,7 @@ export default function CustomersPortalPage() {
             </div>
 
             {/* Interactive Stats Explorer */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print-break-inside-avoid">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4 print:gap-2.5 print-break-inside-avoid">
               {/* Total Billed */}
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
@@ -1643,20 +1657,19 @@ export default function CustomersPortalPage() {
               </div>
             </div>
 
-            {/* Interactive Progress Timeline */}
+            {/* Interactive Progress Timeline (Shown on Screen AND Printed on Page 1) */}
             {timelineInvoice && (
-              <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-xs print-break-inside-avoid">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 print:p-3.5 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 print:pb-2.5 border-b border-slate-100">
                   <div>
-                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                      <Plane className="w-5 h-5 text-sky-600" />
-                      <span>Interactive Journey &amp; Visa Timeline</span>
+                    <h3 className="text-lg print:text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <Plane className="w-5 h-5 print:w-4 print:h-4 text-sky-600" />
+                      <span>Customer Trip Journey &amp; Visa Progress Timeline</span>
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Inspect milestones for{' '}
+                      Trip &amp; visa milestones for{' '}
                       <span className="font-semibold text-slate-700">{timelineInvoice.invoiceNo}</span>
-                      {timelineInvoice.reference ? ` — ${timelineInvoice.reference}` : ''}. Click any step
-                      for details.
+                      {timelineInvoice.reference ? ` — ${timelineInvoice.reference}` : ''}.
                     </p>
                   </div>
 
@@ -1688,16 +1701,16 @@ export default function CustomersPortalPage() {
                 </div>
 
                 {!timelineInvoice.isVisa && (
-                  <div className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600">
+                  <div className="mt-4 print:mt-2 inline-flex items-center gap-2 rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600">
                     <Info className="w-4 h-4 text-slate-500 shrink-0" />
                     <span>Non-Visa booking — showing core booking, payment, and travel-readiness stages.</span>
                   </div>
                 )}
 
                 <div
-                  className={`mt-5 grid grid-cols-1 sm:grid-cols-2 ${
+                  className={`mt-5 print:mt-2.5 grid grid-cols-1 sm:grid-cols-2 print:grid-cols-3 ${
                     timelineSteps.length >= 6 ? 'lg:grid-cols-6' : 'lg:grid-cols-3'
-                  } gap-3`}
+                  } gap-3 print:gap-2`}
                 >
                   {timelineSteps.map((step, idx) => {
                     const isSelected = activeTimelineStep?.id === step.id;
@@ -1724,26 +1737,78 @@ export default function CustomersPortalPage() {
                         type="button"
                         aria-pressed={isSelected}
                         onClick={() => setActiveStepId(step.id)}
-                        className={`text-left rounded-2xl border p-3.5 transition-all cursor-pointer ${cardColor}`}
+                        className={`text-left rounded-2xl border p-3.5 print:p-2.5 transition-all cursor-pointer ${cardColor}`}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span
-                            className={`w-6 h-6 rounded-full border text-[11px] font-bold inline-flex items-center justify-center shrink-0 ${badgeColor}`}
+                            className={`w-6 h-6 print:w-5 print:h-5 rounded-full border text-[11px] print:text-[10px] font-bold inline-flex items-center justify-center shrink-0 ${badgeColor}`}
                           >
                             {step.state === 'completed' ? '✓' : idx + 1}
                           </span>
-                          <span className="text-[11px] font-medium text-slate-500 truncate">
+                          <span className="text-[11px] print:text-[10px] font-medium text-slate-500 truncate">
                             {step.dateLabel}
                           </span>
                         </div>
-                        <p className="mt-2.5 text-sm font-bold text-slate-900 leading-snug">
+                        <p className="mt-2.5 print:mt-1.5 text-sm print:text-xs font-bold text-slate-900 leading-snug">
                           {step.title}
                         </p>
-                        <p className="mt-0.5 text-xs font-medium text-slate-600">{step.subtitle}</p>
+                        <p className="mt-0.5 text-xs print:text-[11px] font-medium text-slate-600">{step.subtitle}</p>
                       </button>
                     );
                   })}
                 </div>
+
+                {/* Visa Progress -> Visa Started / Not Started -> Visa Issued Breakdown Bar */}
+                {timelineInvoice.isVisa && timelineInvoice.visaProgress && (
+                  <div className="mt-3 rounded-2xl border border-indigo-200/80 bg-indigo-50/50 p-3 print:p-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-bold text-indigo-950 uppercase tracking-wider text-[11px]">
+                        Visa Progress:
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 font-bold ${
+                          timelineInvoice.visaProgress.status === 'not_started'
+                            ? 'bg-amber-100 text-amber-900 border-amber-300'
+                            : 'bg-white text-slate-600 border-slate-200'
+                        }`}
+                      >
+                        {timelineInvoice.visaProgress.status === 'not_started' ? '● ' : ''}Visa Not Started
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 font-bold ${
+                          timelineInvoice.visaProgress.status === 'in_progress'
+                            ? 'bg-sky-600 text-white border-sky-600'
+                            : timelineInvoice.visaProgress.status === 'issued'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : 'bg-white text-slate-500 border-slate-200'
+                        }`}
+                      >
+                        {timelineInvoice.visaProgress.status === 'in_progress'
+                          ? '● '
+                          : timelineInvoice.visaProgress.status === 'issued'
+                            ? '✓ '
+                            : ''}
+                        Visa Started (In Progress)
+                        {niceDate(timelineInvoice.visaProgress.inProgressDate)
+                          ? ` · ${niceDate(timelineInvoice.visaProgress.inProgressDate)}`
+                          : ''}
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 font-bold ${
+                          timelineInvoice.visaProgress.status === 'issued'
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-white text-slate-500 border-slate-200'
+                        }`}
+                      >
+                        {timelineInvoice.visaProgress.status === 'issued' ? '✓ ' : ''}
+                        Visa Issued
+                        {niceDate(timelineInvoice.visaProgress.issuedDate)
+                          ? ` · ${niceDate(timelineInvoice.visaProgress.issuedDate)}`
+                          : ''}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 <AnimatePresence mode="wait">
                   {activeTimelineStep && (
@@ -1752,13 +1817,13 @@ export default function CustomersPortalPage() {
                       initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={prefersReducedMotion ? undefined : { opacity: 0, y: -4 }}
-                      className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 print:p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                     >
                       <div className="space-y-1">
                         <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">
                           Stage Details · {activeTimelineStep.title}
                         </p>
-                        <p className="text-sm text-slate-800">{activeTimelineStep.detail}</p>
+                        <p className="text-sm print:text-xs text-slate-800">{activeTimelineStep.detail}</p>
                         {activeTimelineStep.meta && (
                           <p className="text-xs text-slate-500">{activeTimelineStep.meta}</p>
                         )}
@@ -1769,17 +1834,41 @@ export default function CustomersPortalPage() {
                     </motion.div>
                   )}
                 </AnimatePresence>
+
+                {/* Matched Destination Trip Journey Details (Shown on Screen & Print when destination matches) */}
+                {matchedDestinationIds.length > 0 && (
+                  <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/60 p-3.5 print:p-2.5 space-y-2">
+                    <p className="text-xs font-bold uppercase tracking-wider text-sky-800 flex items-center gap-1.5">
+                      <Compass className="w-3.5 h-3.5 text-sky-600" />
+                      <span>Trip Destination &amp; Journey Highlights</span>
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {CURATED_DESTINATIONS.filter((d) => matchedDestinationIds.includes(d.id)).map((dest) => (
+                        <div key={dest.id} className="rounded-xl bg-white border border-sky-100 p-2.5 text-xs space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-slate-900">
+                              {dest.name} ({dest.country})
+                            </span>
+                            <span className="text-[11px] font-semibold text-sky-700">{dest.bestSeason}</span>
+                          </div>
+                          <p className="text-slate-600 text-[11px]">{dest.tagline}</p>
+                          <p className="text-[11px] font-medium text-emerald-800">{dest.visaCue} · {dest.packageCue}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Itemized Customer-Safe Invoices */}
-            <div className="space-y-4">
+            <div className="space-y-4 print:space-y-3">
               {filteredInvoices.map((inv) => {
                 let sectionNum = 0;
                 return (
                   <article
                     key={inv.id}
-                    className="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-xs print-break-inside-avoid"
+                    className="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-xs"
                   >
                     <div className="p-5 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-start justify-between gap-4 bg-slate-50/50">
                       <div className="space-y-1.5">
