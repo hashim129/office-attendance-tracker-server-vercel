@@ -3,12 +3,14 @@
 
 @layer base {
   :root {
-    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-sans: 'Manrope', 'Segoe UI', system-ui, -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
   }
 
   body {
     font-family: var(--font-sans);
+    font-feature-settings: 'tnum' 1, 'cv11' 1;
+    letter-spacing: -0.005em;
     min-height: 100vh;
     overflow-x: hidden;
   }
@@ -304,4 +306,28 @@ html, body { overflow-x: hidden; }
     break-inside: avoid;
     page-break-inside: avoid;
   }
+}
+
+/* ---- Friendly page banners + small interactions (kept subtle) ---- */
+@keyframes hero-float {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-10px, 8px, 0) scale(1.06); }
+}
+.hero-blob { animation: hero-float 7s ease-in-out infinite; }
+.hero-blob-slow { animation: hero-float 11s ease-in-out infinite reverse; }
+.hero-card { animation: rise-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+
+/* Buttons feel pressable */
+button:not(:disabled) { transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease; }
+button:not(:disabled):active { transform: scale(0.97); }
+
+/* Clear, friendly keyboard focus */
+:where(input, select, textarea):focus-visible,
+:where(button, a):focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-blob, .hero-blob-slow, .hero-card { animation: none; }
 }

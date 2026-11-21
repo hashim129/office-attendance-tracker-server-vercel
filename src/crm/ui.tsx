@@ -62,7 +62,10 @@ export const fromLocalInput = (v: string): string | null => {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 };
 
-export const KIND_LABEL: Record<string, string> = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up', regular: 'Regular customers follow-up' };
+export const KIND_LABEL: Record<string, string> = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up', regular: 'Regular customers follow-up', personal: 'Personal follow-up' };
+/** Each category has its own colour so a list can be read at a glance. */
+export const KIND_TONE: Record<string, 'blue' | 'green' | 'amber' | 'red' | 'slate' | 'violet'> = { meeting: 'violet', corporate: 'blue', internal: 'slate', regular: 'green', personal: 'amber' };
+export const KIND_BAR: Record<string, string> = { meeting: 'border-l-violet-500', corporate: 'border-l-blue-500', internal: 'border-l-slate-400', regular: 'border-l-emerald-500', personal: 'border-l-amber-500' };
 export const STATUS_LABEL: Record<string, string> = { pending: 'Pending', completed: 'Completed', not_completed: 'Not completed', rescheduled: 'Rescheduled' };
 
 // ---------------------------------------------------------------- Add to calendar

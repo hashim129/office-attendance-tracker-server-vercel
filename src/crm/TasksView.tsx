@@ -2,10 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Pencil, Plus, Trash2, Eye, Search, X, UserCheck, Users, CalendarClock, FileText, Building2, Phone, MapPin, History, MessageSquare } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
-import { CrmFollowup, FollowupStatus, crmCall } from './crmApi';
+import { CrmFollowup, FollowupKind, FollowupStatus, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { FollowupModal } from './FollowupModal';
-import { AddToCalendar, Countdown, ErrorNote, StatBar, Field, KIND_LABEL, Pill, STATUS_LABEL, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { AddToCalendar, Countdown, ErrorNote, StatBar, Field, KIND_BAR, KIND_LABEL, KIND_TONE, Pill, STATUS_LABEL, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
 
 interface Props {
   crm: CrmState;
@@ -26,6 +26,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   const [scope, setScope] = useState<Scope>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
   const [query, setQuery] = useState('');
+  const [kindFilter, setKindFilter] = useState<'all' | FollowupKind>('all');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CrmFollowup | null>(null);
   const [viewingId, setViewingId] = useState<string | null>(null);
@@ -59,6 +60,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   const rows = useMemo(() => {
     return followups
       .filter((f) => (scope === 'mine' ? f.assignedTo === currentUser.id || f.participantIds.includes(currentUser.id) : scope === 'created' ? f.createdBy === currentUser.id : true))
+      .filter((f) => (kindFilter === 'all' ? true : f.kind === kindFilter))
       .filter((f) => (statusFilter === 'all' ? true : statusFilter === 'open' ? f.status === 'pending' || f.status === 'rescheduled' : f.status === statusFilter))
       .filter((f) => {
         if (!q) return true;
@@ -69,7 +71,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
         const kindLabel = KIND_LABEL[f.kind] || f.kind;
         const statusLabel = STATUS_LABEL[f.status] || f.status;
         const haystack = [
-          c?.customerName || 'General follow-up',
+          c?.customerName || KIND_LABEL[f.kind] || 'Follow-up',
           c?.companyName || '',
           c?.description || '',
           c?.customerNumber || '',
@@ -85,7 +87,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
         return haystack.includes(q);
       })
       .sort((a, b) => (a.dueAt || a.createdAt).localeCompare(b.dueAt || b.createdAt));
-  }, [followups, scope, statusFilter, currentUser.id, q, customerOf, empName]);
+  }, [followups, scope, statusFilter, kindFilter, currentUser.id, q, customerOf, empName]);
 
   const scoped = useMemo(
     () => followups.filter((f) => (scope === 'mine' ? f.assignedTo === currentUser.id || f.participantIds.includes(currentUser.id) : scope === 'created' ? f.createdBy === currentUser.id : true)),
@@ -174,6 +176,15 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
           </div>
           <button className={btnPrimary} onClick={() => { setEditing(null); setFormOpen(true); }}><Plus className="w-4 h-4" /> New follow-up</button>
         </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1">Category</span>
+          <button className={chip(kindFilter === 'all')} onClick={() => setKindFilter('all')}>All</button>
+          {(Object.keys(KIND_LABEL) as FollowupKind[]).map((k) => (
+            <button key={k} className={chip(kindFilter === k)} onClick={() => setKindFilter(k)}>
+              {KIND_LABEL[k].replace(' follow-up', '')} <span className="opacity-70">({scoped.filter((f) => f.kind === k).length})</span>
+            </button>
+          ))}
+        </div>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex flex-wrap gap-1.5">
             {statuses.map((s) => <button key={s.id} className={chip(statusFilter === s.id)} onClick={() => setStatusFilter(s.id)}>{s.label}</button>)}
@@ -232,14 +243,14 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
               <div
                 key={f.id}
                 onClick={() => setViewingId(f.id)}
-                className={`${cardCls} p-4 hover:border-blue-300 dark:hover:border-blue-800 transition-all cursor-pointer`}
+                className={`${cardCls} p-4 border-l-4 ${KIND_BAR[f.kind] || ''} hover:border-blue-300 dark:hover:border-blue-800 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 cursor-pointer`}
               >
                 <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
                   <div className="min-w-0 flex-1 space-y-2.5">
                     {/* Header: Title + Type + Status + Countdown */}
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        {c?.customerName || (f.customerId ? 'Deleted customer' : 'General follow-up')}
+                        {c?.customerName || (f.customerId ? 'Deleted customer' : KIND_LABEL[f.kind] || 'Follow-up')}
                       </h3>
                       {c?.companyName && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
@@ -247,7 +258,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                           {c.companyName}
                         </span>
                       )}
-                      <Pill tone="slate">{KIND_LABEL[f.kind] || f.kind}</Pill>
+                      {(c || f.customerId) && <Pill tone={KIND_TONE[f.kind] || 'slate'}>{KIND_LABEL[f.kind] || f.kind}</Pill>}
                       <Pill tone={statusTone(f.status)}>{STATUS_LABEL[f.status] || f.status}</Pill>
                       {isOpen && <Countdown atIso={f.dueAt} kind="due" />}
                       {newIds.has(f.id) && <Pill tone="blue">New</Pill>}
@@ -325,7 +336,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
       <Modal
         isOpen={Boolean(viewing)}
         onClose={() => setViewingId(null)}
-        title={viewing ? (viewing.customerId ? customerOf.get(viewing.customerId)?.customerName || 'Follow-up details' : 'General follow-up') : 'Follow-up details'}
+        title={viewing ? (viewing.customerId ? customerOf.get(viewing.customerId)?.customerName || 'Follow-up details' : KIND_LABEL[viewing.kind] || 'Follow-up') : 'Follow-up details'}
         subtitle={viewing ? `${KIND_LABEL[viewing.kind] || viewing.kind} · Created ${fmtDateTime(viewing.createdAt)}` : undefined}
         maxWidth="2xl"
       >
@@ -345,7 +356,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
               {/* Status & Timing Bar */}
               <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Pill tone="slate">{KIND_LABEL[viewing.kind] || viewing.kind}</Pill>
+                  <Pill tone={KIND_TONE[viewing.kind] || 'slate'}>{KIND_LABEL[viewing.kind] || viewing.kind}</Pill>
                   <Pill tone={statusTone(viewing.status)}>{STATUS_LABEL[viewing.status] || viewing.status}</Pill>
                   {vOpen && <Countdown atIso={viewing.dueAt} kind="due" />}
                 </div>

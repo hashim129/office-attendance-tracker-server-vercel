@@ -262,7 +262,7 @@ export default function PlaneAnimation({
                       fontSize="10.5"
                       fontWeight="600"
                       fill={isActive ? '#ffffff' : '#334155'}
-                      fontFamily="Plus Jakarta Sans, system-ui, sans-serif"
+                      fontFamily="Manrope, system-ui, sans-serif"
                     >
                       {wp.label}
                     </text>

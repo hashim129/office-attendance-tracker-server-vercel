@@ -6,8 +6,8 @@ import { isSupabaseConfigured, supabaseFetch, sweepShiftReminders } from './_sup
 import { format12h, getShiftEndWindowMs } from './_cloud.js';
 import { getSessionEmployee } from './_session.js';
 
-const KINDS = ['meeting', 'corporate', 'internal', 'regular'];
-const KIND_LABEL = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up', regular: 'Regular customers follow-up' };
+const KINDS = ['meeting', 'corporate', 'internal', 'regular', 'personal'];
+const KIND_LABEL = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up', regular: 'Regular customers follow-up', personal: 'Personal follow-up' };
 // Default inventory list + dynamic catalog managed by Admin & Accounts in Supabase
 const DEFAULT_INVENTORY_ITEMS = [
   'Laptop',
@@ -353,6 +353,33 @@ async function assertSlotFree(startAt, endAt, exceptId) {
   }
 }
 
+// A "Meeting follow-up" that involves the CEO and has a time also books the CEO's calendar (30 minutes, as with Add to Calendar).
+const FOLLOWUP_SLOT_MS = 30 * 60 * 1000;
+const ceoIdList = async () => (await activeEmployees()).filter((e) => e.role === 'ceo').map((e) => e.id);
+function ceoFollowupSlots(followups, ceoIds, exceptId) {
+  return followups
+    .filter((f) => f.id !== exceptId && f.kind === 'meeting' && OPEN.includes(f.status) && f.due_at && !Number.isNaN(Date.parse(f.due_at)))
+    .filter((f) => [f.assigned_to, f.created_by, ...asArray(f.participant_ids)].some((x) => ceoIds.includes(x)))
+    .map((f) => ({ id: f.id, title: `Meeting follow-up${f.remarks ? `: ${String(f.remarks).slice(0, 40)}` : ''}`, start: Date.parse(f.due_at), end: Date.parse(f.due_at) + FOLLOWUP_SLOT_MS }));
+}
+/** Everything already booked in the CEO's calendar that overlaps [startMs, endMs). */
+async function findCeoOverlaps(startMs, endMs, { exceptFollowupId, exceptMeetingId } = {}) {
+  const [ceoIds, followups, meetings] = await Promise.all([ceoIdList(), getAll('crm_followups'), getAll('crm_meetings')]);
+  const out = meetings
+    .filter((m) => m.id !== exceptMeetingId && m.status === 'scheduled' && Date.parse(m.start_at) < endMs && Date.parse(m.end_at) > startMs)
+    .map((m) => ({ id: m.id, title: `CEO meeting: ${m.title}`, start: Date.parse(m.start_at), end: Date.parse(m.end_at) }));
+  for (const s of ceoFollowupSlots(followups, ceoIds, exceptFollowupId)) if (s.start < endMs && s.end > startMs) out.push(s);
+  return out;
+}
+const pktClock = (ms) => new Date(ms).toLocaleString('en-GB', { timeZone: 'Asia/Karachi', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+/** Tells the CEO and every administrator that two bookings clash. */
+async function notifyOverlap(refId, what, startMs, clashes, exceptId) {
+  if (!clashes.length) return;
+  const people = [...(await ceoIdList()), ...(await adminIds())];
+  const names = clashes.slice(0, 3).map((c) => `${c.title} (${pktClock(c.start)})`).join('; ');
+  await notify(people, 'meeting', refId, `⚠ Meeting time overlap: ${what} at ${pktClock(startMs)} clashes with ${names}.`, exceptId);
+}
+
 function readMeetingInput(m, { requireEnd = true } = {}) {
   const startAt = isoOrNull(m?.startAt, 'Start time', { required: true });
   const endAt = isoOrNull(m?.endAt, 'End time', { required: requireEnd });
@@ -475,13 +502,20 @@ export default async function handler(req, res) {
         company = { ...DEFAULT_COMPANY, ...parseJsonObj(companyRow?.data, {}) };
         inventoryItems = catalogItems;
       }
+      // Times the CEO is busy with a Meeting follow-up: shown in the Meetings portal to everyone (details only to people involved).
+      const ceoIdsNow = await ceoIdList();
+      const bookedSlots = ceoFollowupSlots(followups, ceoIdsNow).filter((x) => x.end >= Date.now() - 45 * 24 * 3600 * 1000).map((x) => {
+        const f = followups.find((r) => r.id === x.id);
+        const involved = isAdmin || f.assigned_to === me.id || f.created_by === me.id || asArray(f.participant_ids).includes(me.id);
+        return { id: x.id, title: involved ? x.title : 'Booked (meeting follow-up)', startAt: new Date(x.start).toISOString(), endAt: new Date(x.end).toISOString() };
+      });
       const since = Date.now() - 45 * 24 * 3600 * 1000;
       const visibleMeetings = meetings
         .filter((m) => Date.parse(m.end_at) >= since)
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales }, customers, followups: visibleFollowups, meetings: visibleMeetings, inventory: visibleInventory, inventoryItems, sales, purchases, purchaseCustomFields, purchaseCustomCategories, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
+        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales }, customers, followups: visibleFollowups, meetings: visibleMeetings, bookedSlots, inventory: visibleInventory, inventoryItems, sales, purchases, purchaseCustomFields, purchaseCustomCategories, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
     }
@@ -555,6 +589,17 @@ export default async function handler(req, res) {
     }
 
     // ---------------------------------------------------------------- follow-ups
+    // When a Meeting follow-up with the CEO gets a time that clashes with another booking, the CEO and admins are told right away.
+    const followupOverlaps = async (row) => {
+      if (row.kind !== 'meeting' || !row.due_at || !OPEN.includes(row.status || 'pending')) return [];
+      const ceoIds = await ceoIdList();
+      if (![row.assigned_to, row.created_by, ...asArray(row.participant_ids)].some((x) => ceoIds.includes(x))) return [];
+      const start = Date.parse(row.due_at);
+      const clashes = await findCeoOverlaps(start, start + FOLLOWUP_SLOT_MS, { exceptFollowupId: row.id });
+      await notifyOverlap(row.id, 'a meeting follow-up', start, clashes, null);
+      return clashes.map((c) => ({ title: c.title, startAt: new Date(c.start).toISOString(), endAt: new Date(c.end).toISOString() }));
+    };
+
     if (action === 'followup_save') {
       const f = body.followup || {};
       const kind = String(f.kind || '');
@@ -602,13 +647,15 @@ export default async function handler(req, res) {
         if (existing.assigned_to !== fields.assigned_to) await notify([fields.assigned_to], 'followup', row.id, `${label}${forWhom} was assigned to you.`, me.id);
         const addedPeople = participantIds.filter((p) => !asArray(existing.participant_ids).includes(p));
         await notify(addedPeople, 'followup', row.id, `You were added to a ${label.toLowerCase()}${forWhom}.`, me.id);
-        return res.status(200).json({ ok: true, followup: mapFollowup(row), customer: newCustomerRow ? mapCustomer(newCustomerRow) : undefined });
+        const overlaps = await followupOverlaps(row);
+        return res.status(200).json({ ok: true, followup: mapFollowup(row), customer: newCustomerRow ? mapCustomer(newCustomerRow) : undefined, overlaps });
       }
       const row = { id: id('fup'), ...fields, status: 'pending', outcome_remarks: '', history: [], created_by: me.id, created_at: nowIso(), completed_at: null };
       await upsert('crm_followups', row);
       await notify([fields.assigned_to], 'followup', row.id, `${label}${forWhom} was assigned to you.`, me.id);
       await notify(participantIds, 'followup', row.id, `You were added to a ${label.toLowerCase()}${forWhom}.`, me.id);
-      return res.status(200).json({ ok: true, followup: mapFollowup(row), customer: newCustomerRow ? mapCustomer(newCustomerRow) : undefined });
+      const overlaps = await followupOverlaps(row);
+      return res.status(200).json({ ok: true, followup: mapFollowup(row), customer: newCustomerRow ? mapCustomer(newCustomerRow) : undefined, overlaps });
     }
 
     if (action === 'followup_outcome') {
@@ -626,6 +673,7 @@ export default async function handler(req, res) {
         completed_at: outcome === 'rescheduled' ? null : at,
       };
       await upsert('crm_followups', row);
+      if (outcome === 'rescheduled') await followupOverlaps(row);
       const customer = existing.customer_id ? await getOne('crm_customers', existing.customer_id) : null;
       const words = { completed: 'completed', not_completed: 'could not be completed', rescheduled: 'was rescheduled' }[outcome];
       await notify([existing.created_by, ...(await adminIds())], 'followup', row.id, `Follow-up${customer ? ` for ${customer.customer_name}` : ''} ${words}.`, me.id);
@@ -660,6 +708,13 @@ export default async function handler(req, res) {
 
     // ------------------------------------------------------------------ meetings
     // Administrator sets up a CEO meeting (with colleagues and/or outside people) and the colleagues are notified.
+    // A CEO meeting that lands on a time already taken by a Meeting follow-up tells the CEO and admins.
+    const meetingVsFollowups = async (row) => {
+      if (row.status !== 'scheduled') return;
+      const clashes = (await findCeoOverlaps(Date.parse(row.start_at), Date.parse(row.end_at), { exceptMeetingId: row.id })).filter((c) => !String(c.title).startsWith('CEO meeting'));
+      await notifyOverlap(row.id, `CEO meeting "${row.title}"`, Date.parse(row.start_at), clashes, null);
+    };
+
     if (action === 'meeting_save') {
       if (!isAdmin) throw forbidden('Only an administrator can set up CEO meetings. You can request a slot instead.');
       const m = body.meeting || {};
@@ -677,6 +732,7 @@ export default async function handler(req, res) {
         await assertSlotFree(fields.start_at, fields.end_at, existing.id);
         const row = { ...existing, ...fields, attendee_ids: attendeeIds, status: existing.status === 'pending_approval' ? 'pending_approval' : 'scheduled', updated_at: nowIso() };
         await upsert('crm_meetings', row);
+        await meetingVsFollowups(row);
         const added = attendeeIds.filter((a) => !asArray(existing.attendee_ids).includes(a));
         await notify(added, 'meeting', row.id, `You were added to a CEO meeting: ${row.title}.`, me.id);
         await notify(asArray(existing.attendee_ids).filter((a) => attendeeIds.includes(a)), 'meeting', row.id, `CEO meeting updated: ${row.title}.`, me.id);
@@ -685,6 +741,7 @@ export default async function handler(req, res) {
       await assertSlotFree(fields.start_at, fields.end_at);
       const row = { id: id('mtg'), ...fields, attendee_ids: attendeeIds, status: 'scheduled', requested_by: null, decided_by: null, decision_note: '', created_by: me.id, created_at: nowIso(), updated_at: nowIso() };
       await upsert('crm_meetings', row);
+      await meetingVsFollowups(row);
       await notify(attendeeIds, 'meeting', row.id, `You were added to a CEO meeting: ${row.title}.`, me.id);
       return res.status(200).json({ ok: true, meeting: mapMeeting(row) });
     }
@@ -714,6 +771,7 @@ export default async function handler(req, res) {
       if (approve) await assertSlotFree(existing.start_at, existing.end_at, existing.id);
       const row = { ...existing, status: approve ? 'scheduled' : 'rejected', decided_by: me.id, decision_note: str(body.note, 1000, { name: 'Note' }), updated_at: nowIso() };
       await upsert('crm_meetings', row);
+      if (approve) await meetingVsFollowups(row);
       await notify([existing.requested_by], 'meeting', row.id, approve ? `Your CEO meeting request was approved: ${row.title}.` : `Your CEO meeting request was not approved: ${row.title}.`, me.id);
       return res.status(200).json({ ok: true, meeting: mapMeeting(row) });
     }
