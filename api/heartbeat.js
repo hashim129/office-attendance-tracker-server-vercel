@@ -21,7 +21,7 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-    const { employeeId, authToken, sessionToken, isUserActive, closing } = body;
+    const { employeeId, authToken, sessionToken, isUserActive, closing, confirmWork } = body;
 
     if (!employeeId) {
       return res.status(400).json({ ok: false, code: 'INVALID_REQUEST', message: 'Missing employeeId.' });
@@ -79,12 +79,29 @@ export default async function handler(req, res) {
       ? { monitoring_paused: true, record_updated_at: nowIso }
       : { last_heartbeat_at: nowIso, record_updated_at: nowIso, monitoring_paused: false, disconnected_at: null };
     if (!patch.monitoring_paused && isUserActive !== false) patch.last_activity_at = nowIso;
+    // "Are you working extra hours?" — the Windows agent shows a Yes/No box; "Yes" arrives here as confirmWork and pauses the auto punch-out.
+    const pending = await supabaseFetch(
+      `/crm_notifications?employee_id=eq.${encodeURIComponent(e.id)}&category=eq.reminder&read_at=is.null&select=*`
+    );
+    const asks = (Array.isArray(pending) ? pending : []).filter((n) => /-(end|ask-\d+-\d+)$/.test(String(n.id)) && n.ref_id === rec.id);
+    let askWorking = asks.length > 0;
+    if (confirmWork === true && !patch.monitoring_paused) {
+      patch.work_confirmed_at = nowIso;
+      if (asks.length) {
+        await supabaseFetch('/crm_notifications?on_conflict=id', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: JSON.stringify(asks.map((n) => ({ ...n, read_at: nowIso }))),
+        });
+      }
+      askWorking = false;
+    }
     await supabaseFetch(`/attendance?id=eq.${encodeURIComponent(rec.id)}&time_out=is.null`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     });
 
-    return res.status(200).json({ ok: true, state: 'active', active: true, timestamp: nowIso });
+    return res.status(200).json({ ok: true, state: 'active', active: true, askWorking, confirmedWork: confirmWork === true || undefined, timestamp: nowIso });
   } catch (err) {
     return res.status(500).json({ ok: false, code: 'SERVER_ERROR', message: String(err && err.message ? err.message : err) });
   }

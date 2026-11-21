@@ -250,6 +250,30 @@ function Show-TrayToast($title, $message, $isError = $false) {
   }
 }
 
+# Asks "Are you working extra hours?" in a separate hidden process so heartbeats keep flowing. YES pauses the automatic punch-out.
+function Start-WorkConfirmPrompt($endpoint, $employeeId, $authToken, $title) {
+  try {
+    $q = [string][char]39
+    $tpl = @'
+Add-Type -AssemblyName System.Windows.Forms
+$nl = [Environment]::NewLine
+$msg = 'Your shift has ended. Are you working extra hours?' + $nl + $nl + 'YES = I am still working (automatic punch-out is paused).' + $nl + 'NO = I am finished (please punch out).'
+$r = [System.Windows.Forms.MessageBox]::Show($msg, '__TITLE__', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
+if ($r -eq [System.Windows.Forms.DialogResult]::Yes) {
+  $body = @{ employeeId = '__EMP__'; authToken = '__TOK__'; source = 'windows-agent'; confirmWork = $true } | ConvertTo-Json -Compress
+  try { Invoke-RestMethod -Uri '__EP__' -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 20 | Out-Null } catch {}
+}
+'@
+    $esc = { param($v) ([string]$v).Replace($q, $q + $q) }
+    $cmd = $tpl.Replace('__TITLE__', (& $esc $title)).Replace('__EMP__', (& $esc $employeeId)).Replace('__TOK__', (& $esc $authToken)).Replace('__EP__', (& $esc $endpoint))
+    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
+    Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-EncodedCommand', $enc) | Out-Null
+    Write-Log 'Asked the employee whether they are working extra hours.'
+  } catch {
+    Write-Log "Could not show the extra-hours question: $($_.Exception.Message)"
+  }
+}
+
 function Open-AttendancePortal($url) {
   try {
     $candidates = @(
@@ -433,6 +457,7 @@ if ($TestOnce -or $shiftCompleted) {
 
 # Continuous silent presence & activity monitor loop (pings every 45s so one missed ping never shows 'No Internet')
 $wasOffline = (-not $online)
+$lastWorkAsk = [DateTime]::MinValue
 $didAutoPunchOnce = $online
 while ($true) {
   Start-Sleep -Seconds 45
@@ -466,6 +491,10 @@ while ($true) {
 
   $hbResp = Invoke-AttendanceApi $hbEndpoint $hbObj
   if ($hbResp -and $hbResp.ok) {
+    if ($hbResp.askWorking -eq $true -and ((Get-Date) - $lastWorkAsk).TotalMinutes -ge 10) {
+      $lastWorkAsk = Get-Date
+      Start-WorkConfirmPrompt $hbEndpoint $cfg.employeeId $cfg.authToken "$($cfg.companyName) - Extra hours?"
+    }
     if ($wasOffline) {
       Write-Log 'Internet reconnected. Attendance synced as Online.'
       Show-TrayToast "$($cfg.companyName) - Back Online" 'Internet connection restored. Attendance active.' $false

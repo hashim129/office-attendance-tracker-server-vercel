@@ -255,13 +255,23 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   }, [todayRecord?.date, todayRecord?.timeIn, todayRecord?.timeOut, userShift, graceHours, effectiveConfirmedMs]);
 
   const nowMs = currentTime.getTime();
-  const isOvertimeVerificationDue = Boolean(
+  const isFinalVerificationDue = Boolean(
     isClockedIn &&
     shiftWindow &&
     !userShift?.isNoRestriction &&
     Number.isFinite(shiftWindow.verifyAtMs) &&
     nowMs >= shiftWindow.verifyAtMs - 15 * 60 * 1000
   );
+  // Right after the shift ends, ask whether the person is staying for extra hours (a click pauses the automatic punch-out).
+  const isShiftEndAsk = Boolean(
+    isClockedIn &&
+    shiftWindow &&
+    !userShift?.isNoRestriction &&
+    Number.isFinite(shiftWindow.shiftEndMs) &&
+    nowMs >= shiftWindow.shiftEndMs &&
+    !(Number.isFinite(effectiveConfirmedMs) && effectiveConfirmedMs >= shiftWindow.shiftEndMs)
+  );
+  const isOvertimeVerificationDue = isFinalVerificationDue || isShiftEndAsk;
   const verifyMinsRemaining = shiftWindow && Number.isFinite(shiftWindow.checkAtMs)
     ? Math.max(0, Math.ceil((shiftWindow.checkAtMs - nowMs) / 60000))
     : 0;
@@ -679,10 +689,12 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                   <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                   <div className="text-xs space-y-1">
                     <p className="font-bold">
-                      Overtime Verification ({graceHours}h After Shift End) — Are you currently working?
+                      {isFinalVerificationDue ? `Overtime Verification (${graceHours}h After Shift End) — Are you currently working?` : 'Your shift has ended — are you working extra hours?'}
                     </p>
                     <p className="text-[11px] text-amber-800 dark:text-amber-200">
-                      Please verify if you are still actively working on overtime. If not verified within <b>{verifyMinsRemaining} min</b>, the system will automatically punch you out and record your overtime separately under auto punch-out remarks.
+                      {isFinalVerificationDue
+                        ? <>Please verify if you are still actively working on overtime. If not verified within <b>{verifyMinsRemaining} min</b>, the system will automatically punch you out and record your overtime separately under auto punch-out remarks.</>
+                        : <>Press “Yes” to stay punched in — the automatic punch-out is paused and you will be asked again after {graceHours} hours. If you are finished, punch out now.</>}
                     </p>
                   </div>
                 </div>

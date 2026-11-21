@@ -248,7 +248,7 @@ const getCustomFieldValue = (it: Pick<CrmPurchaseItem, 'customValues'>, cf: Purc
 };
 
 export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo';
   const isStaff = isAdmin || currentUser.role === 'accounts';
   const seesAll = isStaff || currentUser.role === 'ceo';
 

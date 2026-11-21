@@ -32,7 +32,7 @@ const DECIDE_TITLE: Record<InventoryStatus, string> = { pending: 'Update', appro
 const statusTone = (s: InventoryStatus) => (s === 'delivered' ? 'green' : s === 'approved' ? 'blue' : s === 'rejected' ? 'red' : 'amber');
 
 export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) => {
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const canReview = isAdmin || currentUser.role === 'accounts';
   const { inventory, inventoryItems: rawInventoryItems, unread } = crm.data;
 

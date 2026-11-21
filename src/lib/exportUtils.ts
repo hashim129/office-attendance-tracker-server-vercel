@@ -1,4 +1,5 @@
 import { AttendanceRecord, Employee, OfficeSettings, ShiftSchedule } from '../types';
+import { punchNotesText } from './punchNotes';
 import {
   calculateBreaksDuration,
   formatMinutesToDecimal,
@@ -149,7 +150,7 @@ export function exportAttendanceToCsv({
       escapeCsvCell(formatMinutesToDecimal(rec.unverifiedMinutes || 0)),
       escapeCsvCell(rec.workMode === 'wfh' ? 'Work From Home' : 'Office'),
       escapeCsvCell(rec.workMode === 'wfh' ? rec.wfhReason || '' : ''),
-      escapeCsvCell(rec.notes || (rec.isManuallyAdjusted ? `Adjusted: ${rec.adjustmentNote}` : '')),
+      escapeCsvCell(punchNotesText(rec) || (rec.isManuallyAdjusted ? `Adjusted: ${rec.adjustmentNote}` : '')),
     ].join(',');
   });
 

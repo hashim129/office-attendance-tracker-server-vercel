@@ -621,7 +621,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
         lastEditedByRole: effectiveUser.role,
         actorAction: 'admin_edit',
         adminOverrideAt: nowIso,
-        adminKeepOpen: true,
+        adminKeepOpen: false, // an admin clock-in must still be auto punched out like any other punch
       };
       onUpdateRecord(updated);
     } else {

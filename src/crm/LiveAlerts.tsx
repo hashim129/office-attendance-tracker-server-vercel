@@ -4,7 +4,7 @@ import { installSoundUnlock, playAlertSound } from './sound';
 import { ActiveDesktopTab } from '../types';
 import { CrmUpcoming, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
-import { formatRemaining } from './ui';
+import { formatRemaining, isWorkPrompt } from './ui';
 
 interface Toast {
   key: string;
@@ -73,7 +73,7 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
       key: `n:${n.id}`,
       kind: n.category === 'reminder' ? 'reminder' : 'notice',
       urgent: n.category === 'reminder',
-      ask: n.category === 'reminder' && String(n.id).includes('-ask-'),
+      ask: n.category === 'reminder' && isWorkPrompt(n.id),
       text: n.message,
       tab: n.category === 'followup' ? 'crm-tasks' : n.category === 'meeting' ? 'crm-meetings' : n.category === 'sale' ? 'crm-sales' : n.category === 'invoice' ? 'crm-invoices' : n.category === 'receipt' ? 'crm-receipts' : n.category === 'reminder' ? 'clock' : 'crm-inventory',
     }));

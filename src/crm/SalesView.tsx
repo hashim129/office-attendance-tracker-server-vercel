@@ -85,7 +85,7 @@ const BarChart: React.FC<{ groups: { label: string; sale: number; cost: number }
 const emptyForm = { saleType: '' as '' | SaleType, otherType: '', customerName: '', vendorName: '', packageDetails: '', paxName: '', currency: '', costAmount: '', saleAmount: '', queryCode: '', psfProfit: '' };
 
 export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const canReview = isAdmin || currentUser.role === 'accounts';
   const seesAll = canReview || currentUser.role === 'ceo';
   const { sales, currencies, unread } = crm.data;

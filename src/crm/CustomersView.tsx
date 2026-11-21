@@ -14,7 +14,7 @@ interface Props {
 }
 
 export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) => {
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const seesAll = ['admin', 'ceo', 'accounts'].includes(currentUser.role);
   const canChange = (c: CrmCustomer) => seesAll || c.createdBy === currentUser.id;
   const { customers, followups } = crm.data;

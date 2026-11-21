@@ -1,4 +1,5 @@
 import { crmCall } from '../../crm/crmApi';
+import { isWorkPrompt } from '../../crm/ui';
 import React, { useState } from 'react';
 import {
   LogOut,
@@ -215,7 +216,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
                 ) : crmLatest.map((n) => (
                   <div key={n.id} className="py-2 text-xs text-slate-700 dark:text-slate-200">
                     <p className="leading-relaxed">{n.message}</p>
-                    {String(n.id).includes('-ask-') && (
+                    {isWorkPrompt(n.id) && (
                       <button disabled={confirmingWork} onClick={() => void confirmWorking()} className="mt-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-2.5 py-1 cursor-pointer disabled:opacity-60">
                         {confirmingWork ? '…' : "Yes, I'm working"}
                       </button>

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { getPunchNotes, punchNoteLabel } from '../../lib/punchNotes';
 import {
   Calendar,
   Clock,
@@ -1088,7 +1089,13 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
                       </td>
 
                       <td className="py-3 px-4 text-slate-500 text-[11px]">
-                        {r.notes || (r.isManuallyAdjusted ? `Manual edit: ${r.adjustmentNote}` : '—')}
+                        {getPunchNotes(r).length > 0 ? (
+                          <div className="space-y-0.5">
+                            {getPunchNotes(r).map((n) => (
+                              <p key={n.id}><b className="text-slate-600 dark:text-slate-300">{punchNoteLabel(n)}:</b> {n.text}</p>
+                            ))}
+                          </div>
+                        ) : (r.isManuallyAdjusted ? `Manual edit: ${r.adjustmentNote}` : '—')}
                       </td>
                     </tr>
                   );
