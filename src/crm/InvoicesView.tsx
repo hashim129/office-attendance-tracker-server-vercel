@@ -4,7 +4,10 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CompanyProfile, CrmInvoice, InvoiceSection, VisaProgressStatus, crmCall, updateInvoiceVisaProgress } from './crmApi';
 import { crmQueryOf, ntnShown } from './invoiceHelpers';
-import { downloadInvoicePdf, downloadVendorPayablesPdf, invoicePdfFile } from './invoicePdf';
+// The PDF maker is large, so it is only loaded when someone actually downloads or shares an invoice.
+const downloadInvoicePdf = async (...a: Parameters<typeof import('./invoicePdf').downloadInvoicePdf>) => (await import('./invoicePdf')).downloadInvoicePdf(...a);
+const downloadVendorPayablesPdf = async (...a: Parameters<typeof import('./invoicePdf').downloadVendorPayablesPdf>) => (await import('./invoicePdf')).downloadVendorPayablesPdf(...a);
+const invoicePdfFile = async (...a: Parameters<typeof import('./invoicePdf').invoicePdfFile>) => (await import('./invoicePdf')).invoicePdfFile(...a);
 import { CrmState } from './useCrm';
 import { ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';

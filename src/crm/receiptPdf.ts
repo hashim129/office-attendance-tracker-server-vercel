@@ -10,7 +10,8 @@ const LINE = rgb(0.2, 0.2, 0.25);
 const BLUE = rgb(0.06, 0.2, 0.55);
 const TINT = rgb(0.9, 0.93, 0.98);
 
-export const receiptItemsText = (r: Pick<CrmReceipt, 'items' | 'otherItem'>): string[] => [...r.items, ...(r.otherItem ? [`Other: ${r.otherItem}`] : [])];
+import { receiptItemsText } from './receiptText';
+export { receiptItemsText };
 
 const dateOf = (iso: string): string => {
   const d = new Date(iso);

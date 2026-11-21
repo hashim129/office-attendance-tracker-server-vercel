@@ -28,7 +28,7 @@
     font-feature-settings: 'tnum' 1, 'cv11' 1;
     letter-spacing: -0.005em;
     min-height: 100vh;
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   * {
@@ -138,7 +138,7 @@
 }
 
 html.app-revealing body {
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 .page-enter {
@@ -268,7 +268,7 @@ html.app-revealing body {
   }
 }
 
-html, body { overflow-x: hidden; }
+html, body { overflow-x: clip; }
 
 /* Public Customers Portal (/customers) scoped motion & print pagination helpers */
 @keyframes bahaar-contrail-flow {
@@ -346,4 +346,51 @@ button:not(:disabled):active { transform: scale(0.97); }
 
 @media (prefers-reduced-motion: reduce) {
   .hero-blob, .hero-blob-slow, .hero-card { animation: none; }
+}
+
+/* ---- Customer portal: 3D launch scene, confetti, tilt cards ---- */
+.fx-scene { position: absolute; inset: 0; overflow: hidden; pointer-events: none; perspective: 1100px; z-index: 0; }
+.fx-stage { position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transition: transform 0.25s ease-out; }
+.fx-globe { position: absolute; right: 4%; top: 6%; width: 190px; height: 190px; transform-style: preserve-3d; animation: fx-fly-in 1.4s cubic-bezier(0.16, 1, 0.3, 1) both, fx-spin 22s linear 1.4s infinite; }
+.fx-ring { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid rgba(14, 165, 233, 0.45); box-shadow: 0 0 14px rgba(56, 189, 248, 0.25); }
+.fx-equator { transform: rotateX(90deg); border-color: rgba(99, 102, 241, 0.5); }
+.fx-tropic-a { transform: rotateX(90deg) translateZ(55px) scale(0.84); border-color: rgba(168, 85, 247, 0.35); }
+.fx-tropic-b { transform: rotateX(90deg) translateZ(-55px) scale(0.84); border-color: rgba(168, 85, 247, 0.35); }
+.fx-core { position: absolute; inset: 14%; border-radius: 50%; background: radial-gradient(circle at 32% 28%, rgba(125, 211, 252, 0.55), rgba(99, 102, 241, 0.28) 55%, rgba(168, 85, 247, 0.12)); filter: blur(1px); }
+.fx-orbit { position: absolute; inset: -14%; border-radius: 50%; border: 1px dashed rgba(14, 165, 233, 0.35); transform: rotateX(72deg) rotateZ(0deg); animation: fx-orbit 9s linear infinite; }
+.fx-orbit-plane { position: absolute; top: -10px; left: calc(50% - 12px); background: linear-gradient(135deg, #0ea5e9, #6366f1); padding: 3px; border-radius: 8px; width: 24px; height: 24px; transform: rotateX(-72deg); }
+.fx-tile { position: absolute; display: flex; align-items: center; justify-content: center; width: 54px; height: 54px; border-radius: 16px; color: #fff; background: linear-gradient(135deg, rgba(14, 165, 233, 0.92), rgba(99, 102, 241, 0.92)); box-shadow: 0 14px 30px rgba(79, 70, 229, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.5); animation: fx-fly-in 1.2s cubic-bezier(0.16, 1, 0.3, 1) both, fx-float 6s ease-in-out infinite; }
+.fx-t1 { left: 50%; top: 9%; animation-delay: 0.15s, 1.35s; transform: translateZ(80px); }
+.fx-t2 { left: 56%; bottom: 6%; background: linear-gradient(135deg, rgba(245, 158, 11, 0.92), rgba(244, 63, 94, 0.92)); box-shadow: 0 14px 30px rgba(244, 63, 94, 0.25), inset 0 1px 0 rgba(255,255,255,.5); animation-delay: 0.3s, 1.5s; }
+.fx-t3 { right: 22%; bottom: 5%; background: linear-gradient(135deg, rgba(16, 185, 129, 0.92), rgba(6, 182, 212, 0.92)); box-shadow: 0 14px 30px rgba(16, 185, 129, 0.25), inset 0 1px 0 rgba(255,255,255,.5); animation-delay: 0.45s, 1.65s; }
+.fx-t4 { right: 6%; bottom: 24%; background: linear-gradient(135deg, rgba(236, 72, 153, 0.92), rgba(168, 85, 247, 0.92)); box-shadow: 0 14px 30px rgba(168, 85, 247, 0.25), inset 0 1px 0 rgba(255,255,255,.5); animation-delay: 0.6s, 1.8s; }
+.fx-t5 { left: 47%; bottom: 34%; width: 46px; height: 46px; background: linear-gradient(135deg, rgba(250, 204, 21, 0.95), rgba(249, 115, 22, 0.95)); box-shadow: 0 14px 30px rgba(249, 115, 22, 0.25), inset 0 1px 0 rgba(255,255,255,.5); animation-delay: 0.75s, 1.95s; }
+.fx-t6 { right: 40%; top: 36%; width: 44px; height: 44px; background: linear-gradient(135deg, rgba(56, 189, 248, 0.95), rgba(16, 185, 129, 0.95)); box-shadow: 0 14px 30px rgba(14, 165, 233, 0.25), inset 0 1px 0 rgba(255,255,255,.5); animation-delay: 0.9s, 2.1s; }
+.fx-cloud { position: absolute; height: 34px; border-radius: 999px; background: rgba(255, 255, 255, 0.85); box-shadow: 0 10px 24px rgba(14, 165, 233, 0.15); animation: fx-fly-in 1.6s ease-out both, fx-drift 18s ease-in-out infinite alternate; }
+.fx-cloud::before, .fx-cloud::after { content: ''; position: absolute; background: inherit; border-radius: 50%; }
+.fx-cloud::before { width: 38px; height: 38px; left: 16%; top: -16px; }
+.fx-cloud::after { width: 28px; height: 28px; right: 18%; top: -10px; }
+.fx-c1 { width: 120px; left: 44%; top: 8%; }
+.fx-c2 { width: 90px; right: 8%; top: 56%; opacity: 0.8; animation-delay: 0.4s, 0s; }
+.fx-c3 { width: 70px; left: 46%; bottom: 12%; opacity: 0.7; animation-delay: 0.8s, 0s; }
+@keyframes fx-fly-in { from { opacity: 0; translate: 0 40px; scale: 0.4; filter: blur(8px); } to { opacity: 1; translate: 0 0; scale: 1; filter: blur(0); } }
+@keyframes fx-float { 0%, 100% { translate: 0 0; rotate: -3deg; } 50% { translate: 0 -16px; rotate: 4deg; } }
+@keyframes fx-spin { to { transform: rotateY(360deg) rotateX(12deg); } }
+@keyframes fx-orbit { to { transform: rotateX(72deg) rotateZ(360deg); } }
+@keyframes fx-drift { from { transform: translateX(-14px); } to { transform: translateX(22px); } }
+.fx-word { animation: fx-word-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes fx-word-in { from { opacity: 0; transform: translateY(10px) rotateX(-40deg); } to { opacity: 1; transform: none; } }
+.fx-confetti { position: fixed; inset: 0; z-index: 80; overflow: hidden; pointer-events: none; }
+.fx-confetti span { position: absolute; top: -12px; width: 9px; height: 14px; border-radius: 2px; animation-name: fx-fall; animation-timing-function: ease-in; animation-fill-mode: both; }
+@keyframes fx-fall { to { transform: translate3d(var(--drift), 110vh, 0) rotate(calc(var(--rot) + 720deg)); opacity: 0.9; } }
+[data-tilt] { transition: transform 0.18s ease-out, box-shadow 0.2s ease; will-change: transform; }
+@media (max-width: 767px) {
+  .fx-globe { width: 120px; height: 120px; right: -2%; top: 2%; opacity: 0.8; }
+  .fx-tile { width: 42px; height: 42px; border-radius: 13px; }
+  .fx-t1, .fx-t6, .fx-c1 { display: none; }
+  .fx-stage { opacity: 0.38; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx-globe, .fx-tile, .fx-cloud, .fx-word, .fx-orbit { animation: none !important; }
+  .fx-stage { transition: none; }
 }

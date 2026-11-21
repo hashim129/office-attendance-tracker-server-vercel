@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { fmtAmount } from '../crm/currencies';
 import PlaneAnimation from './PlaneAnimation';
+import { Confetti, FloatingScene, RotatingWord, useTiltCards } from './PortalFx';
 import {
   CURATED_DESTINATIONS,
   DESTINATION_REGIONS,
@@ -983,6 +984,9 @@ export default function CustomersPortalPage() {
   }, [gateStatus, executeLookup]);
 
   const foundData = lookupState.kind === 'found' ? lookupState.data : null;
+  useTiltCards();
+  // A little celebration when a visa has been issued for the booking being tracked.
+  const confettiKey = foundData && foundData.invoices.some((inv) => inv.visaProgress?.status === 'issued') ? `${foundData.query}-issued` : '';
 
   const filteredInvoices = useMemo(() => {
     if (!foundData) return [];
@@ -1705,6 +1709,7 @@ export default function CustomersPortalPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
+      <Confetti burstKey={confettiKey} />
       {/* Screen Header */}
       <header className="no-print sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
@@ -1754,8 +1759,9 @@ export default function CustomersPortalPage() {
 
       <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-8">
         {/* Hero + Lookup + Live Plane Animation */}
-        <section className="no-print space-y-5">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+        <section className="no-print relative space-y-5">
+          <FloatingScene />
+          <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
             <div className="lg:col-span-5 space-y-4">
               <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 border border-amber-200/90 px-3 py-1 text-xs font-semibold text-amber-800">
                 <Sparkles className="w-3.5 h-3.5 text-amber-600" />
@@ -1763,7 +1769,9 @@ export default function CustomersPortalPage() {
               </div>
 
               <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 leading-tight">
-                Track your journey, invoices &amp; visa progress.
+                Track your journey to{' '}
+                <RotatingWord words={['Dubai', 'Istanbul', 'Bangkok', 'Singapore', 'London', 'Paris', 'Maldives', 'Kuala Lumpur']} />
+                , invoices &amp; visa progress.
               </h1>
 
               <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
@@ -2892,6 +2900,7 @@ export default function CustomersPortalPage() {
               return (
                 <div
                   key={dest.id}
+                  data-tilt
                   onClick={() => setActiveDestination(dest)}
                   role="button"
                   tabIndex={0}

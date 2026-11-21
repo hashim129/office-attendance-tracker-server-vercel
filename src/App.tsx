@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   ActiveDesktopTab,
   AppMode,
@@ -55,26 +55,36 @@ import { LoginView } from './components/desktop/LoginView';
 import { DesktopHeader } from './components/desktop/DesktopHeader';
 import { DesktopSidebar } from './components/desktop/DesktopSidebar';
 import { PunchClockTab } from './components/desktop/PunchClockTab';
-import { MyAttendanceTab } from './components/desktop/MyAttendanceTab';
-import { TeamAttendanceTab } from './components/desktop/TeamAttendanceTab';
-import { EmployeesDirectoryTab } from './components/desktop/EmployeesDirectoryTab';
-import { ShiftManagementTab } from './components/desktop/ShiftManagementTab';
-import { LeaveManagementTab } from './components/desktop/LeaveManagementTab';
-import { ReportsTab } from './components/desktop/ReportsTab';
-import { SmartInsightsTab } from './components/desktop/SmartInsightsTab';
-import { OfficeSettingsTab } from './components/desktop/OfficeSettingsTab';
-import { PrintableTimesheetModal } from './components/desktop/PrintableTimesheetModal';
 import { ChangePasswordModal } from './components/common/ChangePasswordModal';
 import { verifyAdminPin, rememberSession, takePendingToken } from './lib/pinAuth';
 import { QuickJump } from './components/common/QuickJump';
-import { FaceScanModal } from './components/common/FaceScanModal';
 import { CRM_ENABLED } from './crm/config';
 import { useCrm } from './crm/useCrm';
-import { CrmPage } from './crm/CrmPage';
 import { PageHero } from './components/common/PageHero';
 import { DirectivePopup } from './components/common/DirectivePopup';
 import { LiveAlerts } from './crm/LiveAlerts';
-import { KioskMode } from './components/kiosk/KioskMode';
+
+function TabLoader() {
+  return (
+    <div role="status" aria-label="Loading page" className="flex items-center justify-center py-24">
+      <div className="w-8 h-8 rounded-full border-[3px] border-slate-200 dark:border-slate-700 border-t-blue-600 animate-spin" />
+    </div>
+  );
+}
+
+// Pages are loaded only when opened, so the first screen appears much faster.
+const MyAttendanceTab = lazy(() => import('./components/desktop/MyAttendanceTab').then((m) => ({ default: m.MyAttendanceTab })));
+const TeamAttendanceTab = lazy(() => import('./components/desktop/TeamAttendanceTab').then((m) => ({ default: m.TeamAttendanceTab })));
+const EmployeesDirectoryTab = lazy(() => import('./components/desktop/EmployeesDirectoryTab').then((m) => ({ default: m.EmployeesDirectoryTab })));
+const ShiftManagementTab = lazy(() => import('./components/desktop/ShiftManagementTab').then((m) => ({ default: m.ShiftManagementTab })));
+const LeaveManagementTab = lazy(() => import('./components/desktop/LeaveManagementTab').then((m) => ({ default: m.LeaveManagementTab })));
+const ReportsTab = lazy(() => import('./components/desktop/ReportsTab').then((m) => ({ default: m.ReportsTab })));
+const SmartInsightsTab = lazy(() => import('./components/desktop/SmartInsightsTab').then((m) => ({ default: m.SmartInsightsTab })));
+const OfficeSettingsTab = lazy(() => import('./components/desktop/OfficeSettingsTab').then((m) => ({ default: m.OfficeSettingsTab })));
+const PrintableTimesheetModal = lazy(() => import('./components/desktop/PrintableTimesheetModal').then((m) => ({ default: m.PrintableTimesheetModal })));
+const FaceScanModal = lazy(() => import('./components/common/FaceScanModal').then((m) => ({ default: m.FaceScanModal })));
+const CrmPage = lazy(() => import('./crm/CrmPage').then((m) => ({ default: m.CrmPage })));
+const KioskMode = lazy(() => import('./components/kiosk/KioskMode').then((m) => ({ default: m.KioskMode })));
 
 export default function App() {
   const [appMode, setAppMode] = useState<AppMode>(loadSavedMode());
@@ -1030,6 +1040,7 @@ export default function App() {
 
       {/* Screen Mode Render */}
       {appMode === 'kiosk' ? (
+        <Suspense fallback={<TabLoader />}>
         <KioskMode
           employees={employees}
           shifts={shifts}
@@ -1044,6 +1055,7 @@ export default function App() {
           currentClientIsp={currentClientIsp}
           alternateIp={alternateIp}
         />
+        </Suspense>
       ) : !currentUser ? (
         <LoginView
           employees={employees}
@@ -1052,7 +1064,7 @@ export default function App() {
           isSyncing={isInitialCloudSyncing}
         />
       ) : (
-        <div className="app-reveal flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] min-w-0 w-full overflow-x-hidden">
+        <div className="app-reveal flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] min-w-0 w-full overflow-x-clip">
           {/* Header */}
           <DesktopHeader
             currentUser={currentUser}
@@ -1073,7 +1085,7 @@ export default function App() {
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
-          <div className="flex-1 flex min-w-0 w-full overflow-x-hidden">
+          <div className="flex-1 flex min-w-0 w-full overflow-x-clip">
             <DesktopSidebar
               currentUser={currentUser}
               activeTab={activeTab}
@@ -1086,10 +1098,19 @@ export default function App() {
               crmBadges={crm.badges}
             />
 
-            <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-x-hidden overflow-y-auto bg-slate-50/50 dark:bg-slate-950/40">
+            <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-x-clip bg-slate-50/50 dark:bg-slate-950/40">
               <div key={activeTab} className="page-enter min-w-0">
-                <PageHero tab={activeTab} name={currentUser?.name || ''} isAdmin={currentUser?.role === 'admin' || currentUser?.role === 'ceo'} crm={crm} />
+                <PageHero
+                  tab={activeTab}
+                  name={currentUser?.name || ''}
+                  isAdmin={currentUser?.role === 'admin' || currentUser?.role === 'ceo'}
+                  crm={crm}
+                  todayRecord={records.find((r) => r.employeeId === currentUser?.id && r.date === getTodayDateString())}
+                  unreadDirectives={ceoComments.filter((c) => c.employeeId === currentUser?.id && !c.isRead).length}
+                  onNavigate={setActiveTab}
+                />
                 <ErrorBoundary>
+                  <Suspense fallback={<TabLoader />}>
                 {activeTab === 'clock' && (
                 <PunchClockTab
                   onRecheckNetwork={handleRecheckNetwork}
@@ -1224,6 +1245,7 @@ export default function App() {
                   currentClientIsp={currentClientIsp}
                 />
               )}
+                  </Suspense>
               </ErrorBoundary>
               {CRM_ENABLED && <LiveAlerts crm={crm} onOpen={setActiveTab} />}
               {currentUser && <DirectivePopup comments={ceoComments} userId={currentUser.id} onRead={handleMarkCeoCommentRead} />}
@@ -1236,7 +1258,7 @@ export default function App() {
 
       {/* Printable Timesheet Document Preview Modal */}
       {printModalState.isOpen && (
-        <PrintableTimesheetModal
+        <Suspense fallback={null}><PrintableTimesheetModal
           isOpen={printModalState.isOpen}
           onClose={() =>
             setPrintModalState({
@@ -1251,12 +1273,12 @@ export default function App() {
           shifts={shifts}
           settings={settings}
           currentUser={currentUser}
-        />
+        /></Suspense>
       )}
 
       {/* Face scan before punching (High security) */}
       {faceRequest && (
-        <FaceScanModal
+        <Suspense fallback={null}><FaceScanModal
           isOpen
           mode="verify"
           employeeId={faceRequest.employeeId}
@@ -1267,12 +1289,12 @@ export default function App() {
             setFaceRequest(null);
             run();
           }}
-        />
+        /></Suspense>
       )}
 
       {/* Required face set-up through the person's own login */}
       {enrollSelf && (
-        <FaceScanModal
+        <Suspense fallback={null}><FaceScanModal
           isOpen
           mode="enroll-self"
           employeeId={enrollSelf.employeeId}
@@ -1285,7 +1307,7 @@ export default function App() {
             refreshFaceStatus();
             if (run) run();
           }}
-        />
+        /></Suspense>
       )}
 
       {/* Change Password / PIN Modal */}
