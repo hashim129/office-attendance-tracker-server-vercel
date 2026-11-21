@@ -325,3 +325,109 @@ export async function downloadInvoicePdf(inv: CrmInvoice, company: CompanyProfil
   a.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
+
+/** Internal vendor-payables statement of one customer invoice (office record, never given to the customer). */
+export async function buildVendorPayablesPdf(inv: CrmInvoice, company: CompanyProfile, preparedBy: string): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  pdf.setTitle(`Vendor payables ${inv.invoiceNo}`);
+  pdf.setAuthor(company.name || 'Vendor payables');
+  const reg = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const serif = await pdf.embedFont(StandardFonts.TimesRomanBold);
+  const logo = await loadLogo(pdf);
+  const paid = inv.vendorStatus === 'paid';
+  const rows = (inv.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0);
+  const COL = [28, 120, 150, 100, 117]; // SN, vendor, description, bank, payable (sum 515)
+  const colX = (i: number) => M + COL.slice(0, i).reduce((a, b) => a + b, 0);
+
+  let page: PDFPage = pdf.addPage(A4);
+  let y = A4[1] - M;
+  const text = (t: string, x: number, yy: number, size = 9, font: PDFFont = reg, color = INK) => page.drawText(safe(font, t), { x, y: yy, size, font, color });
+  const right = (t: string, xr: number, yy: number, size = 9, font: PDFFont = reg, color = INK) =>
+    page.drawText(safe(font, t), { x: xr - font.widthOfTextAtSize(safe(font, t), size), y: yy, size, font, color });
+  const hline = (yy: number) => page.drawLine({ start: { x: M, y: yy }, end: { x: A4[0] - M, y: yy }, thickness: 0.7, color: LINE });
+
+  if (logo) {
+    const logoW = 300;
+    const h = (logo.height / logo.width) * logoW;
+    page.drawImage(logo, { x: M - 4, y: y - h, width: logoW, height: h });
+    y -= h + 10;
+  } else {
+    text(company.name || 'Company', M, y - 20, 20, bold, BLUE);
+    y -= 34;
+  }
+
+  const title = 'VENDOR PAYABLES';
+  page.drawText(title, { x: A4[0] / 2 - serif.widthOfTextAtSize(title, 20) / 2, y: y - 14, size: 20, font: serif, color: INK });
+  y -= 36;
+  const stamp = paid ? 'PAID' : 'UNPAID';
+  const stampCol = paid ? rgb(0.05, 0.5, 0.25) : rgb(0.75, 0.45, 0.05);
+  right(stamp, A4[0] - M, y + 6, 14, bold, stampCol);
+
+  const meta: [string, string][] = [
+    ['Invoice No', inv.invoiceNo], ['Customer', inv.customerName], ['CRM ID / Query Code', crmQueryOf(inv) || '-'],
+    ['Invoice Date', niceDate(inv.invoiceDate)], ['Vendor side status', paid ? `Paid${inv.vendorPaidAt ? ' on ' + niceDate(inv.vendorPaidAt) : ''}` : 'Unpaid'],
+  ];
+  meta.forEach(([k, v]) => { text(k, M, y, 9, bold, SOFT); text(v, M + 130, y, 9.5, reg); y -= 14; });
+  y -= 8;
+
+  const head = () => {
+    page.drawRectangle({ x: M, y: y - 16, width: 515, height: 18, color: GREY });
+    ['SN', 'VENDOR', 'DESCRIPTION', 'BANK', 'PAYABLE'].forEach((h, i) => {
+      if (i === 4) right(h, colX(4) + COL[4] - 4, y - 11, 8.5, bold);
+      else text(h, colX(i) + 4, y - 11, 8.5, bold);
+    });
+    y -= 20;
+  };
+  head();
+  const totals = new Map<string, number>();
+  rows.forEach((v, idx) => {
+    const cur = v.currency || inv.currency;
+    totals.set(cur, (totals.get(cur) || 0) + (v.amount || 0));
+    const desc = wrap(reg, [v.description || '', v.unitPrice !== null && v.unitPrice !== undefined ? `${cur} ${fmtAmount(v.unitPrice)} x ${fmtAmount(v.units ?? 1)}` : ''].filter(Boolean).join('\n'), 8.5, COL[2] - 8);
+    const bank = wrap(reg, v.bank || '', 8, COL[3] - 8);
+    const name = wrap(bold, v.name || '-', 9, COL[1] - 8);
+    const lines = Math.max(desc.length, bank.length, name.length);
+    const h = lines * 11 + 8;
+    if (y - h < 60) { page = pdf.addPage(A4); y = A4[1] - M; head(); }
+    text(String(idx + 1), colX(0) + 4, y - 11, 9);
+    name.forEach((l, i) => text(l, colX(1) + 4, y - 11 - i * 11, 9, bold));
+    desc.forEach((l, i) => text(l, colX(2) + 4, y - 11 - i * 11, 8.5));
+    bank.forEach((l, i) => text(l, colX(3) + 4, y - 11 - i * 11, 8, reg, SOFT));
+    right(`${cur} ${fmtAmount(v.amount || 0)}`, colX(4) + COL[4] - 4, y - 11, 9, bold);
+    y -= h;
+    page.drawLine({ start: { x: M, y }, end: { x: A4[0] - M, y }, thickness: 0.4, color: GREY });
+  });
+  if (!rows.length) { text('No vendor payables recorded for this invoice.', M + 4, y - 14, 9, reg, SOFT); y -= 24; }
+  y -= 8;
+  hline(y);
+  y -= 16;
+  [...totals.entries()].forEach(([cur, amt]) => {
+    text('Total payable', colX(3) + 4, y, 9.5, bold);
+    right(`${cur} ${fmtAmount(amt)}`, colX(4) + COL[4] - 4, y, 10.5, bold);
+    y -= 15;
+  });
+  y -= 14;
+  text('Internal payable record - not for customers', M, y, 8.5, reg, SOFT);
+  if (preparedBy) text(`Prepared by ${preparedBy}`, M, y - 11, 8, reg, SOFT);
+
+  const pages = pdf.getPages();
+  pages.forEach((p, i) => {
+    const t = `${inv.invoiceNo} vendor payables  -  Page ${i + 1} of ${pages.length}`;
+    p.drawText(t, { x: A4[0] / 2 - reg.widthOfTextAtSize(t, 7) / 2, y: 20, size: 7, font: reg, color: SOFT });
+  });
+  return pdf.save();
+}
+
+export async function downloadVendorPayablesPdf(inv: CrmInvoice, company: CompanyProfile, preparedBy: string): Promise<void> {
+  const bytes = await buildVendorPayablesPdf(inv, company, preparedBy);
+  const file = new File([bytes], `${inv.invoiceNo}-vendor-payables.pdf`, { type: 'application/pdf' });
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+}

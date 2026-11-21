@@ -44,6 +44,8 @@ export interface CrmFollowup {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  /** Remarks added by everyone on the follow-up, kept permanently */
+  remarkLog?: { id: string; at: string; by: string; text: string }[];
 }
 
 export interface CrmMeeting {
@@ -190,6 +192,10 @@ export interface CrmInvoice {
   balance: number;
   notes: string;
   status: 'unpaid' | 'paid' | 'cancelled';
+  /** Paid state of the vendor side (what we owe the vendors listed on this invoice), separate from the customer side */
+  vendorStatus?: 'unpaid' | 'paid';
+  vendorPaidAt?: string | null;
+  vendorPaidBy?: string | null;
   createdAt: string;
   updatedAt: string;
 }

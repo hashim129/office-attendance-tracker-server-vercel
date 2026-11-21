@@ -20,7 +20,7 @@ interface FormState {
   queryCode: string; clientName: string;
   items: string[]; otherOn: boolean; otherItem: string;
   paymentType: 'full' | 'partial';
-  currency: string; totalAmount: string; amountReceived: string;
+  currency: string; amountReceived: string;
   method: 'cash' | 'bank'; bankName: string; referenceNo: string;
   /** new screenshot picked now (compressed data URL) */
   proofImage: string; hadProof: boolean; removeProof: boolean;
@@ -28,12 +28,12 @@ interface FormState {
 }
 
 const blankForm = (): FormState => ({
-  queryCode: '', clientName: '', items: [], otherOn: false, otherItem: '', paymentType: 'full', currency: 'PKR', totalAmount: '', amountReceived: '',
+  queryCode: '', clientName: '', items: [], otherOn: false, otherItem: '', paymentType: 'full', currency: 'PKR', amountReceived: '',
   method: 'cash', bankName: '', referenceNo: '', proofImage: '', hadProof: false, removeProof: false, purpose: '',
 });
 const toForm = (r: CrmReceipt): FormState => ({
   id: r.id, queryCode: r.queryCode, clientName: r.clientName, items: r.items, otherOn: Boolean(r.otherItem), otherItem: r.otherItem, paymentType: r.paymentType, currency: r.currency,
-  totalAmount: String(r.totalAmount), amountReceived: r.paymentType === 'partial' ? String(r.amountReceived) : '', method: r.method, bankName: r.bankName, referenceNo: r.referenceNo,
+  amountReceived: String(r.amountReceived), method: r.method, bankName: r.bankName, referenceNo: r.referenceNo,
   proofImage: '', hadProof: r.hasProof, removeProof: false, purpose: r.purpose,
 });
 
@@ -73,8 +73,8 @@ const Group: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
 const niceDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
 export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) => {
-  const isStaff = currentUser.role === 'admin' || currentUser.role === 'accounts';
-  const isAdmin = currentUser.role === 'admin';
+  const isStaff = currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.role === 'ceo';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const seesAll = isStaff || currentUser.role === 'ceo';
   const { receipts, company } = crm.data;
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
@@ -142,7 +142,7 @@ export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) =
       const r = await crmCall<{ receipt: CrmReceipt }>('receipt_save', {
         receipt: {
           id: form.id, queryCode: form.queryCode, clientName: form.clientName, items: form.items, otherItem: form.otherOn ? form.otherItem : '',
-          paymentType: form.paymentType, currency: form.currency, totalAmount: form.totalAmount, amountReceived: form.paymentType === 'partial' ? form.amountReceived : form.totalAmount,
+          paymentType: form.paymentType, currency: form.currency, amountReceived: form.amountReceived,
           method: form.method, bankName: form.bankName, referenceNo: form.referenceNo, purpose: form.purpose,
           ...(form.proofImage ? { proofImage: form.proofImage } : {}), removeProof: form.removeProof && !form.proofImage,
         },
@@ -222,8 +222,7 @@ export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) =
                 </div>
                 <div className="lg:text-right shrink-0">
                   <p className="text-[11px] text-slate-500">Received <b className="font-mono text-emerald-600">{r.currency} {fmtAmount(r.amountReceived)}</b></p>
-                  <p className="text-[11px] text-slate-500">Sold for <b className="font-mono text-slate-900 dark:text-slate-100">{r.currency} {fmtAmount(r.totalAmount)}</b></p>
-                  {r.paymentType === 'partial' && <p className="text-[11px] text-slate-500">Balance <b className="font-mono text-amber-600">{r.currency} {fmtAmount(balanceOf(r))}</b></p>}
+                  {r.paymentType === 'partial' && balanceOf(r) > 0 && <p className="text-[11px] text-slate-500">Balance <b className="font-mono text-amber-600">{r.currency} {fmtAmount(balanceOf(r))}</b></p>}
                 </div>
               </div>
               <div className="flex flex-wrap gap-1.5 mt-3">
@@ -252,8 +251,8 @@ export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) =
               {([
                 ['Client', view.clientName], ['Query code', view.queryCode],
                 ['What was sold', receiptItemsText(view).join(', ') || '—'], ['On account of', view.purpose || '—'],
-                ['Payment', view.paymentType === 'partial' ? 'Partial payment' : 'Full payment'], ['Total payment (sold for)', `${view.currency} ${fmtAmount(view.totalAmount)}`],
-                ['Amount received', `${view.currency} ${fmtAmount(view.amountReceived)}`], ...(view.paymentType === 'partial' ? [['Balance remaining', `${view.currency} ${fmtAmount(balanceOf(view))}`]] : []),
+                ['Payment', view.paymentType === 'partial' ? 'Partial payment' : 'Full payment'],
+                ['Amount received', `${view.currency} ${fmtAmount(view.amountReceived)}`], ...(view.paymentType === 'partial' && balanceOf(view) > 0 ? [['Balance remaining', `${view.currency} ${fmtAmount(balanceOf(view))}`]] : []),
                 ['Received through', view.method === 'bank' ? 'Bank transfer' : 'Cash'], ...(view.method === 'bank' ? [['Bank', view.bankName || '—']] : []),
                 ['Reference No / Transaction ID', view.referenceNo || '—'], ['Created by', `${by(view) || 'Former employee'} · ${niceDate(view.createdAt)}`],
               ] as [string, string][]).map(([k, v]) => (
@@ -310,13 +309,7 @@ export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) =
                   {currencies.map((c) => <option key={c.code} value={c.code}>{currencyLabel(c)}</option>)}
                 </select>
               </Field>
-              <Field label="Total Payment sold for *"><input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={form.totalAmount} onChange={(e) => patch({ totalAmount: e.target.value })} required /></Field>
-              {form.paymentType === 'partial' && (
-                <Field label="Amount received *"><input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={form.amountReceived} onChange={(e) => patch({ amountReceived: e.target.value })} required /></Field>
-              )}
-              {form.paymentType === 'partial' && Number(form.totalAmount) > Number(form.amountReceived) && Number(form.amountReceived) > 0 && (
-                <p className="sm:col-span-2 text-[11px] text-amber-700 dark:text-amber-400 self-end pb-2">Balance remaining: <b>{form.currency} {fmtAmount(Number(form.totalAmount) - Number(form.amountReceived))}</b></p>
-              )}
+              <Field label="Amount received *"><input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={form.amountReceived} onChange={(e) => patch({ amountReceived: e.target.value })} required /></Field>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

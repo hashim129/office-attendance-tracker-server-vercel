@@ -25,7 +25,7 @@ const nextHour = (): Date => {
 const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
 export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) => {
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const { meetings, customers, unread } = crm.data;
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const customerOf = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);

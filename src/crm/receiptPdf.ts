@@ -143,10 +143,9 @@ export async function buildReceiptPdf(r: CrmReceipt, company: CompanyProfile, re
   // ----- payment details
   const rows: [string, string, boolean][] = [
     ['Payment', r.paymentType === 'partial' ? 'Partial payment' : 'Full payment', false],
-    ['Total payment (sold for)', `${cur} ${fmtAmount(r.totalAmount)}`, false],
     ['Amount received', `${cur} ${fmtAmount(r.amountReceived)}`, true],
   ];
-  if (r.paymentType === 'partial') rows.push(['Balance remaining', `${cur} ${fmtAmount(Math.max(0, r.totalAmount - r.amountReceived))}`, false]);
+  if (r.paymentType === 'partial' && r.totalAmount > r.amountReceived) rows.push(['Balance remaining', `${cur} ${fmtAmount(Math.max(0, r.totalAmount - r.amountReceived))}`, false]);
   rows.push(['Received through', r.method === 'bank' ? 'Bank transfer' : 'Cash', false]);
   if (r.method === 'bank' && r.bankName) rows.push(['Bank', r.bankName, false]);
   if (r.referenceNo) rows.push(['Reference No / Transaction ID', r.referenceNo, false]);

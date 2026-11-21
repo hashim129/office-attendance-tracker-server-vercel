@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, Trash2, Eye, Search, X, UserCheck, Users, CalendarClock, FileText, Building2, Phone, MapPin, History } from 'lucide-react';
+import { Pencil, Plus, Trash2, Eye, Search, X, UserCheck, Users, CalendarClock, FileText, Building2, Phone, MapPin, History, MessageSquare } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmFollowup, FollowupStatus, crmCall } from './crmApi';
@@ -19,7 +19,7 @@ type StatusFilter = 'open' | 'all' | FollowupStatus;
 const statusTone = (s: FollowupStatus) => (s === 'completed' ? 'green' : s === 'not_completed' ? 'red' : s === 'rescheduled' ? 'violet' : 'amber');
 
 export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const { customers, followups, unread } = crm.data;
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const customerOf = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
@@ -36,6 +36,11 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   const [newDue, setNewDue] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [remarkText, setRemarkText] = useState('');
+  const [remarkBusy, setRemarkBusy] = useState(false);
+  const [remarkError, setRemarkError] = useState('');
+
+  useEffect(() => { setRemarkText(''); setRemarkError(''); }, [viewingId]);
 
   const viewing = useMemo(() => (viewingId ? followups.find((f) => f.id === viewingId) || null : null), [followups, viewingId]);
 
@@ -115,6 +120,22 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
       setError(err?.message || 'Could not update the follow-up.');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const addRemark = async (f: CrmFollowup) => {
+    const text = remarkText.trim();
+    if (!text || remarkBusy) return;
+    setRemarkBusy(true);
+    setRemarkError('');
+    try {
+      await crmCall('followup_remark', { id: f.id, text });
+      setRemarkText('');
+      await crm.refresh();
+    } catch (err: any) {
+      setRemarkError(err?.message || 'Could not save your remark.');
+    } finally {
+      setRemarkBusy(false);
     }
   };
 
@@ -201,7 +222,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
           {rows.map((f) => {
             const c = f.customerId ? customerOf.get(f.customerId) : undefined;
             const isOpen = f.status === 'pending' || f.status === 'rescheduled';
-            const canAct = f.assignedTo === currentUser.id || isAdmin;
+            const canAct = f.assignedTo === currentUser.id || f.createdBy === currentUser.id || isAdmin;
             const canManage = f.createdBy === currentUser.id || isAdmin;
             const takingName = empName.get(f.assignedTo) || 'Former employee';
             const creatorName = empName.get(f.createdBy) || 'Former employee';
@@ -311,7 +332,9 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
         {viewing && (() => {
           const vc = viewing.customerId ? customerOf.get(viewing.customerId) : undefined;
           const vOpen = viewing.status === 'pending' || viewing.status === 'rescheduled';
-          const vCanAct = viewing.assignedTo === currentUser.id || isAdmin;
+          const vCanAct = viewing.assignedTo === currentUser.id || viewing.createdBy === currentUser.id || isAdmin;
+          const vCanRemark = viewing.createdBy === currentUser.id || viewing.assignedTo === currentUser.id || viewing.participantIds.includes(currentUser.id) || isAdmin;
+          const vRemarks = viewing.remarkLog || [];
           const vCanManage = viewing.createdBy === currentUser.id || isAdmin;
           const vTaking = empName.get(viewing.assignedTo) || 'Former employee';
           const vCreator = empName.get(viewing.createdBy) || 'Former employee';
@@ -443,6 +466,31 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                   </ul>
                 </div>
               )}
+
+              {/* Remarks from everyone on this follow-up (kept permanently) */}
+              <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <MessageSquare className="w-3.5 h-3.5" /> Remarks ({vRemarks.length})
+                </span>
+                {vRemarks.length === 0 && <p className="text-[11px] text-slate-400">No remarks yet.</p>}
+                <ul className="space-y-2">
+                  {vRemarks.map((r) => (
+                    <li key={r.id} className="text-[11px] text-slate-600 dark:text-slate-400 border-l-2 border-blue-300 dark:border-blue-800 pl-2.5">
+                      <b className="text-slate-800 dark:text-slate-200">{empName.get(r.by) || 'Former employee'}</b> · {fmtDateTime(r.at)}
+                      <span className="block text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words mt-0.5">{r.text}</span>
+                    </li>
+                  ))}
+                </ul>
+                {vCanRemark && (
+                  <div className="space-y-1.5 pt-1">
+                    <textarea className={inputCls} rows={2} maxLength={2000} placeholder="Write your remark…" value={remarkText} onChange={(e) => setRemarkText(e.target.value)} />
+                    {remarkError && <ErrorNote message={remarkError} />}
+                    <button type="button" className={btnPrimary} disabled={remarkBusy || !remarkText.trim()} onClick={() => void addRemark(viewing)}>
+                      {remarkBusy ? 'Saving…' : 'Add remark'}
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Modal Footer Actions */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">

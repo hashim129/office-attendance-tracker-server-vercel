@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { getPunchNotes, punchNoteLabel } from '../../lib/punchNotes';
 import {
   FileSpreadsheet,
   Download,
@@ -872,7 +873,13 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                       </td>
 
                       <td className="py-3 px-4 text-slate-500 text-[11px]">
-                        {r.notes || (r.isManuallyAdjusted ? `Adjusted: ${r.adjustmentNote}` : '—')}
+                        {getPunchNotes(r).length > 0 ? (
+                          <div className="space-y-0.5">
+                            {getPunchNotes(r).map((n) => (
+                              <p key={n.id}><b className="text-slate-600 dark:text-slate-300">{punchNoteLabel(n)}:</b> {n.text}</p>
+                            ))}
+                          </div>
+                        ) : (r.isManuallyAdjusted ? `Adjusted: ${r.adjustmentNote}` : '—')}
                       </td>
 
                       {(currentUser?.role === 'ceo' || currentUser?.role === 'admin' || currentUser?.role === 'accounts') && (

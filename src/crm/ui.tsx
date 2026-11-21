@@ -18,6 +18,9 @@ export const Field: React.FC<{ label: string; hint?: string; children: React.Rea
   </label>
 );
 
+/** Reminders that need an answer: the shift-end question and the "still working?" question before auto punch-out. */
+export const isWorkPrompt = (id: unknown): boolean => /-(end|ask-\d+-\d+)$/.test(String(id));
+
 export const Pill: React.FC<{ tone: 'blue' | 'green' | 'amber' | 'red' | 'slate' | 'violet'; children: React.ReactNode }> = ({ tone, children }) => {
   const tones = {
     blue: 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border-blue-200 dark:border-blue-900',

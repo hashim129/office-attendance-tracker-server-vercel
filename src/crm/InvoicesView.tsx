@@ -4,7 +4,7 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CompanyProfile, CrmInvoice, InvoiceSection, InvoiceVendor, crmCall } from './crmApi';
 import { crmQueryOf, ntnShown } from './invoiceHelpers';
-import { downloadInvoicePdf, invoicePdfFile } from './invoicePdf';
+import { downloadInvoicePdf, downloadVendorPayablesPdf, invoicePdfFile } from './invoicePdf';
 import { CrmState } from './useCrm';
 import { ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
@@ -37,6 +37,11 @@ const isServiceTitle = (t: string) => /service/i.test(t);
 const uid = () => `k${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
 const blankLine = (currency: string, taxable = false): FormLine => ({ description: '', unitPrice: '', units: '1', currency, rate: '', taxable, note: false, key: uid(), locked: false });
 const newSection = (title: string, currency: string): FormSection => ({ title, key: uid(), locked: false, lines: [blankLine(currency, isServiceTitle(title))] });
+/** An invoice has vendor lines to pay (office record). */
+const hasVendorLines = (i: CrmInvoice) => (i.kind || 'customer') === 'customer' && (i.vendors || []).some((v) => v.name || (v.amount ?? 0) > 0);
+/** Paid on every side: the customer side, and the vendor side too when the invoice has vendors. */
+const fullyPaid = (i: CrmInvoice) => i.status === 'paid' && (!hasVendorLines(i) || i.vendorStatus === 'paid');
+
 const blankVendor = (currency: string): FormVendor => ({ name: '', description: '', unitPrice: '', units: '', amount: '', currency, bank: '' });
 const blankForm = (kind: 'customer' | 'vendor' = 'customer', companyNtn = ''): FormState => ({
   kind, crmId: '', customerName: '', customerPhone: '', reference: '', ntn: companyNtn, showNtn: true, vendors: kind === 'customer' ? [blankVendor('PKR')] : [], invoiceDate: today(), dueDate: '', currency: 'PKR',
@@ -176,8 +181,8 @@ const InvoicePreview: React.FC<{ inv: CrmInvoice; company: CompanyProfile; by: s
 };
 
 export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
-  const isStaff = currentUser.role === 'admin' || currentUser.role === 'accounts';
-  const isAdmin = currentUser.role === 'admin';
+  const isStaff = currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.role === 'ceo';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const seesAll = isStaff || currentUser.role === 'ceo';
   const { invoices: allInvoices, company } = crm.data;
   const [side, setSide] = useState<'customer' | 'vendor'>('customer');
@@ -226,9 +231,10 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
   }), [customerInvoices]);
 
   const payableCounts = useMemo(() => {
-    const inlineUnpaid = customerInvoices.filter((i) => i.status === 'unpaid').reduce((acc, i) => acc + (i.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0).length, 0);
-    const inlinePaid = customerInvoices.filter((i) => i.status === 'paid').reduce((acc, i) => acc + (i.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0).length, 0);
-    const inlineCancelled = customerInvoices.filter((i) => i.status === 'cancelled').reduce((acc, i) => acc + (i.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0).length, 0);
+    const lines = (i: CrmInvoice) => (i.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0).length;
+    const inlineUnpaid = customerInvoices.filter((i) => i.status !== 'cancelled' && i.vendorStatus !== 'paid').reduce((acc, i) => acc + lines(i), 0);
+    const inlinePaid = customerInvoices.filter((i) => i.status !== 'cancelled' && i.vendorStatus === 'paid').reduce((acc, i) => acc + lines(i), 0);
+    const inlineCancelled = customerInvoices.filter((i) => i.status === 'cancelled').reduce((acc, i) => acc + lines(i), 0);
     return {
       unpaid: vendorInvoices.filter((i) => i.status === 'unpaid').length + inlineUnpaid,
       paid: vendorInvoices.filter((i) => i.status === 'paid').length + inlinePaid,
@@ -245,7 +251,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
   const payablesOutstanding = useMemo(() => {
     const m = new Map<string, number>();
     vendorInvoices.filter((i) => i.status === 'unpaid').forEach((i) => m.set(i.currency, (m.get(i.currency) || 0) + i.balance));
-    customerInvoices.filter((i) => i.status === 'unpaid').forEach((i) => {
+    customerInvoices.filter((i) => i.status !== 'cancelled' && i.vendorStatus !== 'paid').forEach((i) => {
       (i.vendors || []).forEach((v) => {
         if ((v.amount ?? 0) > 0) {
           const cur = v.currency || i.currency;
@@ -258,7 +264,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return invoices.filter((i) => (filter === 'all' ? i.status !== 'paid' : i.status === filter) && (!q || [i.invoiceNo, i.customerName, i.reference, i.crmId || '', i.queryCode || '', i.customerPhone, empName.get(i.createdBy) || '', ...(i.vendors || []).flatMap((v) => [v.name, v.description || ''])].some((v) => v.toLowerCase().includes(q))));
+    return invoices.filter((i) => (filter === 'all' ? !fullyPaid(i) : filter === 'paid' ? fullyPaid(i) : filter === 'unpaid' ? (i.status === 'unpaid' || (i.status === 'paid' && !fullyPaid(i))) : i.status === filter) && (!q || [i.invoiceNo, i.customerName, i.reference, i.crmId || '', i.queryCode || '', i.customerPhone, empName.get(i.createdBy) || '', ...(i.vendors || []).flatMap((v) => [v.name, v.description || ''])].some((v) => v.toLowerCase().includes(q))));
   }, [invoices, filter, query, empName]);
 
   const canEdit = (i: CrmInvoice) => isStaff || (i.createdBy === currentUser.id && i.status === 'unpaid');
@@ -358,6 +364,14 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
       await downloadInvoicePdf(i, company, by(i));
     } catch (err: any) {
       setError(err?.message || 'Could not create the PDF.');
+    }
+  };
+  const vendorPdf = async (i: CrmInvoice) => {
+    setError('');
+    try {
+      await downloadVendorPayablesPdf(i, company, by(i));
+    } catch (err: any) {
+      setError(err?.message || 'Could not create the vendor PDF.');
     }
   };
   const share = async (i: CrmInvoice) => {
@@ -468,7 +482,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
       {error && !form && !companyForm && <ErrorNote message={error} />}
 
       {shown.length === 0 ? (
-        <div className={`${cardCls} p-8 text-center text-xs text-slate-500`}>{invoices.length === 0 ? (vendorSide ? 'No vendor payables yet. Press “New vendor payable” to add the first one.' : 'No invoices yet. Press “New invoice” to create the first one.') : filter === 'all' && invoices.some((x) => x.status === 'paid') ? 'No open invoices. Paid ones are in the Paid tab.' : 'No invoices match this filter.'}</div>
+        <div className={`${cardCls} p-8 text-center text-xs text-slate-500`}>{invoices.length === 0 ? (vendorSide ? 'No vendor payables yet. Press “New vendor payable” to add the first one.' : 'No invoices yet. Press “New invoice” to create the first one.') : filter === 'all' && invoices.some((x) => fullyPaid(x)) ? 'No open invoices. Paid ones are in the Paid tab.' : 'No invoices match this filter.'}</div>
       ) : (
         <div className="space-y-3">
           {shown.map((i) => {
@@ -482,10 +496,10 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
             });
 
             return (
-              <div key={i.id} className={`${cardCls} p-4 ${i.status === 'paid' ? '!bg-emerald-100/80 !border-emerald-300 dark:!bg-emerald-950/40 dark:!border-emerald-800/70' : ''}`}>
+              <div key={i.id} className={`${cardCls} p-4 ${fullyPaid(i) ? '!bg-emerald-100/80 !border-emerald-300 dark:!bg-emerald-950/40 dark:!border-emerald-800/70' : ''}`}>
                 <div className={`grid grid-cols-1 ${!vendorSide ? 'lg:grid-cols-2' : ''} gap-4`}>
                   {/* LEFT HALF (50%): Customer Receivable Side */}
-                  <div className="min-w-0 flex flex-col justify-between space-y-3">
+                  <div className={`min-w-0 flex flex-col justify-between space-y-3 ${i.status === 'paid' && !vendorSide ? 'rounded-lg p-2.5 -m-2.5 bg-emerald-100/90 dark:bg-emerald-950/50' : ''}`}>
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                       <div className="min-w-0 space-y-1.5">
                         <span className="block text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
@@ -526,16 +540,17 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
 
                   {/* RIGHT HALF (50%): Vendor Payables for This Invoice */}
                   {!vendorSide && (
-                    <div className="min-w-0 lg:border-l lg:border-slate-200 dark:lg:border-slate-800 lg:pl-4 flex flex-col justify-between space-y-2">
+                    <div className={`min-w-0 lg:border-l lg:border-slate-200 dark:lg:border-slate-800 lg:pl-4 flex flex-col justify-between space-y-2 ${i.vendorStatus === 'paid' && invVendors.length > 0 ? 'rounded-lg p-2.5 -m-2.5 lg:ml-1.5 bg-emerald-100/90 dark:bg-emerald-950/50' : ''}`}>
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${i.status === 'paid' ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1.5 ${i.vendorStatus === 'paid' ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
                           Vendor Payables (Office Only)
+                          {invVendors.length > 0 && <Pill tone={i.vendorStatus === 'paid' ? 'green' : 'amber'}>{i.vendorStatus === 'paid' ? 'Vendors paid' : 'Vendors unpaid'}</Pill>}
                         </span>
                         <div className="flex flex-wrap items-center gap-2 text-[11px]">
                           <span className="text-slate-500">Total Payable:</span>
                           {vendorTotalsByCur.size > 0 ? (
                             [...vendorTotalsByCur.entries()].map(([cur, amt]) => (
-                              <b key={cur} className={`font-mono px-2 py-0.5 rounded border ${i.status === 'paid' ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60' : 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60'}`}>
+                              <b key={cur} className={`font-mono px-2 py-0.5 rounded border ${i.vendorStatus === 'paid' ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60' : 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60'}`}>
                                 {cur} {fmtAmount(amt)}
                               </b>
                             ))
@@ -548,7 +563,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                       {invVendors.length > 0 ? (
                         <div className="space-y-1.5">
                           {invVendors.map((v, vi) => (
-                            <div key={vi} className={`p-2.5 rounded-lg border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${i.status === 'paid' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60' : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-900/50'}`}>
+                            <div key={vi} className={`p-2.5 rounded-lg border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${i.vendorStatus === 'paid' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60' : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-900/50'}`}>
                               <div className="min-w-0 space-y-0.5">
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <span className="font-bold text-slate-900 dark:text-slate-100">{v.name}</span>
@@ -567,14 +582,22 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                               </div>
                               <div className="sm:text-right shrink-0">
                                 <span className="block text-[10px] text-slate-400 uppercase">Payable</span>
-                                <b className={`font-mono text-xs ${i.status === 'paid' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                                <b className={`font-mono text-xs ${i.vendorStatus === 'paid' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
                                   {v.currency || i.currency} {fmtAmount(v.amount || 0)}
                                 </b>
                               </div>
                             </div>
                           ))}
                         </div>
-                      ) : (
+                      ) : null}
+                      {invVendors.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          <button className={btnPrimary} onClick={() => void vendorPdf(i)}><FileDown className="w-3.5 h-3.5" /> Download vendor PDF</button>
+                          {isStaff && i.status !== 'cancelled' && i.vendorStatus !== 'paid' && <button className={btnGhost} onClick={() => void act('invoice_vendor_status', { id: i.id, status: 'paid' })}>Mark vendors paid</button>}
+                          {isStaff && i.vendorStatus === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_vendor_status', { id: i.id, status: 'unpaid' })}>Mark vendors unpaid</button>}
+                        </div>
+                      )}
+                      {invVendors.length === 0 && (
                         <div className="flex-1 flex items-center justify-between p-3 rounded-lg border border-dashed border-slate-200 dark:border-slate-800 text-xs text-slate-400">
                           <span>No vendor payables recorded for this invoice.</span>
                           {canEdit(i) && (
@@ -603,6 +626,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
               <button className={btnPrimary} onClick={() => void pdf(view)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
+              {hasVendorLines(view) && <button className={btnGhost} onClick={() => void vendorPdf(view)}><FileDown className="w-3.5 h-3.5" /> Vendor PDF</button>}
               {canShare && <button className={btnGhost} onClick={() => void share(view)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
               {canEdit(view) && <button className={btnGhost} onClick={() => { setForm(toForm(view, company.ntn || '')); setView(null); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
             </div>

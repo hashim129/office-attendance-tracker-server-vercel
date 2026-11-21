@@ -738,7 +738,6 @@ export function evaluateAttendancePresenceAndAutoClose(
       !Number.isNaN(checkAtMs) &&
       inMs < checkAtMs &&
       nowMs >= checkAtMs &&
-      rec.adminKeepOpen !== true &&
       !adminReopenedAfterCheck
     ) {
       const outMs = Number.isFinite(verifyAtMs) ? verifyAtMs : checkAtMs;

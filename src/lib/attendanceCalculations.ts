@@ -470,7 +470,6 @@ export function autoCloseForgottenPunches(
       !Number.isNaN(checkAtMs) &&
       inMs < checkAtMs &&
       nowMs >= checkAtMs &&
-      record.adminKeepOpen !== true &&
       !adminReopenedAfterCheck
     ) {
       const candidateOutMs = Number.isFinite(verifyAtMs) ? verifyAtMs : checkAtMs;
