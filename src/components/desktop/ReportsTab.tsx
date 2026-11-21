@@ -45,6 +45,7 @@ import {
 import { exportAttendanceToCsv } from '../../lib/exportUtils';
 import { downloadOfficialTimesheetPdf } from '../../lib/pdfTimesheet';
 import { Modal } from '../common/Modal';
+import { RemarksReport } from './RemarksReport';
 
 interface ReportsTabProps {
   employees: Employee[];
@@ -461,6 +462,8 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
           </button>
         </div>
       </div>
+
+      <RemarksReport employees={employees} records={records} />
 
       {/* Aggregate KPI Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
