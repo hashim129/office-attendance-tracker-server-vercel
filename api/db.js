@@ -52,7 +52,7 @@ export const DEFAULT_DB = {
     faceScanPunchEnabled: false,
     faceScanAllowUnenrolled: true,
     faceEnrollRequired: false,
-    customerPortalBetaEnabled: false,
+    customerPortalBetaEnabled: true,
   },
   shifts: [
     {

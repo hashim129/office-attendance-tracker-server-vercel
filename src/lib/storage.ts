@@ -106,7 +106,7 @@ export const INITIAL_SETTINGS: OfficeSettings = {
   enableDisconnectStatusTracking: true,
   autoPunchOutOnInactiveHours: 2,
   disconnectThresholdMinutes: 3,
-  customerPortalBetaEnabled: false,
+  customerPortalBetaEnabled: true,
 };
 
 export const INITIAL_EMPLOYEES: Employee[] = [
@@ -1099,7 +1099,7 @@ export function loadSettings(): OfficeSettings {
         parsed.disconnectThresholdMinutes !== undefined
           ? Number(parsed.disconnectThresholdMinutes)
           : 3,
-      customerPortalBetaEnabled: parsed.customerPortalBetaEnabled === true,
+      customerPortalBetaEnabled: parsed.customerPortalBetaEnabled !== false,
     };
     return upgraded;
   } catch {

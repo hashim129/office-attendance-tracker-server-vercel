@@ -309,7 +309,7 @@ export default async function handler(req, res) {
   try {
     const settingsRows = await supabaseFetch('/settings?id=eq.current&select=data');
     const settingsData = parseJsonObj(settingsRows?.[0]?.data, {});
-    if (settingsData.customerPortalBetaEnabled !== true) {
+    if (settingsData.customerPortalBetaEnabled === false) {
       return res.status(404).json({
         ok: false,
         available: false,

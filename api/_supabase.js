@@ -444,7 +444,7 @@ export async function readSupabaseDb(defaultDb) {
       allowedOfficeIsps: [],
       enforceOfficeIpLock: rawSettings.enforceOfficeIpLock ?? true,
       enforceDeviceBinding: false,
-      customerPortalBetaEnabled: rawSettings.customerPortalBetaEnabled === true,
+      customerPortalBetaEnabled: rawSettings.customerPortalBetaEnabled !== false,
     };
     let shifts = Array.isArray(shiftsRows) && shiftsRows.length > 0 ? shiftsRows.map(mapDbShift) : defaultDb.shifts;
     if (!shifts.some((s) => s.id === 'shift-freelance')) {
@@ -1164,7 +1164,7 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
             data: {
               ...incoming.settings,
               enforceDeviceBinding: false,
-              customerPortalBetaEnabled: incoming.settings.customerPortalBetaEnabled === true,
+              customerPortalBetaEnabled: incoming.settings.customerPortalBetaEnabled !== false,
             },
             updated_at: new Date().toISOString(),
           },
@@ -1224,7 +1224,7 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
             data: {
               ...incoming.settings,
               enforceDeviceBinding: false,
-              customerPortalBetaEnabled: incoming.settings.customerPortalBetaEnabled === true,
+              customerPortalBetaEnabled: incoming.settings.customerPortalBetaEnabled !== false,
             },
             updated_at: new Date().toISOString(),
           },

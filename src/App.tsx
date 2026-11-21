@@ -1116,7 +1116,7 @@ export default function App() {
               )}
 
               {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-notifications') && (
-                <CrmPage section={activeTab} crm={crm} employees={employees} currentUser={currentUser} onNavigate={setActiveTab} customerPortalBetaEnabled={Boolean(settings.customerPortalBetaEnabled)} />
+                <CrmPage section={activeTab} crm={crm} employees={employees} currentUser={currentUser} onNavigate={setActiveTab} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
               )}
 
               {activeTab === 'leaves' && (

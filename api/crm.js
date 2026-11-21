@@ -101,7 +101,7 @@ const todayPktDate = () => new Intl.DateTimeFormat('en-CA', {
 async function isCustomerPortalBetaEnabled() {
   const rows = await supabaseFetch('/settings?id=eq.current&select=data');
   const data = parseJsonObj(rows?.[0]?.data, {});
-  return data.customerPortalBetaEnabled === true;
+  return data.customerPortalBetaEnabled !== false;
 }
 function normalizeVisaProgress(raw, existing = null) {
   const enabled = raw?.enabled !== false;
