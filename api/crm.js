@@ -639,7 +639,7 @@ export default async function handler(req, res) {
       let company = DEFAULT_COMPANY;
       let inventoryItems = DEFAULT_INVENTORY_ITEMS;
       if (action === 'list') {
-        const [invRows, companyRow, receiptRows, catalogItems, allPurchases, purchaseSchema, betaEnabled, allPortalQueries] = await Promise.all([
+        const [invRows, companyRow, receiptRows, catalogItems, allPurchases, purchaseSchema, betaEnabled, allPortalQueries, visaRowsAll] = await Promise.all([
           getAll('crm_invoices'),
           getOne('crm_company', 'main'),
           supabaseFetch(`/crm_receipts?select=id,receipt_no,created_by,query_code,client_name,items,other_item,payment_type,currency,total_amount,amount_received,method,bank_name,reference_no,has_proof,purpose,created_at,updated_at&order=created_at.desc&limit=${LIMIT}`),
@@ -648,10 +648,11 @@ export default async function handler(req, res) {
           getPurchaseSchema(),
           isCustomerPortalBetaEnabled(),
           getAllPortalQueries(),
+          supabaseFetch(`/crm_company?id=like.visa-*&select=id,data,updated_at&limit=${LIMIT}`).catch(() => []),
         ]);
         const visaByInvId = new Map();
         if (betaEnabled) {
-          const visaRows = (await supabaseFetch(`/crm_company?id=like.visa-*&select=id,data,updated_at&limit=${LIMIT}`)) || [];
+          const visaRows = visaRowsAll || [];
           for (const vr of visaRows) {
             if (typeof vr?.id === 'string' && vr.id.startsWith('visa-')) {
               const vp = formatVisaProgress(vr.data, vr.updated_at || null);

@@ -3,11 +3,13 @@ import { Plus, Trash2, FileDown, Share2, Eye, Pencil, ReceiptText, Upload, X } f
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmReceipt, RECEIPT_ITEMS, crmCall } from './crmApi';
-import { downloadReceiptPdf, receiptPdfFile } from './receiptPdf';
+// The PDF maker is large, so it is only loaded when someone actually downloads or shares a receipt.
+const downloadReceiptPdf = async (...a: Parameters<typeof import('./receiptPdf').downloadReceiptPdf>) => (await import('./receiptPdf')).downloadReceiptPdf(...a);
+const receiptPdfFile = async (...a: Parameters<typeof import('./receiptPdf').receiptPdfFile>) => (await import('./receiptPdf')).receiptPdfFile(...a);
 import { CrmState } from './useCrm';
 import { ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
-import { receiptItemsText } from './receiptPdf';
+import { receiptItemsText } from './receiptText';
 
 interface Props {
   crm: CrmState;
