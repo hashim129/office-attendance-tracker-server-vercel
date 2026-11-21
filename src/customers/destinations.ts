@@ -36,6 +36,8 @@ export interface Destination {
   packageCue: string;
   palette: DestinationPalette;
   artwork: DestinationArtwork;
+  photos: [string, string, string];
+  photoCaptions: [string, string, string];
   keywords: string[];
 }
 
@@ -70,6 +72,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#fbbf24',
     },
     artwork: 'kaaba',
+    photos: [
+      'https://images.unsplash.com/photo-1565552645632-d725f8bfc19a?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1591604129939-f1efa4d9f7fa?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1580418827493-f2b22c0a76cb?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Masjid al-Haram & the Holy Kaaba, Makkah',
+      'Masjid an-Nabawi Courtyard, Madinah',
+      'Abraj Al Bait & Haramain Skyline at Dusk',
+    ],
     keywords: ['makkah', 'mecca', 'madinah', 'medina', 'umrah', 'hajj', 'jeddah', 'saudi', 'ksa'],
   },
   {
@@ -93,6 +105,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#fde047',
     },
     artwork: 'skyline',
+    photos: [
+      'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1518684079-3c830dcef090?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1546412414-e1885259563a?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Downtown Dubai & Burj Khalifa Panorama',
+      'Dubai Marina & Arabian Gulf Waterfront',
+      'Sheikh Zayed Grand Mosque, Abu Dhabi',
+    ],
     keywords: ['dubai', 'abu dhabi', 'uae', 'sharjah', 'emirates', 'dxb'],
   },
   {
@@ -116,6 +138,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#f59e0b',
     },
     artwork: 'skyline',
+    photos: [
+      'https://images.unsplash.com/photo-1578895101408-1a36b834405b?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1559564484-e48b3e040ff4?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1569383746724-6f1b882b8f46?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'West Bay Skyline & Doha Corniche',
+      'Traditional Dhow Harbor & Museum of Islamic Art',
+      'The Pearl-Qatar & Lusail Waterfront',
+    ],
     keywords: ['doha', 'qatar', 'lusail', 'souq waqif', 'doh'],
   },
   {
@@ -139,6 +171,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#38bdf8',
     },
     artwork: 'baku',
+    photos: [
+      'https://images.unsplash.com/photo-1596306499317-8490232098fa?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1605280263929-1c42c62ef169?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Flame Towers & Caspian Bay, Baku',
+      'Icherisheher Old City & Heydar Aliyev Center',
+      'Greater Caucasus Peaks at Shahdag & Gabala',
+    ],
     keywords: ['baku', 'azerbaijan', 'shahdag', 'gabala', 'gyd'],
   },
   {
@@ -162,6 +204,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#2dd4bf',
     },
     artwork: 'heritage',
+    photos: [
+      'https://images.unsplash.com/photo-1528642474498-1af0c17fd8c3?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1580837119756-563d608dd119?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Registan Square Madrasahs, Samarkand',
+      'Turquoise Silk Road Domes & Tilework',
+      'Historic Citadel & Boulevards of Tashkent',
+    ],
     keywords: ['tashkent', 'samarkand', 'bukhara', 'uzbekistan', 'silk road', 'tas'],
   },
   {
@@ -185,6 +237,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#93c5fd',
     },
     artwork: 'alps',
+    photos: [
+      'https://images.unsplash.com/photo-1558588942-930faae5a389?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Tian Shan Mountains Overlooking Almaty',
+      'Turquoise Waters of Big Almaty & Kolsai Lakes',
+      'Shymbulak Alpine Slopes & Gondola Ridge',
+    ],
     keywords: ['almaty', 'kazakhstan', 'shymbulak', 'medeu', 'astana'],
   },
   {
@@ -208,6 +270,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#fcd34d',
     },
     artwork: 'balloons',
+    photos: [
+      'https://images.unsplash.com/photo-1524231757912-21f4fe3a7200?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1541432901042-2d8bd64b4a9b?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1527838832700-5059252407fa?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Bosphorus Strait & Historic Mosques of Istanbul',
+      'Sunrise Hot-Air Balloons Over Cappadocia',
+      'Galata Tower & Golden Horn Waterfront',
+    ],
     keywords: ['istanbul', 'cappadocia', 'turkey', 'turkiye', 'antalya', 'bursa', 'ist'],
   },
   {
@@ -231,6 +303,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#f87171',
     },
     artwork: 'bridge',
+    photos: [
+      'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1506377585622-bedcbb027afc?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1486299267070-83823f5448dd?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Tower Bridge & River Thames, London',
+      'Edinburgh Castle & Royal Mile Skyline',
+      'Palace of Westminster & Big Ben at Sunset',
+    ],
     keywords: ['london', 'edinburgh', 'uk', 'united kingdom', 'britain', 'england', 'scotland', 'manchester', 'lhr'],
   },
   {
@@ -254,6 +336,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#a5f3fc',
     },
     artwork: 'alps',
+    photos: [
+      'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1530122037265-a5f1f91d3b99?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1527668752968-14dc70a27c95?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Eiffel Tower & Parisian Haussmann Boulevards',
+      'Swiss Alps & Lauterbrunnen Valley Peaks',
+      'Lake Lucerne & Scenic Glacier Express Route',
+    ],
     keywords: ['paris', 'swiss', 'switzerland', 'zurich', 'geneva', 'interlaken', 'lucerne', 'schengen', 'france', 'europe', 'italy', 'rome'],
   },
   {
@@ -277,6 +369,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#6ee7b7',
     },
     artwork: 'tropical',
+    photos: [
+      'https://images.unsplash.com/photo-1596422846543-75c6fc197f07?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1508062878650-88b52897f298?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Petronas Twin Towers & KLCC Skyline',
+      'Kuala Lumpur City Lights at Twilight',
+      'Emerald Andaman Coast & Langkawi Islands',
+    ],
     keywords: ['kuala lumpur', 'langkawi', 'malaysia', 'genting', 'penang', 'kul'],
   },
   {
@@ -300,6 +402,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#fde68a',
     },
     artwork: 'tropical',
+    photos: [
+      'https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1518548419970-58e3b4079ab2?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1555400038-63f5ba517a47?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Ubud Emerald Rice Terraces & Palm Valleys',
+      'Nusa Penida Kelingking Cliff & Turquoise Cove',
+      'Ulun Danu Beratan Lake Temple at Sunrise',
+    ],
     keywords: ['bali', 'indonesia', 'ubud', 'jakarta', 'dps', 'thailand', 'bangkok', 'phuket'],
   },
   {
@@ -323,6 +435,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#5eead4',
     },
     artwork: 'atoll',
+    photos: [
+      'https://images.unsplash.com/photo-1514282401047-d79a71a590e8?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1573843981267-be1999ff37cd?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1540202404-a2f29016b523?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Overwater Villas & Crystal Lagoon Atolls',
+      'Private Coral Island Boardwalks at Sunset',
+      'Indian Ocean Turquoise Reefs & Sandbanks',
+    ],
     keywords: ['maldives', 'malé', 'male airport', 'atoll', 'mle', 'maafushi'],
   },
   {
@@ -346,6 +468,16 @@ export const CURATED_DESTINATIONS: Destination[] = [
       accent: '#fbcfe8',
     },
     artwork: 'pagoda',
+    photos: [
+      'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=1200&q=85',
+    ],
+    photoCaptions: [
+      'Tokyo Skyline & Tower at Twilight',
+      'Mount Fuji & Chureito Pagoda Panorama',
+      'Historic Streets & Temples of Kyoto',
+    ],
     keywords: ['tokyo', 'kyoto', 'osaka', 'japan', 'fuji', 'nrt', 'hnd'],
   },
 ];

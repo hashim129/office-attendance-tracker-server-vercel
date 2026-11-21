@@ -5,6 +5,8 @@ import {
   Calendar,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Compass,
   Copy,
@@ -29,7 +31,6 @@ import {
   DESTINATION_REGIONS,
   matchDestinationsForInvoices,
   type Destination,
-  type DestinationArtwork,
   type DestinationRegion,
 } from './destinations';
 
@@ -240,144 +241,407 @@ function invoiceStatusLabel(status: PublicInvoiceStatus): string {
   return 'Unpaid';
 }
 
-function DestinationArtworkSvg({ artwork, accent }: { artwork: DestinationArtwork; accent: string }) {
-  switch (artwork) {
-    case 'kaaba':
-      return (
-        <svg viewBox="0 0 280 120" className="w-full h-full" fill="none" aria-hidden="true">
-          <circle cx="230" cy="28" r="14" fill={accent} fillOpacity="0.28" />
-          <path d="M 224 20 A 11 11 0 1 0 236 34 A 9 9 0 1 1 224 20 Z" fill={accent} fillOpacity="0.9" />
-          {/* Minarets */}
-          <rect x="48" y="34" width="10" height="86" rx="2" fill="#ffffff" fillOpacity="0.2" />
-          <polygon points="46,34 53,16 60,34" fill="#ffffff" fillOpacity="0.28" />
-          <rect x="222" y="40" width="10" height="80" rx="2" fill="#ffffff" fillOpacity="0.2" />
-          <polygon points="220,40 227,22 234,40" fill="#ffffff" fillOpacity="0.28" />
-          {/* Courtyard arches */}
-          <path d="M 16 120 L 16 86 Q 40 72 64 86 L 64 120 Z" fill="#ffffff" fillOpacity="0.14" />
-          <path d="M 216 120 L 216 86 Q 240 72 264 86 L 264 120 Z" fill="#ffffff" fillOpacity="0.14" />
-          {/* Sacred cube silhouette */}
-          <rect x="108" y="52" width="64" height="68" rx="3" fill="#0f172a" fillOpacity="0.82" stroke={accent} strokeOpacity="0.5" strokeWidth="1.5" />
-          <rect x="108" y="64" width="64" height="7" fill={accent} fillOpacity="0.88" />
-        </svg>
-      );
-    case 'baku':
-      return (
-        <svg viewBox="0 0 280 120" className="w-full h-full" fill="none" aria-hidden="true">
-          {/* Flame Towers */}
-          <path d="M 96 120 C 94 74, 108 42, 122 24 C 128 48, 126 84, 124 120 Z" fill="#ffffff" fillOpacity="0.28" />
-          <path d="M 128 120 C 126 66, 144 34, 158 18 C 166 46, 160 86, 156 120 Z" fill={accent} fillOpacity="0.45" />
-          <path d="M 162 120 C 162 80, 176 52, 188 38 C 194 60, 190 90, 186 120 Z" fill="#ffffff" fillOpacity="0.24" />
-          {/* Caspian waves & boulevard */}
-          <path d="M 0 102 Q 70 92 140 102 T 280 102 L 280 120 L 0 120 Z" fill="#ffffff" fillOpacity="0.18" />
-        </svg>
-      );
-    case 'balloons':
-      return (
-        <svg viewBox="0 0 280 120" className="w-full h-full" fill="none" aria-hidden="true">
-          {/* Cappadocia valleys & fairy chimneys */}
-          <path d="M 0 120 L 0 92 L 36 82 L 72 96 L 112 78 L 156 96 L 204 80 L 246 94 L 280 84 L 280 120 Z" fill="#0f172a" fillOpacity="0.28" />
-          <path d="M 48 104 L 54 68 L 62 104 Z" fill="#ffffff" fillOpacity="0.2" />
-          <path d="M 218 106 L 226 64 L 234 106 Z" fill="#ffffff" fillOpacity="0.2" />
-          {/* Hot-air balloons */}
-          <circle cx="94" cy="40" r="14" fill={accent} fillOpacity="0.82" />
-          <rect x="91" y="56" width="6" height="5" rx="1" fill="#ffffff" fillOpacity="0.85" />
-          <circle cx="156" cy="30" r="18" fill="#ffffff" fillOpacity="0.34" />
-          <rect x="152" y="50" width="8" height="6" rx="1" fill="#ffffff" fillOpacity="0.8" />
-          <circle cx="204" cy="48" r="10" fill={accent} fillOpacity="0.58" />
-        </svg>
-      );
-    case 'atoll':
-      return (
-        <svg viewBox="0 0 280 120" className="w-full h-full" fill="none" aria-hidden="true">
-          <circle cx="216" cy="34" r="16" fill={accent} fillOpacity="0.45" />
-          {/* Overwater bungalows */}
-          <line x1="24" y1="88" x2="210" y2="88" stroke="#ffffff" strokeOpacity="0.45" strokeWidth="2.5" />
-          {[56, 108, 160].map((x) => (
-            <g key={x}>
-              <line x1={x + 12} y1="88" x2={x + 12} y2="100" stroke="#ffffff" strokeOpacity="0.5" strokeWidth="2" />
-              <rect x={x} y="66" width="24" height="18" rx="2" fill="#ffffff" fillOpacity="0.26" />
-              <polygon points={`${x - 4},66 ${x + 12},52 ${x + 28},66`} fill={accent} fillOpacity="0.72" />
-            </g>
+function FeaturedDestinationHeroSlider({
+  destinations,
+  prefersReducedMotion,
+  onSelectDestination,
+}: {
+  destinations: Destination[];
+  prefersReducedMotion: boolean | null;
+  onSelectDestination: (dest: Destination) => void;
+}) {
+  const [slideIdx, setSlideIdx] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+
+  const count = destinations.length;
+  const safeIdx = count > 0 ? slideIdx % count : 0;
+  const current = destinations[safeIdx];
+
+  useEffect(() => {
+    if (prefersReducedMotion || isPaused || count <= 1) return;
+    const timer = window.setInterval(() => {
+      setSlideIdx((prev) => (prev + 1) % count);
+    }, 4500);
+    return () => window.clearInterval(timer);
+  }, [prefersReducedMotion, isPaused, count]);
+
+  if (!current) return null;
+
+  return (
+    <div
+      className="relative rounded-3xl overflow-hidden border border-slate-200 shadow-lg bg-slate-900 h-72 sm:h-88 md:h-96 group"
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+    >
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={current.id}
+          initial={prefersReducedMotion ? false : { opacity: 0, x: 40, scale: 1.03 }}
+          animate={{ opacity: 1, x: 0, scale: 1 }}
+          exit={prefersReducedMotion ? undefined : { opacity: 0, x: -40 }}
+          transition={{ duration: 0.55, ease: 'easeOut' }}
+          className="absolute inset-0"
+        >
+          <img
+            src={current.photos[0]}
+            alt={`${current.name}, ${current.country}`}
+            className="w-full h-full object-cover object-center"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/35 to-slate-950/20" />
+        </motion.div>
+      </AnimatePresence>
+
+      {/* Top region & caption bar */}
+      <div className="relative z-10 p-5 sm:p-7 h-full flex flex-col justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="inline-flex items-center gap-2 rounded-full bg-black/45 backdrop-blur-md border border-white/25 px-3.5 py-1 text-xs font-semibold text-white">
+            <Globe2 className="w-3.5 h-3.5 text-sky-400" />
+            <span>{current.region}</span>
+            <span className="text-white/50">·</span>
+            <span className="text-sky-200">{current.photoCaptions?.[0] || current.name}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSlideIdx((prev) => (prev - 1 + count) % count)}
+              aria-label="Previous destination slide"
+              className="w-9 h-9 rounded-full bg-black/45 hover:bg-black/70 backdrop-blur-md border border-white/25 text-white flex items-center justify-center transition-colors cursor-pointer"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setSlideIdx((prev) => (prev + 1) % count)}
+              aria-label="Next destination slide"
+              className="w-9 h-9 rounded-full bg-black/45 hover:bg-black/70 backdrop-blur-md border border-white/25 text-white flex items-center justify-center transition-colors cursor-pointer"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div className="max-w-2xl space-y-1.5">
+            <p className="text-xs sm:text-sm font-semibold text-sky-300 flex items-center gap-1.5">
+              <MapPin className="w-4 h-4" />
+              <span>{current.country}</span>
+              <span className="text-white/40">•</span>
+              <span className="text-white/80">Best Season: {current.bestSeason}</span>
+            </p>
+            <h3 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight drop-shadow-xs">
+              {current.name}
+            </h3>
+            <p className="text-xs sm:text-sm text-white/90 line-clamp-2 leading-relaxed">
+              {current.tagline}
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => onSelectDestination(current)}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-white text-slate-950 hover:bg-sky-50 px-5 py-2.5 text-xs sm:text-sm font-bold shadow-md transition-all cursor-pointer"
+            >
+              <span>Explore {current.name} Gallery</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom Slide Dots */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 hidden sm:flex items-center gap-1.5 rounded-full bg-black/40 backdrop-blur-xs px-3 py-1 border border-white/15">
+        {destinations.map((d, i) => (
+          <button
+            key={d.id}
+            type="button"
+            onClick={() => setSlideIdx(i)}
+            aria-label={`Slide to ${d.name}`}
+            className={`h-1.5 rounded-full transition-all cursor-pointer ${
+              i === safeIdx ? 'w-6 bg-sky-400' : 'w-1.5 bg-white/55 hover:bg-white'
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DestinationCardPhotoSlider({
+  dest,
+  cardIndex,
+  isMatched,
+  prefersReducedMotion,
+}: {
+  dest: Destination;
+  cardIndex: number;
+  isMatched: boolean;
+  prefersReducedMotion: boolean | null;
+}) {
+  const photos = dest.photos || [];
+  const captions = dest.photoCaptions || [];
+  const [photoIdx, setPhotoIdx] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
+
+  useEffect(() => {
+    if (prefersReducedMotion || isHovered || photos.length <= 1) return;
+    const intervalMs = 3400 + (cardIndex % 4) * 450;
+    const timer = window.setInterval(() => {
+      setPhotoIdx((prev) => (prev + 1) % photos.length);
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [prefersReducedMotion, isHovered, photos.length, cardIndex]);
+
+  const currentPhoto = photos[photoIdx] || photos[0];
+  const currentCaption = captions[photoIdx] || dest.name;
+
+  return (
+    <div
+      className="relative h-52 w-full overflow-hidden bg-slate-900 p-4 flex flex-col justify-between"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {/* Sliding Real Photographs */}
+      <AnimatePresence mode="wait">
+        <motion.img
+          key={`${dest.id}-photo-${photoIdx}`}
+          src={currentPhoto}
+          alt={`${dest.name} — ${currentCaption}`}
+          loading="lazy"
+          initial={prefersReducedMotion ? false : { opacity: 0, x: 24, scale: 1.04 }}
+          animate={{ opacity: 1, x: 0, scale: 1 }}
+          exit={prefersReducedMotion ? undefined : { opacity: 0, x: -24 }}
+          transition={{ duration: 0.45, ease: 'easeOut' }}
+          className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700"
+        />
+      </AnimatePresence>
+
+      {/* Scrim overlay for crisp text readability over real photos */}
+      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/25 to-slate-950/35 pointer-events-none" />
+
+      {/* Top Row: Region Pill, Matched Badge, and Slide Dots */}
+      <div className="relative z-10 flex items-center justify-between gap-2">
+        <span className="rounded-full bg-black/45 backdrop-blur-md border border-white/25 px-2.5 py-0.5 text-[11px] font-semibold text-white shadow-2xs">
+          {dest.region}
+        </span>
+
+        <div className="flex items-center gap-1.5">
+          {isMatched && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500 text-white px-2.5 py-0.5 text-[11px] font-bold shadow-xs">
+              <Sparkles className="w-3 h-3" />
+              Matched to Your Trip
+            </span>
+          )}
+          {photos.length > 1 && (
+            <div
+              className="inline-flex items-center gap-1 rounded-full bg-black/45 backdrop-blur-xs px-2 py-1 border border-white/20"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {photos.map((_, idx) => (
+                <span
+                  key={idx}
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPhotoIdx(idx);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      setPhotoIdx(idx);
+                    }
+                  }}
+                  aria-label={`View photo ${idx + 1} of ${dest.name}`}
+                  className={`block h-1.5 rounded-full transition-all cursor-pointer ${
+                    idx === photoIdx ? 'w-4 bg-sky-400' : 'w-1.5 bg-white/60 hover:bg-white'
+                  }`}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Left/Right Slide Controls on Hover */}
+      {photos.length > 1 && (
+        <div
+          className="relative z-10 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              setPhotoIdx((prev) => (prev - 1 + photos.length) % photos.length);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.stopPropagation();
+                setPhotoIdx((prev) => (prev - 1 + photos.length) % photos.length);
+              }
+            }}
+            aria-label={`Previous photo of ${dest.name}`}
+            className="w-7 h-7 rounded-full bg-black/55 hover:bg-black/80 text-white border border-white/25 flex items-center justify-center shadow-xs cursor-pointer"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </span>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              setPhotoIdx((prev) => (prev + 1) % photos.length);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.stopPropagation();
+                setPhotoIdx((prev) => (prev + 1) % photos.length);
+              }
+            }}
+            aria-label={`Next photo of ${dest.name}`}
+            className="w-7 h-7 rounded-full bg-black/55 hover:bg-black/80 text-white border border-white/25 flex items-center justify-center shadow-xs cursor-pointer"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </span>
+        </div>
+      )}
+
+      {/* Bottom Title & Photo Caption */}
+      <div className="relative z-10">
+        <p className="text-xs font-semibold text-sky-300 flex items-center gap-1 drop-shadow-2xs">
+          <MapPin className="w-3.5 h-3.5" />
+          <span>{dest.country}</span>
+        </p>
+        <h3 className="text-xl font-extrabold text-white tracking-tight drop-shadow-2xs">
+          {dest.name}
+        </h3>
+        <p className="text-[11px] text-white/80 truncate mt-0.5">{currentCaption}</p>
+      </div>
+    </div>
+  );
+}
+
+function DestinationModalPhotoSlider({
+  dest,
+  prefersReducedMotion,
+  onClose,
+}: {
+  dest: Destination;
+  prefersReducedMotion: boolean | null;
+  onClose: () => void;
+}) {
+  const photos = dest.photos || [];
+  const captions = dest.photoCaptions || [];
+  const [photoIdx, setPhotoIdx] = useState(0);
+
+  useEffect(() => {
+    setPhotoIdx(0);
+  }, [dest.id]);
+
+  useEffect(() => {
+    if (prefersReducedMotion || photos.length <= 1) return;
+    const timer = window.setInterval(() => {
+      setPhotoIdx((prev) => (prev + 1) % photos.length);
+    }, 3800);
+    return () => window.clearInterval(timer);
+  }, [prefersReducedMotion, photos.length]);
+
+  const currentPhoto = photos[photoIdx] || photos[0];
+  const currentCaption = captions[photoIdx] || dest.name;
+
+  return (
+    <div className="space-y-2.5 bg-slate-950">
+      <div className="relative h-64 sm:h-72 p-5 flex flex-col justify-between overflow-hidden">
+        <AnimatePresence mode="wait">
+          <motion.img
+            key={`${dest.id}-modal-${photoIdx}`}
+            src={currentPhoto}
+            alt={`${dest.name} — ${currentCaption}`}
+            initial={prefersReducedMotion ? false : { opacity: 0, x: 30 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={prefersReducedMotion ? undefined : { opacity: 0, x: -30 }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+            className="absolute inset-0 w-full h-full object-cover object-center"
+          />
+        </AnimatePresence>
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/25 to-slate-950/40 pointer-events-none" />
+
+        <div className="relative z-10 flex items-center justify-between">
+          <span className="rounded-full bg-black/50 backdrop-blur-md border border-white/25 px-3 py-1 text-xs font-semibold text-white">
+            {dest.region}
+          </span>
+          <div className="flex items-center gap-1.5">
+            {photos.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setPhotoIdx((prev) => (prev - 1 + photos.length) % photos.length)}
+                  aria-label="Previous destination photo"
+                  className="w-8 h-8 rounded-full bg-black/50 hover:bg-black/75 border border-white/20 text-white flex items-center justify-center cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPhotoIdx((prev) => (prev + 1) % photos.length)}
+                  aria-label="Next destination photo"
+                  className="w-8 h-8 rounded-full bg-black/50 hover:bg-black/75 border border-white/20 text-white flex items-center justify-center cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close destination details"
+              className="w-8 h-8 rounded-full bg-black/55 hover:bg-black/80 border border-white/25 text-white flex items-center justify-center cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="relative z-10">
+          <p className="text-xs font-semibold text-sky-300 flex items-center gap-1">
+            <MapPin className="w-3.5 h-3.5" />
+            <span>{dest.country}</span>
+          </p>
+          <h3 id="dest-modal-title" className="text-2xl font-extrabold text-white">
+            {dest.name}
+          </h3>
+          <p className="text-xs text-white/85 mt-0.5">{currentCaption}</p>
+        </div>
+      </div>
+
+      {/* Interactive Photo Thumbnails Strip */}
+      {photos.length > 1 && (
+        <div className="px-5 pb-3 grid grid-cols-3 gap-2">
+          {photos.map((url, idx) => (
+            <button
+              key={url}
+              type="button"
+              onClick={() => setPhotoIdx(idx)}
+              className={`relative h-14 rounded-xl overflow-hidden border-2 transition-all cursor-pointer ${
+                idx === photoIdx
+                  ? 'border-sky-400 ring-2 ring-sky-400/30 opacity-100'
+                  : 'border-white/15 opacity-65 hover:opacity-100'
+              }`}
+            >
+              <img
+                src={url}
+                alt={captions[idx] || `${dest.name} photo ${idx + 1}`}
+                className="w-full h-full object-cover"
+              />
+            </button>
           ))}
-          <path d="M 0 100 Q 70 94 140 102 T 280 100 L 280 120 L 0 120 Z" fill="#ffffff" fillOpacity="0.2" />
-        </svg>
-      );
-    case 'alps':
-      return (
-        <svg viewBox="0 0 280 120" className="w-full h-full" fill="none" aria-hidden="true">
-          <polygon points="10,120 74,42 138,120" fill="#ffffff" fillOpacity="0.18" />
-          <polygon points="74,42 94,66 76,62 62,70" fill="#ffffff" fillOpacity="0.55" />
-          <polygon points="90,120 162,24 234,120" fill="#ffffff" fillOpacity="0.28" />
-          <polygon points="162,24 185,54 166,48 144,58" fill="#ffffff" fillOpacity="0.8" />
-          <polygon points="174,120 232,48 280,120" fill={accent} fillOpacity="0.28" />
-        </svg>
-      );
-    case 'heritage':
-      return (
-        <svg viewBox="0 0 280 120" className="w-full h-full" fill="none" aria-hidden="true">
-          {/* Silk Road turquoise dome & iwan arch */}
-          <rect x="74" y="58" width="132" height="62" rx="4" fill="#ffffff" fillOpacity="0.16" />
-          <path d="M 106 58 C 106 24, 174 24, 174 58 Z" fill={accent} fillOpacity="0.55" />
-          <path d="M 118 120 L 118 82 Q 140 62 162 82 L 162 120 Z" fill="#0f172a" fillOpacity="0.35" />
-          <rect x="56" y="40" width="12" height="80" rx="2" fill="#ffffff" fillOpacity="0.24" />
-          <rect x="212" y="40" width="12" height="80" rx="2" fill="#ffffff" fillOpacity="0.24" />
-        </svg>
-      );
-    case 'tropical':
-      return (
-        <svg viewBox="0 0 280 120" className="w-full h-full" fill="none" aria-hidden="true">
-          <circle cx="72" cy="36" r="18" fill={accent} fillOpacity="0.4" />
-          {/* Lush island hills */}
-          <path d="M 0 120 Q 68 68 146 120 Z" fill="#ffffff" fillOpacity="0.18" />
-          <path d="M 112 120 Q 196 58 280 120 Z" fill="#ffffff" fillOpacity="0.22" />
-          {/* Palm silhouettes */}
-          <path d="M 206 116 Q 212 72 222 46" stroke="#0f172a" strokeOpacity="0.45" strokeWidth="3.5" strokeLinecap="round" />
-          <path d="M 222 46 Q 202 36 188 52 M 222 46 Q 242 36 254 54 M 222 46 Q 224 28 240 28 M 222 46 Q 206 28 194 34" stroke="#0f172a" strokeOpacity="0.45" strokeWidth="2.5" strokeLinecap="round" />
-        </svg>
-      );
-    case 'bridge':
-      return (
-        <svg viewBox="0 0 280 120" className="w-full h-full" fill="none" aria-hidden="true">
-          {/* Twin Gothic bridge towers */}
-          <rect x="74" y="34" width="22" height="86" rx="2" fill="#ffffff" fillOpacity="0.26" />
-          <polygon points="72,34 85,14 98,34" fill={accent} fillOpacity="0.7" />
-          <rect x="184" y="34" width="22" height="86" rx="2" fill="#ffffff" fillOpacity="0.26" />
-          <polygon points="182,34 195,14 208,34" fill={accent} fillOpacity="0.7" />
-          <line x1="20" y1="84" x2="260" y2="84" stroke="#ffffff" strokeOpacity="0.45" strokeWidth="4" />
-          <line x1="96" y1="50" x2="184" y2="50" stroke="#ffffff" strokeOpacity="0.55" strokeWidth="3" />
-          <path d="M 20 84 Q 48 54 74 44 M 206 44 Q 232 54 260 84" stroke={accent} strokeOpacity="0.7" strokeWidth="2" />
-        </svg>
-      );
-    case 'pagoda':
-      return (
-        <svg viewBox="0 0 280 120" className="w-full h-full" fill="none" aria-hidden="true">
-          <circle cx="196" cy="40" r="24" fill={accent} fillOpacity="0.42" />
-          {/* Mt Fuji silhouette */}
-          <polygon points="116,120 194,48 272,120" fill="#ffffff" fillOpacity="0.18" />
-          <polygon points="194,48 216,68 196,64 176,70" fill="#ffffff" fillOpacity="0.55" />
-          {/* Multi-tier pagoda */}
-          <rect x="64" y="42" width="28" height="78" fill="#0f172a" fillOpacity="0.42" />
-          <polygon points="50,52 78,38 106,52" fill="#ffffff" fillOpacity="0.4" />
-          <polygon points="54,74 78,62 102,74" fill="#ffffff" fillOpacity="0.35" />
-          <polygon points="58,96 78,84 98,96" fill="#ffffff" fillOpacity="0.3" />
-        </svg>
-      );
-    case 'skyline':
-    default:
-      return (
-        <svg viewBox="0 0 280 120" className="w-full h-full" fill="none" aria-hidden="true">
-          <circle cx="222" cy="32" r="15" fill={accent} fillOpacity="0.52" />
-          {/* Iconic spire & towers */}
-          <rect x="34" y="68" width="22" height="52" rx="2" fill="#ffffff" fillOpacity="0.18" />
-          <rect x="64" y="52" width="24" height="68" rx="2" fill="#ffffff" fillOpacity="0.24" />
-          <polygon points="134,120 140,12 146,120" fill="#ffffff" fillOpacity="0.42" />
-          <rect x="128" y="60" width="24" height="60" rx="2" fill="#ffffff" fillOpacity="0.22" />
-          <rect x="164" y="48" width="24" height="72" rx="2" fill={accent} fillOpacity="0.28" />
-          <rect x="196" y="66" width="26" height="54" rx="2" fill="#ffffff" fillOpacity="0.2" />
-          <rect x="230" y="76" width="22" height="44" rx="2" fill="#ffffff" fillOpacity="0.15" />
-        </svg>
-      );
-  }
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function CustomersPortalPage() {
@@ -1776,6 +2040,13 @@ export default function CustomersPortalPage() {
             </div>
           </div>
 
+          {/* Panoramic Featured Destination Photo Slider */}
+          <FeaturedDestinationHeroSlider
+            destinations={displayedDestinations}
+            prefersReducedMotion={prefersReducedMotion}
+            onSelectDestination={(dest) => setActiveDestination(dest)}
+          />
+
           {matchedDestinationIds.length > 0 && (
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-2.5 text-sm text-emerald-900">
               <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -1787,7 +2058,7 @@ export default function CustomersPortalPage() {
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {displayedDestinations.map((dest) => {
+            {displayedDestinations.map((dest, cardIdx) => {
               const isMatched = activeMatchedSet.has(dest.id);
               return (
                 <button
@@ -1800,36 +2071,12 @@ export default function CustomersPortalPage() {
                       : 'border-slate-200 hover:border-sky-300'
                   }`}
                 >
-                  <div
-                    className="relative h-36 w-full overflow-hidden p-4 flex flex-col justify-between"
-                    style={{
-                      background: `linear-gradient(135deg, ${dest.palette.from}, ${dest.palette.via}, ${dest.palette.to})`,
-                    }}
-                  >
-                    <div className="absolute inset-0 pointer-events-none">
-                      <DestinationArtworkSvg artwork={dest.artwork} accent={dest.palette.accent} />
-                    </div>
-
-                    <div className="relative z-10 flex items-center justify-between gap-2">
-                      <span className="rounded-full bg-white/18 backdrop-blur-xs border border-white/25 px-2.5 py-0.5 text-[11px] font-semibold text-white">
-                        {dest.region}
-                      </span>
-                      {isMatched && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500 text-white px-2.5 py-0.5 text-[11px] font-bold shadow-xs">
-                          <Sparkles className="w-3 h-3" />
-                          Matched to Your Trip
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="relative z-10">
-                      <p className="text-xs font-medium text-white/85 flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5" />
-                        <span>{dest.country}</span>
-                      </p>
-                      <h3 className="text-xl font-extrabold text-white tracking-tight">{dest.name}</h3>
-                    </div>
-                  </div>
+                  <DestinationCardPhotoSlider
+                    dest={dest}
+                    cardIndex={cardIdx}
+                    isMatched={isMatched}
+                    prefersReducedMotion={prefersReducedMotion}
+                  />
 
                   <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between gap-4">
                     <div className="space-y-2.5">
@@ -1894,43 +2141,11 @@ export default function CustomersPortalPage() {
               onClick={(e) => e.stopPropagation()}
               className="w-full max-w-lg rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden"
             >
-              <div
-                className="relative h-44 p-5 flex flex-col justify-between"
-                style={{
-                  background: `linear-gradient(135deg, ${activeDestination.palette.from}, ${activeDestination.palette.via}, ${activeDestination.palette.to})`,
-                }}
-              >
-                <div className="absolute inset-0 pointer-events-none">
-                  <DestinationArtworkSvg
-                    artwork={activeDestination.artwork}
-                    accent={activeDestination.palette.accent}
-                  />
-                </div>
-
-                <div className="relative z-10 flex items-center justify-between">
-                  <span className="rounded-full bg-white/20 border border-white/30 px-3 py-1 text-xs font-semibold text-white">
-                    {activeDestination.region}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setActiveDestination(null)}
-                    aria-label="Close destination details"
-                    className="w-8 h-8 rounded-full bg-slate-900/40 hover:bg-slate-900/60 text-white flex items-center justify-center cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="relative z-10">
-                  <p className="text-xs font-medium text-white/85 flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span>{activeDestination.country}</span>
-                  </p>
-                  <h3 id="dest-modal-title" className="text-2xl font-extrabold text-white">
-                    {activeDestination.name}
-                  </h3>
-                </div>
-              </div>
+              <DestinationModalPhotoSlider
+                dest={activeDestination}
+                prefersReducedMotion={prefersReducedMotion}
+                onClose={() => setActiveDestination(null)}
+              />
 
               <div className="p-5 sm:p-6 space-y-4">
                 <p className="text-sm text-slate-700 leading-relaxed">{activeDestination.tagline}</p>
