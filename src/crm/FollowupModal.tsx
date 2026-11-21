@@ -3,7 +3,7 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmCustomer, CrmFollowup, FollowupKind, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
-import { ErrorNote, Field, btnGhost, btnPrimary, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { ErrorNote, Field, btnGhost, btnPrimary, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
 
 interface Props {
   open: boolean;
@@ -21,6 +21,7 @@ const KINDS: { id: FollowupKind; label: string; hint: string }[] = [
   { id: 'corporate', label: 'Corporate follow-up', hint: 'Follow-up with the customer’s company' },
   { id: 'internal', label: 'Internal follow-up', hint: 'Work to be done inside the office' },
   { id: 'regular', label: 'Regular customers follow-up', hint: 'Routine contact with existing customers' },
+  { id: 'personal', label: 'Personal follow-up', hint: 'Your own reminder, not tied to a customer' },
 ];
 
 type CustomerMode = 'none' | 'existing' | 'new';
@@ -41,6 +42,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
   const [remarks, setRemarks] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
 
   const staff = employees.filter((e) => e.isActive !== false);
   const selectedCustomer = customers.find((c) => c.id === customerId);
@@ -48,6 +50,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
   useEffect(() => {
     if (!open) return;
     setError('');
+    setWarning('');
     setBusy(false);
     setNewName(''); setNewCompany(''); setNewNumber(''); setNewDest(''); setNewDescription('');
     if (editing) {
@@ -100,8 +103,14 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
           destinations: newDest.split(';').map((d) => d.trim()).filter(Boolean),
         };
       }
-      await crmCall('followup_save', { followup });
+      const saved: any = await crmCall('followup_save', { followup });
       await crm.refresh();
+      const overlaps: { title: string; startAt: string }[] = saved?.overlaps || [];
+      if (overlaps.length) {
+        // saved, but the CEO is double-booked: tell the person (the CEO and admins were notified by the server)
+        setWarning(`Saved, but this time overlaps with: ${overlaps.map((o) => `${o.title} (${fmtDateTime(o.startAt)})`).join('; ')}. The CEO and administrators have been notified.`);
+        return;
+      }
       onClose();
     } catch (err: any) {
       setError(err?.message || 'Could not save the follow-up.');
@@ -207,6 +216,12 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
         </Field>
 
         <ErrorNote message={error} />
+        {warning && (
+          <div role="alert" className="text-xs px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-900 space-y-2">
+            <p>⚠ {warning}</p>
+            <button type="button" className={btnPrimary} onClick={onClose}>OK, close</button>
+          </div>
+        )}
         <div className="flex justify-end gap-2">
           <button type="button" className={btnGhost} onClick={onClose}>Cancel</button>
           <button type="submit" className={btnPrimary} disabled={busy}>{busy ? 'Saving…' : editing ? 'Save changes' : 'Create follow-up'}</button>

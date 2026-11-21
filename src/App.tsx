@@ -71,6 +71,7 @@ import { FaceScanModal } from './components/common/FaceScanModal';
 import { CRM_ENABLED } from './crm/config';
 import { useCrm } from './crm/useCrm';
 import { CrmPage } from './crm/CrmPage';
+import { PageHero } from './components/common/PageHero';
 import { LiveAlerts } from './crm/LiveAlerts';
 import { KioskMode } from './components/kiosk/KioskMode';
 
@@ -1078,6 +1079,7 @@ export default function App() {
 
             <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-x-hidden overflow-y-auto bg-slate-50/50 dark:bg-slate-950/40">
               <div key={activeTab} className="page-enter min-w-0">
+                <PageHero tab={activeTab} name={currentUser?.name || ''} isAdmin={currentUser?.role === 'admin' || currentUser?.role === 'ceo'} crm={crm} />
                 <ErrorBoundary>
                 {activeTab === 'clock' && (
                 <PunchClockTab

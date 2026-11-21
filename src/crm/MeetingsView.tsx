@@ -26,7 +26,7 @@ const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.
 
 export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
-  const { meetings, customers, unread } = crm.data;
+  const { meetings, customers, unread, bookedSlots } = crm.data;
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const customerOf = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const staff = employees.filter((e) => e.isActive !== false);
@@ -134,10 +134,22 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => new Date(todayMs + i * 86400000)), [todayMs]);
   const dayStart = day.getTime();
   const dayEnd = dayStart + 86400000;
+  // Everything that books the CEO on this day: scheduled CEO meetings and Meeting follow-ups with the CEO.
   const busyToday = useMemo(
-    () => meetings.filter((m) => m.status === 'scheduled' && Date.parse(m.startAt) < dayEnd && Date.parse(m.endAt) > dayStart).sort((a, b) => a.startAt.localeCompare(b.startAt)),
-    [meetings, dayStart, dayEnd]
+    () => [
+      ...meetings.filter((m) => m.status === 'scheduled').map((m) => ({ id: m.id, title: m.title, startAt: m.startAt, endAt: m.endAt, source: 'meeting' as const })),
+      ...bookedSlots.map((s) => ({ id: s.id, title: s.title, startAt: s.startAt, endAt: s.endAt, source: 'followup' as const })),
+    ].filter((m) => Date.parse(m.startAt) < dayEnd && Date.parse(m.endAt) > dayStart).sort((a, b) => a.startAt.localeCompare(b.startAt)),
+    [meetings, bookedSlots, dayStart, dayEnd]
   );
+  // two bookings on the same day that overlap in time
+  const clashes = useMemo(() => {
+    const out: { a: (typeof busyToday)[number]; b: (typeof busyToday)[number] }[] = [];
+    for (let i = 0; i < busyToday.length; i++) for (let j = i + 1; j < busyToday.length; j++) {
+      if (Date.parse(busyToday[i].startAt) < Date.parse(busyToday[j].endAt) && Date.parse(busyToday[j].startAt) < Date.parse(busyToday[i].endAt)) out.push({ a: busyToday[i], b: busyToday[j] });
+    }
+    return out;
+  }, [busyToday]);
   // the strip shows 8am-8pm, and stretches (to whole hours) so that every meeting booked that day is visible
   let fromH = DAY_START;
   let toH = DAY_END;
@@ -246,7 +258,7 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2"><CalendarClock className="w-4 h-4 text-blue-600" /> CEO availability</h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">Blue blocks are times the CEO is already booked. Pick a free time to request your own meeting. The bar stretches when a meeting falls outside 8am - 8pm.</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">Blue blocks are CEO meetings and purple blocks are Meeting follow-ups, so both show the CEO as booked. Pick a free time to request your own meeting. The bar stretches when a meeting falls outside 8am - 8pm.</p>
           </div>
           <div className="flex gap-2">
             {isAdmin && <button className={btnPrimary} onClick={() => openForm('admin')}><Plus className="w-4 h-4" /> Schedule CEO meeting</button>}
@@ -257,7 +269,8 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
         <div className="flex gap-1.5 overflow-x-auto pb-1">
           {days.map((d) => {
             const active = d.getTime() === dayStart;
-            const count = meetings.filter((m) => m.status === 'scheduled' && Date.parse(m.startAt) < d.getTime() + 86400000 && Date.parse(m.endAt) > d.getTime()).length;
+            const inDay = (a: string, b: string) => Date.parse(a) < d.getTime() + 86400000 && Date.parse(b) > d.getTime();
+            const count = meetings.filter((m) => m.status === 'scheduled' && inDay(m.startAt, m.endAt)).length + bookedSlots.filter((s) => inDay(s.startAt, s.endAt)).length;
             return (
               <button
                 key={d.getTime()}
@@ -278,7 +291,7 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
               const l = Math.max(0, (Date.parse(m.startAt) - winStart) / winLen) * 100;
               const r = Math.min(1, (Date.parse(m.endAt) - winStart) / winLen) * 100;
               if (r <= 0 || l >= 100) return null;
-              return <div key={m.id} className="absolute top-0 bottom-0 bg-blue-500/80 border-x border-blue-700" style={{ left: `${l}%`, width: `${Math.max(1, r - l)}%` }} title={`${fmtTime(m.startAt)} – ${fmtTime(m.endAt)}`} />;
+              return <div key={m.id} className={`absolute top-0 bottom-0 border-x ${m.source === 'followup' ? 'bg-violet-500/75 border-violet-700' : 'bg-blue-500/80 border-blue-700'} transition-opacity hover:opacity-80`} style={{ left: `${l}%`, width: `${Math.max(1, r - l)}%` }} title={`${m.title} · ${fmtTime(m.startAt)} – ${fmtTime(m.endAt)}`} />;
             })}
           </div>
           <div className="relative h-4 text-[10px] text-slate-400 mt-1">
@@ -289,6 +302,16 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
           <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-2">
             {busyToday.length ? <>Booked: {busyToday.map((m) => `${fmtTime(m.startAt)}–${fmtTime(m.endAt)}`).join(', ')}</> : 'The CEO is free all day.'}
           </p>
+          {busyToday.some((m) => m.source === 'followup') && (
+            <p className="text-[11px] text-violet-700 dark:text-violet-300 mt-1">Purple blocks come from Meeting follow-ups with the CEO (30 minutes each).</p>
+          )}
+          {clashes.length > 0 && (
+            <div role="alert" className="mt-2 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-700 dark:text-red-300 space-y-0.5">
+              <p className="font-bold">⚠ Overlapping times on this day</p>
+              {clashes.slice(0, 4).map((c, i) => <p key={i}>{c.a.title} ({fmtTime(c.a.startAt)}–{fmtTime(c.a.endAt)}) and {c.b.title} ({fmtTime(c.b.startAt)}–{fmtTime(c.b.endAt)})</p>)}
+              {clashes.length > 4 && <p>…and {clashes.length - 4} more.</p>}
+            </div>
+          )}
         </div>
       </div>
 
