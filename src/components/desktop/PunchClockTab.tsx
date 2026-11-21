@@ -75,6 +75,7 @@ interface PunchClockTabProps {
   ceoComments?: CeoComment[];
   onMarkCeoCommentRead?: (commentId: string) => void;
   onOpenChangePassword?: () => void;
+  onRecheckNetwork?: () => Promise<void> | void;
 }
 
 export const PunchClockTab: React.FC<PunchClockTabProps> = ({
@@ -95,6 +96,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   ceoComments = [],
   onMarkCeoCommentRead,
   onOpenChangePassword,
+  onRecheckNetwork,
 }) => {
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [actionNotes, setActionNotes] = useState<string>('');
@@ -240,6 +242,19 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   const isRemoteWfhPunch = Boolean(ipCheck.remote) && !todayRecord?.timeIn;
   const wfhReasonMissing = isRemoteWfhPunch && actionNotes.trim().length < 3;
   const isPunchBlocked = isPunchBlockedByIp;
+  // Staff who are off the office network and have not punched in see one friendly "connect" panel instead of a dead button.
+  const showLockedPanel = isPunchBlockedByIp && currentUser.role !== 'admin' && !todayRecord?.timeIn;
+  const [rechecking, setRechecking] = useState(false);
+  const recheckNow = async () => {
+    if (!onRecheckNetwork || rechecking) return;
+    setRechecking(true);
+    try { await onRecheckNetwork(); } finally { window.setTimeout(() => setRechecking(false), 600); }
+  };
+  useEffect(() => {
+    if (!isPunchBlockedByIp || !onRecheckNetwork) return;
+    const t = window.setInterval(() => { void onRecheckNetwork(); }, 20000);
+    return () => window.clearInterval(t);
+  }, [isPunchBlockedByIp, onRecheckNetwork]);
   // Network, connection and automation details are for administrators only; staff just punch in and out.
   const isAdminUser = currentUser.role === 'admin';
 
@@ -382,7 +397,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     : 'Press Time In when you are ready to start your day.';
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="w-full min-w-0 space-y-4 sm:space-y-5">
       {/* Friendly greeting */}
       <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
@@ -499,7 +514,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
       </div>
 
       {/* Main Punch Interaction Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 items-start">
         {/* Left 2 Cols: Punch Clock Card */}
         <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 space-y-5">
           <div className="flex items-center justify-between">
@@ -636,6 +651,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
             {/* 1. Office Wi-Fi Public IP Verification Banner */}
             {settings.enforceOfficeIpLock && (
               isPunchBlockedByIp ? (
+                showLockedPanel ? null :
                 /* Everyone sees the blocked message, but employees don't see raw IP */
                 <div className="p-3 rounded-xl border flex items-start justify-between gap-3 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200">
                   <div className="flex items-start gap-2.5">
@@ -718,6 +734,36 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
               </div>
             )}
             {!todayRecord?.timeIn ? (
+              showLockedPanel ? (
+                <div className="rounded-2xl border border-rose-200 dark:border-rose-900/60 bg-gradient-to-br from-rose-50 via-white to-amber-50 dark:from-rose-950/40 dark:via-slate-900 dark:to-amber-950/20 p-5 sm:p-6 text-center space-y-4">
+                  <div className="mx-auto w-14 h-14 rounded-2xl bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-300 flex items-center justify-center">
+                    <WifiOff className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100">Connect to the office Wi-Fi to punch in</h3>
+                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">
+                      Attendance is locked until you are on the office network. It unlocks by itself a few seconds after you connect.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold">
+                    <span className="px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">1 · Join the office Wi-Fi</span>
+                    <span className="px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">2 · Tap “Check again”</span>
+                    <span className="px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">3 · Punch in</span>
+                  </div>
+                  {onRecheckNetwork && (
+                    <button
+                      type="button"
+                      onClick={recheckNow}
+                      disabled={rechecking}
+                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-600/20 disabled:opacity-70 cursor-pointer"
+                    >
+                      <Wifi className={`w-4 h-4 ${rechecking ? 'animate-pulse' : ''}`} />
+                      <span>{rechecking ? 'Checking your network…' : 'Check again'}</span>
+                    </button>
+                  )}
+                  <p className="text-[11px] text-slate-400">We re-check automatically every few seconds.</p>
+                </div>
+              ) : (
               <button
                 onClick={handleTimeInClick}
                 disabled={isPunchBlocked}
@@ -734,6 +780,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                     : 'Punch Time In (Once Daily)'}
                 </span>
               </button>
+              )
             ) : !todayRecord.timeOut ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <button

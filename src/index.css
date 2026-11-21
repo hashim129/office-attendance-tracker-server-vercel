@@ -1,12 +1,28 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
-@layer base {
-  :root {
-    --font-sans: 'Manrope', 'Segoe UI', system-ui, -apple-system, sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
-  }
+/* Fonts live inside the app (public/fonts), so they never change or fail to load with the network. */
+@font-face {
+  font-family: 'Manrope';
+  src: url('/fonts/Manrope.woff') format('woff');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono.woff') format('woff');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
 
+@theme {
+  --font-sans: 'Manrope', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+
+@layer base {
   body {
     font-family: var(--font-sans);
     font-feature-settings: 'tnum' 1, 'cv11' 1;

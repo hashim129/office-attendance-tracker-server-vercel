@@ -75,7 +75,7 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
       urgent: n.category === 'reminder',
       ask: n.category === 'reminder' && isWorkPrompt(n.id),
       text: n.message,
-      tab: n.category === 'followup' ? 'crm-tasks' : n.category === 'meeting' ? 'crm-meetings' : n.category === 'sale' ? 'crm-sales' : n.category === 'invoice' ? 'crm-invoices' : n.category === 'receipt' ? 'crm-receipts' : n.category === 'reminder' ? 'clock' : 'crm-inventory',
+      tab: n.category === 'followup' ? 'crm-tasks' : n.category === 'meeting' ? 'crm-meetings' : n.category === 'sale' ? 'crm-sales' : n.category === 'invoice' ? 'crm-invoices' : n.category === 'receipt' ? 'crm-receipts' : n.category === 'customer' ? 'crm-customers' : n.category === 'reminder' ? 'clock' : 'crm-inventory',
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest]);

@@ -740,9 +740,9 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
         </div>
 
         {/* Right Col: Punctuality Ring & Weekly Target Meter */}
-        <div className="space-y-4 flex flex-col justify-between">
+        <div className="flex flex-col gap-4 min-w-0">
           {/* Punctuality Ring / Doughnut Chart */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-4">
+          <div className="flex-1 bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs flex items-center gap-4">
             {/* SVG Ring */}
             <div className="relative w-24 h-24 shrink-0 flex items-center justify-center">
               <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
@@ -808,7 +808,7 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
           </div>
 
           {/* Weekly 40-Hour Target Meter */}
-          <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
+          <div className="flex-1 flex flex-col justify-center bg-white dark:bg-slate-900 rounded-xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900 dark:text-slate-100">
                 <Target className="w-3.5 h-3.5 text-blue-600" />

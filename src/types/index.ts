@@ -140,6 +140,7 @@ export interface Employee {
   joinedDate: string;
   avatarSeed?: string;
   crmCustomerAccess?: boolean; // (no longer used: every employee has Customers, see own + shared)
+  customerPortalAccess?: boolean; // Admin-selected: may see the Customer Portal (Beta) link and its live queries
   salesAccess?: boolean; // Admin-selected: may open the Sales section
   allowWorkFromHome?: boolean; // When true, attendance punch in/out has NO IP restriction
   registeredDeviceId?: string; // Persistent device UUID bound to this employee

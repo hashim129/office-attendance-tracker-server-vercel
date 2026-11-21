@@ -623,7 +623,7 @@ export default async function handler(req, res) {
           const notifRows = notifyTargets.map((empId) => ({
             id: `ntf-${crypto.randomUUID()}`,
             employee_id: empId,
-            category: 'followup',
+            category: 'customer',
             ref_id: custRow.id,
             message: `New Customer Portal Quote Request (${queryRef}) from ${resolvedName} (${resolvedPhone}) for ${desiredCountries.join(', ')}${desiredDays ? ` · ${desiredDays}` : ''}${resolvedCrmId || trackingQuery ? ` [Ref: ${resolvedCrmId || trackingQuery}]` : ''}.`,
             created_at: nowIso,

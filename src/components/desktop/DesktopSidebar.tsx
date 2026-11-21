@@ -199,7 +199,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             </p>
             <div className="space-y-1">
               {([
-                { tab: 'crm-customers' as const, label: 'Customers', Icon: Contact, badge: 0, tone: 'bg-amber-500' },
+                { tab: 'crm-customers' as const, label: 'Customers', Icon: Contact, badge: crmBadges?.customersNew || 0, tone: 'bg-amber-500' },
                 { tab: 'crm-tasks' as const, label: 'Follow-ups & Tasks', Icon: ClipboardList, badge: crmBadges?.tasksNew || 0, tone: 'bg-amber-500' },
                 { tab: 'crm-meetings' as const, label: 'Meetings', Icon: CalendarClock, badge: (crmBadges?.meetingsNew || 0) + (crmBadges?.meetingsPending || 0), tone: 'bg-amber-500' },
               ]).map(({ tab, label, Icon, badge, tone }) => (
@@ -222,7 +222,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 </button>
               ))}
 
-              {settings.customerPortalBetaEnabled !== false && (
+              {settings.customerPortalBetaEnabled !== false && (currentUser.role === 'admin' || currentUser.customerPortalAccess) && (
                 <a
                   href="/customers"
                   target="_blank"
