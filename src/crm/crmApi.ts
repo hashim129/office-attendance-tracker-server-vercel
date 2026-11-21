@@ -1,6 +1,6 @@
 import { getSessionToken } from '../lib/storage';
 
-export type FollowupKind = 'meeting' | 'corporate' | 'internal' | 'regular' | 'personal';
+export type FollowupKind = 'meeting' | 'corporate' | 'internal' | 'regular';
 export type InventoryStatus = 'pending' | 'approved' | 'rejected' | 'delivered';
 export type FollowupStatus = 'pending' | 'completed' | 'not_completed' | 'rescheduled';
 export type MeetingStatus = 'scheduled' | 'pending_approval' | 'rejected' | 'cancelled' | 'completed';
@@ -354,17 +354,35 @@ export interface CrmPurchase {
   updatedAt: string;
 }
 
+export interface CrmPortalQuery {
+  id: string;
+  queryRef: string;
+  customerName: string;
+  mobileNumber: string;
+  desiredCountries: string[];
+  desiredDays: string;
+  desiredServices: string[];
+  notes: string;
+  packageTitle: string;
+  trackingQuery: string;
+  crmId: string;
+  isExistingCustomer: boolean;
+  status: 'new' | 'contacted' | 'quoted' | 'closed';
+  assignedTo?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CrmData {
   customers: CrmCustomer[];
   followups: CrmFollowup[];
   meetings: CrmMeeting[];
-  /** Times the CEO is booked through a Meeting follow-up (shown in the Meetings portal) */
-  bookedSlots: { id: string; title: string; startAt: string; endAt: string }[];
   unread: CrmUnread[];
   inventory: CrmInventoryRequest[];
   inventoryItems: string[];
   sales: CrmSale[];
   purchases?: CrmPurchase[];
+  portalQueries?: CrmPortalQuery[];
   purchaseCustomFields?: PurchaseCustomField[];
   purchaseCustomCategories?: PurchaseCustomCategory[];
   invoices: CrmInvoice[];

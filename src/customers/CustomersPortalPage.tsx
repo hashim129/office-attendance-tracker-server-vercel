@@ -115,6 +115,18 @@ interface PublicVisaStats {
   issued: number;
 }
 
+interface PublicPortalQueryDTO {
+  queryRef: string;
+  packageTitle: string;
+  desiredCountries: string[];
+  desiredDays: string | null;
+  desiredServices: string[];
+  crmId: string | null;
+  isExistingCustomer: boolean;
+  status: 'new' | 'contacted' | 'quoted' | 'closed';
+  createdAt: string | null;
+}
+
 interface PublicLookupSuccessResponse {
   ok: true;
   available: true;
@@ -124,6 +136,7 @@ interface PublicLookupSuccessResponse {
   invoices: PublicInvoiceDTO[];
   receiptsSummary: PublicReceiptSummary[];
   visaStats: PublicVisaStats;
+  portalQueries?: PublicPortalQueryDTO[];
 }
 
 interface PublicApiErrorResponse {
@@ -158,6 +171,15 @@ interface TimelineStep {
 
 const QUERY_RE = /^[A-Za-z0-9_\-\/.:#+ ]{2,80}$/;
 const HAS_ALNUM_RE = /[A-Za-z0-9]/;
+const QUOTE_SERVICES_OPTIONS = [
+  'Visa Processing',
+  'Hotel Booking',
+  'Flight Tickets',
+  'Full Tour Package',
+  'Airport Transfers',
+  'Umrah / Ziyarat Package',
+  'Travel Insurance',
+] as const;
 
 function normalizeQuery(raw: string): string {
   return String(raw || '').trim().replace(/\s+/g, ' ');
@@ -255,10 +277,12 @@ function FeaturedDestinationHeroSlider({
   destinations,
   prefersReducedMotion,
   onSelectDestination,
+  onRequestQuote,
 }: {
   destinations: Destination[];
   prefersReducedMotion: boolean | null;
   onSelectDestination: (dest: Destination) => void;
+  onRequestQuote: (dest: Destination) => void;
 }) {
   const [slideIdx, setSlideIdx] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
@@ -347,7 +371,15 @@ function FeaturedDestinationHeroSlider({
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => onRequestQuote(current)}
+              className="inline-flex items-center justify-center gap-1.5 rounded-full bg-sky-500 hover:bg-sky-400 text-white px-4 py-2.5 text-xs sm:text-sm font-bold shadow-md transition-all cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 shrink-0" />
+              <span>Get a quote &amp; let our representative contact you</span>
+            </button>
             <button
               type="button"
               onClick={() => onSelectDestination(current)}
@@ -670,6 +702,30 @@ export default function CustomersPortalPage() {
   const [activeDestination, setActiveDestination] = useState<Destination | null>(null);
   const [copiedShare, setCopiedShare] = useState(false);
 
+  // Live Customers Portal Generated Queries Bar & "Get a quote" modal state
+  const [recentPortalQueries, setRecentPortalQueries] = useState<PublicPortalQueryDTO[]>([]);
+  const [quoteModalOpen, setQuoteModalOpen] = useState(false);
+  const [quotePackageTitle, setQuotePackageTitle] = useState('');
+  const [quoteName, setQuoteName] = useState('');
+  const [quoteMobile, setQuoteMobile] = useState('');
+  const [quoteCountriesInput, setQuoteCountriesInput] = useState('');
+  const [quoteCountries, setQuoteCountries] = useState<string[]>([]);
+  const [quoteDays, setQuoteDays] = useState('');
+  const [quoteServices, setQuoteServices] = useState<string[]>([]);
+  const [quoteNotes, setQuoteNotes] = useState('');
+  const [quoteTrackingRef, setQuoteTrackingRef] = useState('');
+  const [quoteBusy, setQuoteBusy] = useState(false);
+  const [quoteError, setQuoteError] = useState('');
+  const [quoteSuccess, setQuoteSuccess] = useState<{
+    queryRef: string;
+    customerName: string;
+    desiredCountries: string[];
+    desiredDays: string | null;
+    desiredServices: string[];
+    crmId: string | null;
+    isExistingCustomer: boolean;
+  } | null>(null);
+
   const autoSearchedRef = useRef(false);
   const lookupAbortRef = useRef<AbortController | null>(null);
   const shareTimerRef = useRef<number | null>(null);
@@ -719,15 +775,22 @@ export default function CustomersPortalPage() {
           cache: 'no-store',
           signal: controller.signal,
         });
-        let data: { ok?: boolean; available?: boolean } | null = null;
+        let data: { ok?: boolean; available?: boolean; recentQueries?: PublicPortalQueryDTO[] } | null = null;
         try {
-          data = (await res.json()) as { ok?: boolean; available?: boolean };
+          data = (await res.json()) as {
+            ok?: boolean;
+            available?: boolean;
+            recentQueries?: PublicPortalQueryDTO[];
+          };
         } catch {
           data = null;
         }
         if (!active) return;
 
         if (res.ok && data?.available === true) {
+          if (Array.isArray(data.recentQueries)) {
+            setRecentPortalQueries(data.recentQueries);
+          }
           setGateStatus('ready');
         } else {
           setGateStatus('unavailable');
@@ -1321,6 +1384,148 @@ export default function CustomersPortalPage() {
     setTimelineInvoiceId('');
     const basePath = window.location.pathname.replace(/\/+$/, '') || '/customers';
     window.history.replaceState(null, '', basePath);
+  };
+
+  const openQuoteModalForDestination = (dest?: Destination | null) => {
+    const activeTracking =
+      foundData?.query ||
+      (foundData?.invoices?.[0] ? crmQueryOf(foundData.invoices[0]) || foundData.invoices[0].invoiceNo : '') ||
+      searchInput.trim();
+    const initialCountries = dest
+      ? [`${dest.name} (${dest.country})`]
+      : matchedDestinationIds.length > 0
+        ? CURATED_DESTINATIONS.filter((d) => matchedDestinationIds.includes(d.id)).map(
+            (d) => `${d.name} (${d.country})`
+          )
+        : [];
+    setQuotePackageTitle(dest ? `${dest.name}, ${dest.country} — ${dest.packageCue}` : '');
+    setQuoteName(foundData?.customerName || '');
+    setQuoteTrackingRef(activeTracking);
+    setQuoteCountries(initialCountries);
+    setQuoteCountriesInput('');
+    setQuoteDays(dest ? dest.packageCue : '');
+    setQuoteServices(
+      dest?.region === 'Religious & Heritage'
+        ? ['Umrah / Ziyarat Package', 'Visa Processing', 'Hotel Booking']
+        : ['Full Tour Package', 'Visa Processing', 'Hotel Booking']
+    );
+    setQuoteNotes('');
+    setQuoteError('');
+    setQuoteSuccess(null);
+    setQuoteModalOpen(true);
+  };
+
+  const addQuoteCountryChip = () => {
+    const parts = quoteCountriesInput
+      .split(/[,;]+/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return;
+    setQuoteCountries((prev) => {
+      const next = [...prev];
+      for (const p of parts) {
+        if (!next.some((x) => x.toLowerCase() === p.toLowerCase())) {
+          next.push(p);
+        }
+      }
+      return next;
+    });
+    setQuoteCountriesInput('');
+  };
+
+  const toggleQuoteService = (service: string) => {
+    setQuoteServices((prev) =>
+      prev.includes(service) ? prev.filter((s) => s !== service) : [...prev, service]
+    );
+  };
+
+  const handleSubmitQuoteRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (quoteBusy) return;
+    setQuoteError('');
+
+    const pendingParts = quoteCountriesInput
+      .split(/[,;]+/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+    const allCountries = [...quoteCountries];
+    for (const p of pendingParts) {
+      if (!allCountries.some((x) => x.toLowerCase() === p.toLowerCase())) {
+        allCountries.push(p);
+      }
+    }
+
+    const cleanName = quoteName.trim();
+    const cleanMobile = quoteMobile.trim();
+
+    if (!cleanName && !quoteTrackingRef.trim()) {
+      setQuoteError('Please enter your name.');
+      return;
+    }
+    if (!cleanMobile && !quoteTrackingRef.trim()) {
+      setQuoteError('Please enter your mobile number so our representative can contact you.');
+      return;
+    }
+    if (allCountries.length === 0) {
+      setQuoteError('Please select or type at least one desired country or destination.');
+      return;
+    }
+
+    setQuoteBusy(true);
+    try {
+      const res = await fetch('/api/public-customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'quote_request',
+          customerName: cleanName,
+          mobileNumber: cleanMobile,
+          desiredCountries: allCountries,
+          desiredDays: quoteDays.trim(),
+          desiredServices: quoteServices,
+          notes: quoteNotes.trim(),
+          packageTitle: quotePackageTitle.trim() || allCountries.join(', '),
+          trackingQuery: quoteTrackingRef.trim(),
+        }),
+      });
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (!res.ok || !data || data.ok === false) {
+        setQuoteError(data?.message || 'Could not submit your quote request. Please try again.');
+        return;
+      }
+      const createdQuote = data.quote;
+      setQuoteSuccess({
+        queryRef: createdQuote?.queryRef || data.queryRef || 'PQ-LIVE',
+        customerName: createdQuote?.customerName || cleanName || 'Valued Guest',
+        desiredCountries: createdQuote?.desiredCountries || allCountries,
+        desiredDays: createdQuote?.desiredDays || quoteDays.trim() || null,
+        desiredServices: createdQuote?.desiredServices || quoteServices,
+        crmId: createdQuote?.crmId || quoteTrackingRef.trim() || null,
+        isExistingCustomer: Boolean(createdQuote?.isExistingCustomer || quoteTrackingRef.trim()),
+      });
+
+      const newDto: PublicPortalQueryDTO = {
+        queryRef: createdQuote?.queryRef || data.queryRef || 'PQ-LIVE',
+        packageTitle: quotePackageTitle.trim() || allCountries.join(', '),
+        desiredCountries: createdQuote?.desiredCountries || allCountries,
+        desiredDays: createdQuote?.desiredDays || quoteDays.trim() || null,
+        desiredServices: createdQuote?.desiredServices || quoteServices,
+        crmId: createdQuote?.crmId || quoteTrackingRef.trim() || null,
+        isExistingCustomer: Boolean(createdQuote?.isExistingCustomer || quoteTrackingRef.trim()),
+        status: 'new',
+        createdAt: createdQuote?.createdAt || new Date().toISOString(),
+      };
+      setRecentPortalQueries((prev) => [newDto, ...prev.filter((x) => x.queryRef !== newDto.queryRef)].slice(0, 12));
+    } catch {
+      setQuoteError('Network error while sending your quote request. Please try again.');
+    } finally {
+      setQuoteBusy(false);
+    }
   };
 
   // 1. Initial Gate Loading State (Bahaar Journeys branding only; zero portal features or staff data)
@@ -2333,6 +2538,100 @@ export default function CustomersPortalPage() {
           </section>
         )}
 
+        {/* Live Customers Portal Generated Queries Bar */}
+        <section className="no-print">
+          <div className="rounded-3xl border border-sky-200 bg-gradient-to-r from-sky-50/90 via-white to-indigo-50/70 p-4 sm:p-5 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start sm:items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm sm:text-base font-extrabold text-slate-900">
+                      Customers Portal Generated Queries Bar
+                    </h2>
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 text-[11px] font-bold text-emerald-900">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      LIVE
+                    </span>
+                    {foundData && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 border border-sky-300 px-2.5 py-0.5 text-[11px] font-bold text-sky-900">
+                        Linked to Tracking / CRM ID: {foundData.query}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    {foundData
+                      ? `Welcome back, ${foundData.customerName || 'Valued Guest'}! Click "Get a quote and let our representative contact you" on any package and your active tracking reference (${foundData.query}) will be linked automatically.`
+                      : 'Looking for a tailored package? Click "Get a quote and let our representative contact you" on any destination below to generate a live portal query.'}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => openQuoteModalForDestination(null)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white px-4 py-2.5 text-xs sm:text-sm font-bold shadow-xs transition-all cursor-pointer shrink-0"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Get a Quote &amp; Let Our Representative Contact You</span>
+              </button>
+            </div>
+
+            {(() => {
+              const queriesToShow =
+                foundData?.portalQueries && foundData.portalQueries.length > 0
+                  ? foundData.portalQueries
+                  : recentPortalQueries;
+              if (queriesToShow.length === 0) return null;
+              return (
+                <div className="pt-2.5 border-t border-sky-200/60 flex items-center gap-2 overflow-x-auto pb-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-sky-800 shrink-0">
+                    {foundData?.portalQueries && foundData.portalQueries.length > 0
+                      ? 'Your Generated Portal Queries:'
+                      : 'Recent Live Portal Queries:'}
+                  </span>
+                  {queriesToShow.slice(0, 6).map((pq) => (
+                    <div
+                      key={pq.queryRef}
+                      className="inline-flex items-center gap-2 rounded-full bg-white border border-sky-200 px-3 py-1 text-xs shadow-2xs shrink-0"
+                    >
+                      <span className="font-mono font-bold text-sky-700">{pq.queryRef}</span>
+                      <span className="font-semibold text-slate-800">
+                        {pq.desiredCountries.slice(0, 2).join(', ')}
+                      </span>
+                      {pq.desiredDays && (
+                        <span className="text-slate-500 text-[11px]">· {pq.desiredDays}</span>
+                      )}
+                      {pq.crmId && (
+                        <span className="rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.2 text-[10px] font-bold">
+                          CRM: {pq.crmId}
+                        </span>
+                      )}
+                      <span
+                        className={`rounded-full px-2 py-0.2 text-[10px] font-bold ${
+                          pq.status === 'quoted'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : pq.status === 'contacted'
+                              ? 'bg-sky-100 text-sky-800'
+                              : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {pq.status === 'quoted'
+                          ? 'Quote Sent'
+                          : pq.status === 'contacted'
+                            ? 'Representative Contacted'
+                            : 'Live Inquiry'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </section>
+
         {/* Curated Worldwide Destinations Showcase */}
         <section className="no-print space-y-5 pt-2">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -2375,6 +2674,7 @@ export default function CustomersPortalPage() {
             destinations={displayedDestinations}
             prefersReducedMotion={prefersReducedMotion}
             onSelectDestination={(dest) => setActiveDestination(dest)}
+            onRequestQuote={(dest) => openQuoteModalForDestination(dest)}
           />
 
           {matchedDestinationIds.length > 0 && (
@@ -2391,10 +2691,17 @@ export default function CustomersPortalPage() {
             {displayedDestinations.map((dest, cardIdx) => {
               const isMatched = activeMatchedSet.has(dest.id);
               return (
-                <button
+                <div
                   key={dest.id}
-                  type="button"
                   onClick={() => setActiveDestination(dest)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setActiveDestination(dest);
+                    }
+                  }}
                   className={`group text-left rounded-3xl border bg-white overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col ${
                     isMatched
                       ? 'border-emerald-300 ring-2 ring-emerald-500/15'
@@ -2421,14 +2728,28 @@ export default function CustomersPortalPage() {
                       </ul>
                     </div>
 
-                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
-                      <span className="font-medium text-slate-500">Best: {dest.bestSeason}</span>
-                      <span className="font-semibold text-sky-700 group-hover:translate-x-0.5 transition-transform">
-                        View Guide →
-                      </span>
+                    <div className="space-y-2.5 pt-3 border-t border-slate-100">
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="font-medium text-slate-500">Best: {dest.bestSeason}</span>
+                        <span className="font-semibold text-sky-700 group-hover:translate-x-0.5 transition-transform">
+                          View Guide →
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openQuoteModalForDestination(dest);
+                        }}
+                        className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white px-3 py-2 text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                        <span>Get a quote and let our representative contact you</span>
+                      </button>
                     </div>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -2517,7 +2838,365 @@ export default function CustomersPortalPage() {
                   <Compass className="w-4 h-4 text-sky-600 shrink-0" />
                   <span>{activeDestination.packageCue}</span>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = activeDestination;
+                    setActiveDestination(null);
+                    openQuoteModalForDestination(target);
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 text-xs sm:text-sm font-bold shadow-sm transition-colors cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4 shrink-0" />
+                  <span>Get a quote and let our representative contact you</span>
+                </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Get a Quote & Representative Callback Modal */}
+      <AnimatePresence>
+        {quoteModalOpen && (
+          <motion.div
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+            className="no-print fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+            onClick={() => setQuoteModalOpen(false)}
+          >
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="quote-modal-title"
+              initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={prefersReducedMotion ? undefined : { opacity: 0, scale: 0.96, y: 8 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-xl rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden my-6"
+            >
+              <div className="bg-gradient-to-r from-slate-900 via-sky-950 to-slate-900 text-white p-5 sm:p-6 flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/20 border border-sky-400/30 px-2.5 py-0.5 text-[11px] font-bold text-sky-300">
+                    <Sparkles className="w-3 h-3" />
+                    <span>Bahaar Journeys Concierge Desk</span>
+                  </div>
+                  <h3 id="quote-modal-title" className="text-lg sm:text-xl font-extrabold">
+                    Get a Quote &amp; Let Our Representative Contact You
+                  </h3>
+                  {quotePackageTitle && (
+                    <p className="text-xs text-sky-200 font-medium">
+                      Selected Package: {quotePackageTitle}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setQuoteModalOpen(false)}
+                  aria-label="Close quote modal"
+                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {quoteSuccess ? (
+                <div className="p-6 space-y-4">
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 flex items-start gap-3">
+                    <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-extrabold text-emerald-950">
+                        Your Quote Query ({quoteSuccess.queryRef}) is Live!
+                      </p>
+                      <p className="text-xs text-emerald-800 leading-relaxed">
+                        Thank you, <strong>{quoteSuccess.customerName}</strong>. Your inquiry has been added to our live Customer Portal Queries bar and routed to a Bahaar Journeys travel representative who will contact you shortly.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-500">Generated Query Reference</span>
+                      <span className="font-mono font-bold text-sky-700">{quoteSuccess.queryRef}</span>
+                    </div>
+                    {quoteSuccess.crmId && (
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-500">Linked Tracking / CRM ID</span>
+                        <span className="font-mono font-bold text-indigo-700">{quoteSuccess.crmId}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-500">Desired Countries</span>
+                      <span className="font-bold text-slate-900">
+                        {quoteSuccess.desiredCountries.join(', ')}
+                      </span>
+                    </div>
+                    {quoteSuccess.desiredDays && (
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-500">Desired Duration / Days</span>
+                        <span className="font-semibold text-slate-800">{quoteSuccess.desiredDays}</span>
+                      </div>
+                    )}
+                    {quoteSuccess.desiredServices.length > 0 && (
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-500">Desired Services</span>
+                        <span className="font-semibold text-slate-800">
+                          {quoteSuccess.desiredServices.join(' · ')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setQuoteModalOpen(false)}
+                      className="rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 text-xs font-bold cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmitQuoteRequest} className="p-5 sm:p-6 space-y-4">
+                  {/* Smart Existing Customer Detection Banner */}
+                  {quoteTrackingRef ? (
+                    <div className="rounded-2xl border border-sky-200 bg-sky-50/80 p-3.5 flex items-start justify-between gap-3 text-xs">
+                      <div className="space-y-0.5">
+                        <p className="font-bold text-sky-950 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0" />
+                          <span>
+                            Existing Customer Check-In Detected ({quoteTrackingRef})
+                          </span>
+                        </p>
+                        <p className="text-sky-800">
+                          Your query will automatically link to your CRM / tracking number{' '}
+                          <strong className="font-mono">{quoteTrackingRef}</strong>
+                          {foundData?.customerName ? ` (${foundData.customerName})` : ''}.
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Your Name <span className="text-rose-600">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={quoteName}
+                        onChange={(e) => setQuoteName(e.target.value)}
+                        placeholder="e.g. Muhammad Hashir"
+                        maxLength={120}
+                        required={!quoteTrackingRef.trim()}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Mobile Number <span className="text-rose-600">*</span>
+                      </label>
+                      <input
+                        type="tel"
+                        value={quoteMobile}
+                        onChange={(e) => setQuoteMobile(e.target.value)}
+                        placeholder="e.g. +92 300 1234567"
+                        maxLength={60}
+                        required
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Desired Countries (Required) */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Desired Countries / Destinations <span className="text-rose-600">*</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={quoteCountriesInput}
+                        onChange={(e) => setQuoteCountriesInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addQuoteCountryChip();
+                          }
+                        }}
+                        placeholder="Type country or city (e.g. Saudi Arabia, Baku, Dubai) and press Add..."
+                        maxLength={100}
+                        className="flex-1 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={addQuoteCountryChip}
+                        className="rounded-xl border border-slate-300 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 text-xs font-bold text-slate-700 cursor-pointer shrink-0"
+                      >
+                        + Add
+                      </button>
+                    </div>
+
+                    {/* Quick Pick Country Pills */}
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {CURATED_DESTINATIONS.map((d) => {
+                        const label = `${d.name} (${d.country})`;
+                        const active = quoteCountries.some(
+                          (c) => c.toLowerCase() === label.toLowerCase() || c.toLowerCase() === d.country.toLowerCase()
+                        );
+                        return (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() =>
+                              setQuoteCountries((prev) =>
+                                active
+                                  ? prev.filter(
+                                      (c) =>
+                                        c.toLowerCase() !== label.toLowerCase() &&
+                                        c.toLowerCase() !== d.country.toLowerCase()
+                                    )
+                                  : [...prev, label]
+                              )
+                            }
+                            className={`rounded-full px-2.5 py-1 text-[11px] font-semibold border transition-colors cursor-pointer ${
+                              active
+                                ? 'bg-sky-600 text-white border-sky-600'
+                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            {active ? '✓ ' : '+ '}
+                            {d.country} ({d.name})
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {quoteCountries.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">
+                        {quoteCountries.map((c) => (
+                          <span
+                            key={c}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 text-sky-900 border border-sky-200 px-3 py-1 text-xs font-bold"
+                          >
+                            <span>{c}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setQuoteCountries((prev) => prev.filter((item) => item !== c))
+                              }
+                              className="text-sky-600 hover:text-rose-600 cursor-pointer"
+                              aria-label={`Remove ${c}`}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Optional Fields: Desired Days & Existing Tracking / CRM ID */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Desired Days / Duration <span className="text-slate-400 font-normal">(Optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={quoteDays}
+                        onChange={(e) => setQuoteDays(e.target.value)}
+                        placeholder="e.g. 7 Days / 6 Nights"
+                        maxLength={60}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Existing Tracking / CRM ID <span className="text-slate-400 font-normal">(Optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={quoteTrackingRef}
+                        onChange={(e) => setQuoteTrackingRef(e.target.value)}
+                        placeholder="Auto-filled if checking in with CRM ID"
+                        maxLength={80}
+                        className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2 text-xs sm:text-sm font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Optional Desired Services */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      Desired Services <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {QUOTE_SERVICES_OPTIONS.map((srv) => {
+                        const active = quoteServices.includes(srv);
+                        return (
+                          <button
+                            key={srv}
+                            type="button"
+                            onClick={() => toggleQuoteService(srv)}
+                            className={`rounded-full px-3 py-1.5 text-xs font-semibold border transition-colors cursor-pointer ${
+                              active
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            {active ? '✓ ' : ''}
+                            {srv}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Optional Additional Notes */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Additional Preferences or Notes <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={quoteNotes}
+                      onChange={(e) => setQuoteNotes(e.target.value)}
+                      placeholder="e.g. Number of adults/children, preferred hotel star rating, travel dates..."
+                      maxLength={600}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                    />
+                  </div>
+
+                  {quoteError && (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-semibold text-rose-800 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>{quoteError}</span>
+                    </div>
+                  )}
+
+                  <div className="pt-2 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setQuoteModalOpen(false)}
+                      className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-700 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={quoteBusy}
+                      className="inline-flex items-center gap-2 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white px-5 py-2.5 text-xs sm:text-sm font-bold shadow-xs cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span>{quoteBusy ? 'Submitting Query…' : 'Submit Quote Request'}</span>
+                    </button>
+                  </div>
+                </form>
+              )}
             </motion.div>
           </motion.div>
         )}

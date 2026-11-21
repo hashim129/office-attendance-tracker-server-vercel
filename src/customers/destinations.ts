@@ -172,9 +172,9 @@ export const CURATED_DESTINATIONS: Destination[] = [
     },
     artwork: 'baku',
     photos: [
-      'https://images.unsplash.com/photo-1596306499317-8490232098fa?auto=format&fit=crop&w=1200&q=85',
-      'https://images.unsplash.com/photo-1605280263929-1c42c62ef169?auto=format&fit=crop&w=1200&q=85',
-      'https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1483728642387-6c3bdd6c93e5?auto=format&fit=crop&w=1200&q=85',
     ],
     photoCaptions: [
       'Flame Towers & Caspian Bay, Baku',
@@ -205,9 +205,9 @@ export const CURATED_DESTINATIONS: Destination[] = [
     },
     artwork: 'heritage',
     photos: [
-      'https://images.unsplash.com/photo-1528642474498-1af0c17fd8c3?auto=format&fit=crop&w=1200&q=85',
       'https://images.unsplash.com/photo-1580837119756-563d608dd119?auto=format&fit=crop&w=1200&q=85',
       'https://images.unsplash.com/photo-1564507592333-c60657eea523?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1548013146-72479768bada?auto=format&fit=crop&w=1200&q=85',
     ],
     photoCaptions: [
       'Registan Square Madrasahs, Samarkand',
@@ -238,9 +238,9 @@ export const CURATED_DESTINATIONS: Destination[] = [
     },
     artwork: 'alps',
     photos: [
-      'https://images.unsplash.com/photo-1558588942-930faae5a389?auto=format&fit=crop&w=1200&q=85',
       'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=85',
       'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=85',
+      'https://images.unsplash.com/photo-1454496522488-7a8e488e8606?auto=format&fit=crop&w=1200&q=85',
     ],
     photoCaptions: [
       'Tian Shan Mountains Overlooking Almaty',

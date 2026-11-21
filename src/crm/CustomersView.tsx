@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Pencil, Plus, Search, Trash2, X, ClipboardList } from 'lucide-react';
+import { Pencil, Plus, Search, Trash2, X, ClipboardList, Globe } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
-import { CrmCustomer, crmCall } from './crmApi';
+import { CrmCustomer, CrmPortalQuery, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { FollowupModal } from './FollowupModal';
 import { ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, inputCls } from './ui';
@@ -18,6 +18,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
   const seesAll = ['admin', 'ceo', 'accounts'].includes(currentUser.role);
   const canChange = (c: CrmCustomer) => seesAll || c.createdBy === currentUser.id;
   const { customers, followups } = crm.data;
+  const portalQueries = crm.data.portalQueries || [];
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const [query, setQuery] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -88,6 +89,25 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
     }
   };
 
+  const updatePortalQueryStatus = async (pq: CrmPortalQuery, status: CrmPortalQuery['status']) => {
+    try {
+      await crmCall('portal_query_status', { id: pq.id, status });
+      await crm.refresh();
+    } catch (err: any) {
+      window.alert(err?.message || 'Could not update portal query status.');
+    }
+  };
+
+  const removePortalQuery = async (pq: CrmPortalQuery) => {
+    if (!window.confirm(`Delete portal quote query ${pq.queryRef} from ${pq.customerName}?`)) return;
+    try {
+      await crmCall('portal_query_delete', { id: pq.id });
+      await crm.refresh();
+    } catch (err: any) {
+      window.alert(err?.message || 'Could not delete portal query.');
+    }
+  };
+
   const q = query.trim().toLowerCase();
   const rows = useMemo(
     () =>
@@ -109,6 +129,159 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
       </div>
 
       <ErrorNote message={crm.error} />
+
+      {/* Live Customers Portal Generated Queries Bar */}
+      <div className={`${cardCls} p-4 border-sky-200 dark:border-sky-900/60 bg-gradient-to-r from-sky-50/70 via-white to-indigo-50/50 dark:from-sky-950/30 dark:via-slate-900 dark:to-indigo-950/20 space-y-3`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-sky-600 text-white shadow-2xs">
+              <Globe className="w-4 h-4" />
+            </span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100">
+                  Customers Portal Generated Queries Bar
+                </h3>
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Live
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Real-time quote &amp; package inquiries submitted by new or existing customers on the public Customers Page (/customers).
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <Pill tone="amber">New: {portalQueries.filter((x) => x.status === 'new').length}</Pill>
+            <Pill tone="blue">Contacted: {portalQueries.filter((x) => x.status === 'contacted').length}</Pill>
+            <Pill tone="green">Quoted: {portalQueries.filter((x) => x.status === 'quoted').length}</Pill>
+            <Pill tone="slate">Total: {portalQueries.length}</Pill>
+          </div>
+        </div>
+
+        {portalQueries.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-sky-200 dark:border-sky-900/50 bg-white/80 dark:bg-slate-900/60 p-3.5 text-xs text-slate-500 flex flex-wrap items-center justify-between gap-2">
+            <span>
+              No customer portal quote queries yet. When customers click <b>“Get a quote and let our representative contact you”</b> on any package at <code>/customers</code>, their query appears here live.
+            </span>
+            <a
+              href="/customers"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-bold text-sky-700 dark:text-sky-400 hover:underline"
+            >
+              Open Customers Portal →
+            </a>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+            {portalQueries.slice(0, 12).map((pq) => (
+              <div
+                key={pq.id}
+                className="rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 flex flex-col justify-between gap-2 shadow-2xs"
+              >
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-mono text-xs font-bold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/60 px-2 py-0.5 rounded border border-sky-200 dark:border-sky-800">
+                        {pq.queryRef}
+                      </span>
+                      {pq.crmId && (
+                        <Pill tone="blue">CRM / Ref: {pq.crmId}</Pill>
+                      )}
+                      {pq.isExistingCustomer && (
+                        <Pill tone="green">Existing Customer</Pill>
+                      )}
+                    </div>
+                    <Pill
+                      tone={
+                        pq.status === 'quoted'
+                          ? 'green'
+                          : pq.status === 'contacted'
+                            ? 'blue'
+                            : pq.status === 'closed'
+                              ? 'slate'
+                              : 'amber'
+                      }
+                    >
+                      {pq.status === 'new'
+                        ? 'New Inquiry'
+                        : pq.status === 'contacted'
+                          ? 'Contacted'
+                          : pq.status === 'quoted'
+                            ? 'Quote Sent'
+                            : 'Closed'}
+                    </Pill>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                      {pq.customerName}{' '}
+                      <span className="font-mono font-semibold text-slate-600 dark:text-slate-300">
+                        · {pq.mobileNumber}
+                      </span>
+                    </p>
+                    {pq.packageTitle && (
+                      <p className="text-[11px] font-semibold text-sky-700 dark:text-sky-300">
+                        Package: {pq.packageTitle}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1">
+                    {pq.desiredCountries.map((c) => (
+                      <Pill key={c} tone="blue">{c}</Pill>
+                    ))}
+                    {pq.desiredDays && <Pill tone="slate">{pq.desiredDays}</Pill>}
+                  </div>
+
+                  {pq.desiredServices.length > 0 && (
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                      Services: <b>{pq.desiredServices.join(' · ')}</b>
+                    </p>
+                  )}
+                  {pq.notes && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 italic break-words">
+                      “{pq.notes}”
+                    </p>
+                  )}
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-400">
+                  <span>{fmtDateTime(pq.createdAt)}</span>
+                  <div className="flex items-center gap-1.5">
+                    <select
+                      aria-label={`Status for portal query ${pq.queryRef}`}
+                      className={`${inputCls} !w-auto !py-0.5 !px-2 !text-[11px] font-semibold`}
+                      value={pq.status}
+                      onChange={(e) =>
+                        void updatePortalQueryStatus(pq, e.target.value as CrmPortalQuery['status'])
+                      }
+                    >
+                      <option value="new">New Inquiry</option>
+                      <option value="contacted">Representative Contacted</option>
+                      <option value="quoted">Quote Sent</option>
+                      <option value="closed">Closed</option>
+                    </select>
+                    {seesAll && (
+                      <button
+                        type="button"
+                        onClick={() => void removePortalQuery(pq)}
+                        className="text-slate-400 hover:text-rose-600 cursor-pointer p-1"
+                        title={`Delete query ${pq.queryRef}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className={`${cardCls} overflow-hidden`}>
         {crm.loading && !customers.length ? (

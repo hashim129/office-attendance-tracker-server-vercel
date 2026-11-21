@@ -255,6 +255,22 @@ function hasTicketKeyword(sections, reference = '') {
   });
 }
 
+function sanitizePortalQueryDto(row) {
+  const d = parseJsonObj(row?.data, {});
+  if (!d || !d.queryRef) return null;
+  return {
+    queryRef: String(d.queryRef || ''),
+    packageTitle: String(d.packageTitle || ''),
+    desiredCountries: parseJsonArr(d.desiredCountries).map((c) => String(c || '')).filter(Boolean),
+    desiredDays: d.desiredDays ? String(d.desiredDays) : null,
+    desiredServices: parseJsonArr(d.desiredServices).map((s) => String(s || '')).filter(Boolean),
+    crmId: d.crmId ? String(d.crmId) : null,
+    isExistingCustomer: Boolean(d.isExistingCustomer),
+    status: ['new', 'contacted', 'quoted', 'closed'].includes(d.status) ? d.status : 'new',
+    createdAt: d.createdAt || row?.updated_at || null,
+  };
+}
+
 function sanitizeSections(sections) {
   return parseJsonArr(sections).map((sec) => ({
     title: String(sec?.title || ''),
@@ -308,7 +324,7 @@ export default async function handler(req, res) {
   setNoCacheHeaders(res);
   res.setHeader('X-Content-Type-Options', 'nosniff');
 
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({
       ok: false,
       error: 'METHOD_NOT_ALLOWED',
@@ -336,8 +352,285 @@ export default async function handler(req, res) {
       });
     }
 
+    if (req.method === 'POST') {
+      const body = typeof req.body === 'string' ? parseJsonObj(req.body, {}) : parseJsonObj(req.body, {});
+      if (body.action !== 'quote_request') {
+        return res.status(400).json({
+          ok: false,
+          available: true,
+          error: 'INVALID_ACTION',
+          message: 'Unsupported action.',
+        });
+      }
+
+      // Per-IP fixed-window rate limiting in crm_company (20 requests / 5 min)
+      const clientIp = extractClientIp(req);
+      const rlId = `rl_pub_${crypto.createHash('sha256').update(clientIp).digest('hex').slice(0, 24)}`;
+      const rlRows = await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(rlId)}&select=data`);
+      const existingRl = parseJsonObj(rlRows?.[0]?.data, null);
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      const existingWindowStart = Number(existingRl?.windowStart);
+      const inWindow =
+        Number.isFinite(existingWindowStart) &&
+        existingWindowStart > 0 &&
+        nowMs - existingWindowStart < RATE_LIMIT_WINDOW_MS;
+      const windowStart = inWindow ? existingWindowStart : nowMs;
+      const count = inWindow ? Math.max(0, Number(existingRl?.count) || 0) : 0;
+
+      if (count >= RATE_LIMIT_MAX) {
+        const retryAfterSec = Math.max(1, Math.ceil((windowStart + RATE_LIMIT_WINDOW_MS - nowMs) / 1000));
+        res.setHeader('Retry-After', String(retryAfterSec));
+        return res.status(429).json({
+          ok: false,
+          available: true,
+          error: 'RATE_LIMITED',
+          retryAfterSec,
+          message: `Too many requests. Please wait ${retryAfterSec} seconds and try again.`,
+        });
+      }
+
+      await supabaseFetch('/crm_company?on_conflict=id', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify([
+          {
+            id: rlId,
+            data: {
+              count: count + 1,
+              windowStart,
+              updatedAt: nowIso,
+            },
+            updated_at: nowIso,
+          },
+        ]),
+      });
+
+      const customerName = String(body.customerName || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+      const mobileNumber = String(body.mobileNumber || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+      const rawCountries = Array.isArray(body.desiredCountries)
+        ? body.desiredCountries
+        : String(body.desiredCountries || '')
+            .split(/[,;\n]+/)
+            .map((x) => x.trim());
+      const desiredCountries = Array.from(
+        new Set(
+          rawCountries
+            .map((c) => String(c || '').trim().replace(/\s+/g, ' ').slice(0, 100))
+            .filter(Boolean)
+        )
+      ).slice(0, 20);
+
+      const desiredDays = String(body.desiredDays || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+      const rawServices = Array.isArray(body.desiredServices)
+        ? body.desiredServices
+        : String(body.desiredServices || '')
+            .split(/[,;\n]+/)
+            .map((x) => x.trim());
+      const desiredServices = Array.from(
+        new Set(
+          rawServices
+            .map((s) => String(s || '').trim().replace(/\s+/g, ' ').slice(0, 80))
+            .filter(Boolean)
+        )
+      ).slice(0, 15);
+      const notes = String(body.notes || '').trim().slice(0, 600);
+      const packageTitle = String(body.packageTitle || '').trim().slice(0, 140);
+      let trackingQuery = String(body.trackingQuery || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+      if (trackingQuery && (!QUERY_RE.test(trackingQuery) || !HAS_ALNUM_RE.test(trackingQuery))) {
+        trackingQuery = '';
+      }
+
+      // If existing customer checked in with their tracking number / CRM ID / Invoice No, resolve their name & phone from crm_invoices if not manually typed
+      let resolvedName = customerName;
+      let resolvedPhone = mobileNumber;
+      let resolvedCrmId = '';
+      let matchedCreatorId = '';
+
+      if (trackingQuery) {
+        const escapedTrack = escLike(trackingQuery);
+        if (escapedTrack) {
+          const trackClauses = [
+            `invoice_no.ilike.${pgQuote(escapedTrack)}`,
+            ...tokenBoundaryIlikeClauses('crm_id', trackingQuery),
+            ...tokenBoundaryIlikeClauses('query_code', trackingQuery),
+          ];
+          const trackRows = await fetchChunkedRows(
+            trackClauses,
+            (batch) =>
+              `/crm_invoices?kind=eq.customer&or=(${encodeURIComponent(batch.join(','))})&select=id,invoice_no,crm_id,query_code,customer_name,customer_phone,created_by&order=created_at.desc&limit=10`
+          );
+          const firstMatch = (trackRows || []).find((r) => r && r.customer_name);
+          if (firstMatch) {
+            if (!resolvedName && firstMatch.customer_name) {
+              resolvedName = String(firstMatch.customer_name).trim().slice(0, 120);
+            }
+            if (!resolvedPhone && firstMatch.customer_phone) {
+              resolvedPhone = String(firstMatch.customer_phone).trim().slice(0, 60);
+            }
+            resolvedCrmId = crmQueryText(firstMatch) || String(firstMatch.invoice_no || '');
+            matchedCreatorId = String(firstMatch.created_by || '');
+          }
+        }
+      }
+
+      if (!resolvedName || resolvedName.length < 2) {
+        return res.status(400).json({
+          ok: false,
+          available: true,
+          error: 'MISSING_NAME',
+          message: 'Please enter your name.',
+        });
+      }
+      if (!resolvedPhone || resolvedPhone.length < 5) {
+        return res.status(400).json({
+          ok: false,
+          available: true,
+          error: 'MISSING_MOBILE',
+          message: 'Please enter your mobile number so our representative can contact you.',
+        });
+      }
+      if (desiredCountries.length === 0) {
+        return res.status(400).json({
+          ok: false,
+          available: true,
+          error: 'MISSING_COUNTRIES',
+          message: 'Please enter or select at least one desired country or destination.',
+        });
+      }
+
+      const queryId = `pqr-${crypto.randomUUID()}`;
+      const queryRef = `PQ-${String(nowMs).slice(-6)}`;
+      const isExistingCustomer = Boolean(trackingQuery || resolvedCrmId);
+
+      const portalQueryRecord = {
+        id: queryId,
+        queryRef,
+        customerName: resolvedName,
+        mobileNumber: resolvedPhone,
+        desiredCountries,
+        desiredDays: desiredDays || '',
+        desiredServices,
+        notes,
+        packageTitle: packageTitle || desiredCountries.join(', '),
+        trackingQuery: trackingQuery || '',
+        crmId: resolvedCrmId || trackingQuery || '',
+        isExistingCustomer,
+        status: 'new',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+
+      // 1. Save in crm_company under pqr-* so it powers the live Customer Portal Generated Queries bar
+      await supabaseFetch('/crm_company?on_conflict=id', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify([
+          {
+            id: queryId,
+            data: portalQueryRecord,
+            updated_at: nowIso,
+          },
+        ]),
+      });
+
+      // 2. Also create/sync a CRM Customer row + Notification so staff see it immediately in Customers & Notifications
+      try {
+        const staffRows =
+          (await supabaseFetch('/employees?deleted_at=is.null&is_active=eq.true&select=id,name,role')) || [];
+        const adminAndAccountsIds = staffRows
+          .filter((e) => ['admin', 'ceo', 'accounts'].includes(e.role))
+          .map((e) => e.id);
+        const ownerId =
+          (matchedCreatorId && staffRows.some((e) => e.id === matchedCreatorId) ? matchedCreatorId : '') ||
+          adminAndAccountsIds[0] ||
+          staffRows[0]?.id ||
+          'emp-admin';
+
+        const descLines = [
+          `[Customer Portal Quote Request ${queryRef}]`,
+          packageTitle ? `Package: ${packageTitle}` : '',
+          `Desired Countries: ${desiredCountries.join(', ')}`,
+          desiredDays ? `Desired Days: ${desiredDays}` : '',
+          desiredServices.length ? `Desired Services: ${desiredServices.join(', ')}` : '',
+          resolvedCrmId || trackingQuery ? `Linked Tracking / CRM ID: ${resolvedCrmId || trackingQuery}` : '',
+          notes ? `Notes: ${notes}` : '',
+        ].filter(Boolean);
+        const descText = descLines.join(' | ').slice(0, 1900);
+
+        const custRow = {
+          id: `cus-${crypto.randomUUID()}`,
+          customer_name: resolvedName,
+          company_name: resolvedCrmId || trackingQuery ? `CRM / Query: ${resolvedCrmId || trackingQuery}` : 'Customer Portal Inquiry',
+          destinations: desiredCountries,
+          customer_number: resolvedPhone,
+          acquired_through: isExistingCustomer
+            ? `Customer Portal (${resolvedCrmId || trackingQuery})`
+            : 'Customer Portal Quote',
+          acquired_by: ownerId,
+          shared_with: [`__desc__:${descText}`],
+          created_by: ownerId,
+          created_at: nowIso,
+          updated_at: nowIso,
+          deleted_at: null,
+        };
+        await supabaseFetch('/crm_customers', {
+          method: 'POST',
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: JSON.stringify([custRow]),
+        });
+
+        const notifyTargets = Array.from(
+          new Set([...adminAndAccountsIds, ...(matchedCreatorId ? [matchedCreatorId] : [])].filter(Boolean))
+        );
+        if (notifyTargets.length > 0) {
+          const notifRows = notifyTargets.map((empId) => ({
+            id: `ntf-${crypto.randomUUID()}`,
+            employee_id: empId,
+            category: 'followup',
+            ref_id: custRow.id,
+            message: `New Customer Portal Quote Request (${queryRef}) from ${resolvedName} (${resolvedPhone}) for ${desiredCountries.join(', ')}${desiredDays ? ` · ${desiredDays}` : ''}${resolvedCrmId || trackingQuery ? ` [Ref: ${resolvedCrmId || trackingQuery}]` : ''}.`,
+            created_at: nowIso,
+            read_at: null,
+          }));
+          await supabaseFetch('/crm_notifications', {
+            method: 'POST',
+            headers: { Prefer: 'resolution=merge-duplicates' },
+            body: JSON.stringify(notifRows),
+          });
+        }
+      } catch (syncErr) {
+        console.warn('Non-fatal CRM customer sync warning for portal quote:', syncErr);
+      }
+
+      return res.status(200).json({
+        ok: true,
+        available: true,
+        queryRef,
+        quote: {
+          queryRef,
+          customerName: resolvedName,
+          desiredCountries,
+          desiredDays: desiredDays || null,
+          desiredServices,
+          crmId: resolvedCrmId || trackingQuery || null,
+          isExistingCustomer,
+          createdAt: nowIso,
+        },
+      });
+    }
+
     const { action, hasQ, rawQ } = parseQueryParams(req);
     if (action === 'status' || !hasQ) {
+      let recentQueries = [];
+      try {
+        const pqrRows =
+          (await supabaseFetch('/crm_company?id=like.pqr-*&order=updated_at.desc&limit=12&select=id,data,updated_at')) ||
+          [];
+        recentQueries = pqrRows.map(sanitizePortalQueryDto).filter(Boolean);
+      } catch {
+        recentQueries = [];
+      }
       return res.status(200).json({
         ok: true,
         available: true,
@@ -345,6 +638,7 @@ export default async function handler(req, res) {
           name: 'Bahaar Journeys',
           logo: '/bahaar-logo.png',
         },
+        recentQueries,
       });
     }
 
@@ -762,6 +1056,35 @@ export default async function handler(req, res) {
     const customerName =
       publicInvoices.find((inv) => String(inv.customerName || '').trim())?.customerName || '';
 
+    let portalQueries = [];
+    try {
+      const pqrRows =
+        (await supabaseFetch('/crm_company?id=like.pqr-*&order=updated_at.desc&limit=40&select=id,data,updated_at')) ||
+        [];
+      const matchedTokens = new Set([qNorm, qNormSlash, ...siblingKeys]);
+      for (const inv of publicInvoices) {
+        if (inv.invoiceNo) matchedTokens.add(norm(inv.invoiceNo));
+        if (inv.crmId) matchedTokens.add(norm(inv.crmId));
+        if (inv.queryCode) matchedTokens.add(norm(inv.queryCode));
+      }
+      portalQueries = pqrRows
+        .filter((row) => {
+          const d = parseJsonObj(row?.data, {});
+          const tq = norm(d.trackingQuery);
+          const cid = norm(d.crmId);
+          const qRef = norm(d.queryRef);
+          return (
+            (tq && matchedTokens.has(tq)) ||
+            (cid && matchedTokens.has(cid)) ||
+            (qRef && matchedTokens.has(qRef))
+          );
+        })
+        .map(sanitizePortalQueryDto)
+        .filter(Boolean);
+    } catch {
+      portalQueries = [];
+    }
+
     return res.status(200).json({
       ok: true,
       available: true,
@@ -771,6 +1094,7 @@ export default async function handler(req, res) {
       invoices: publicInvoices,
       receiptsSummary,
       visaStats,
+      portalQueries,
     });
   } catch (err) {
     console.error('Public customers API error:', err);
