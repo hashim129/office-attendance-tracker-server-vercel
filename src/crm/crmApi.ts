@@ -167,14 +167,32 @@ export interface VisaProgress {
   status: VisaProgressStatus;
   inProgressDate: string | null; // YYYY-MM-DD
   issuedDate: string | null;     // YYYY-MM-DD
+  paymentApproved?: boolean;
+  paymentApprovedDate?: string | null;
   hotelEnabled?: boolean;
   hotelStatus?: VisaProgressStatus;
+  hotelName?: string | null;
+  hotelCheckInDate?: string | null;
+  hotelCheckOutDate?: string | null;
   hotelInProgressDate?: string | null;
   hotelIssuedDate?: string | null;
   ticketEnabled?: boolean;
   ticketStatus?: VisaProgressStatus;
+  ticketDetails?: string | null;
   ticketInProgressDate?: string | null;
   ticketIssuedDate?: string | null;
+  transferEnabled?: boolean;
+  transferStatus?: VisaProgressStatus;
+  transferDetails?: string | null;
+  transferInProgressDate?: string | null;
+  transferIssuedDate?: string | null;
+  insuranceEnabled?: boolean;
+  insuranceStatus?: VisaProgressStatus;
+  insuranceDetails?: string | null;
+  insuranceInProgressDate?: string | null;
+  insuranceIssuedDate?: string | null;
+  travelReadyEnabled?: boolean;
+  travelReadyDate?: string | null;
   updatedAt?: string | null;
 }
 
@@ -436,34 +454,40 @@ export interface UpdateInvoiceVisaProgressInput {
   status?: VisaProgressStatus;
   inProgressDate?: string | null;
   issuedDate?: string | null;
+  paymentApproved?: boolean;
+  paymentApprovedDate?: string | null;
   hotelEnabled?: boolean;
   hotelStatus?: VisaProgressStatus;
+  hotelName?: string | null;
+  hotelCheckInDate?: string | null;
+  hotelCheckOutDate?: string | null;
   hotelInProgressDate?: string | null;
   hotelIssuedDate?: string | null;
   ticketEnabled?: boolean;
   ticketStatus?: VisaProgressStatus;
+  ticketDetails?: string | null;
   ticketInProgressDate?: string | null;
   ticketIssuedDate?: string | null;
+  transferEnabled?: boolean;
+  transferStatus?: VisaProgressStatus;
+  transferDetails?: string | null;
+  transferInProgressDate?: string | null;
+  transferIssuedDate?: string | null;
+  insuranceEnabled?: boolean;
+  insuranceStatus?: VisaProgressStatus;
+  insuranceDetails?: string | null;
+  insuranceInProgressDate?: string | null;
+  insuranceIssuedDate?: string | null;
+  travelReadyEnabled?: boolean;
+  travelReadyDate?: string | null;
 }
 
 export async function updateInvoiceVisaProgress(
   input: UpdateInvoiceVisaProgressInput
 ): Promise<{ ok: boolean; invoice: CrmInvoice; visaProgress?: VisaProgress | null }> {
   const payload: Record<string, unknown> = {
-    id: input.id,
+    ...input,
   };
-  if (input.status !== undefined) payload.status = input.status;
-  if (input.enabled !== undefined) payload.enabled = input.enabled;
-  if (input.inProgressDate !== undefined) payload.inProgressDate = input.inProgressDate;
-  if (input.issuedDate !== undefined) payload.issuedDate = input.issuedDate;
-  if (input.hotelEnabled !== undefined) payload.hotelEnabled = input.hotelEnabled;
-  if (input.hotelStatus !== undefined) payload.hotelStatus = input.hotelStatus;
-  if (input.hotelInProgressDate !== undefined) payload.hotelInProgressDate = input.hotelInProgressDate;
-  if (input.hotelIssuedDate !== undefined) payload.hotelIssuedDate = input.hotelIssuedDate;
-  if (input.ticketEnabled !== undefined) payload.ticketEnabled = input.ticketEnabled;
-  if (input.ticketStatus !== undefined) payload.ticketStatus = input.ticketStatus;
-  if (input.ticketInProgressDate !== undefined) payload.ticketInProgressDate = input.ticketInProgressDate;
-  if (input.ticketIssuedDate !== undefined) payload.ticketIssuedDate = input.ticketIssuedDate;
   return crmCall<{ ok: boolean; invoice: CrmInvoice; visaProgress?: VisaProgress | null }>(
     'invoice_visa_update',
     payload

@@ -31,24 +31,45 @@ interface FormState {
   invoiceDate: string; dueDate: string; currency: string;
   sections: FormSection[];
   taxLabel: string; taxRate: string; discount: string; advancePaid: string; notes: string;
+  paymentApproved: boolean;
+  paymentApprovedDate: string;
   visaEnabled: boolean;
   visaStatus: VisaProgressStatus;
   visaInProgressDate: string;
   visaIssuedDate: string;
   hotelEnabled: boolean;
   hotelStatus: VisaProgressStatus;
+  hotelName: string;
+  hotelCheckInDate: string;
+  hotelCheckOutDate: string;
   hotelInProgressDate: string;
   hotelIssuedDate: string;
   ticketEnabled: boolean;
   ticketStatus: VisaProgressStatus;
+  ticketDetails: string;
   ticketInProgressDate: string;
   ticketIssuedDate: string;
+  transferEnabled: boolean;
+  transferStatus: VisaProgressStatus;
+  transferDetails: string;
+  transferInProgressDate: string;
+  transferIssuedDate: string;
+  insuranceEnabled: boolean;
+  insuranceStatus: VisaProgressStatus;
+  insuranceDetails: string;
+  insuranceInProgressDate: string;
+  insuranceIssuedDate: string;
+  travelReadyEnabled: boolean;
+  travelReadyDate: string;
 }
 
 const today = () => new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd in the person's own time zone
-const VISA_WORD_RE = /\bvisa\b/i;
-const HOTEL_WORD_RE = /\b(hotel|resort|accommodation|stay|room|suite|makkah\s+hotel|madinah\s+hotel|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis)\b/i;
-const TICKET_WORD_RE = /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way)\b/i;
+const VISA_WORD_RE = /\b(visa|e-visa|evisa|umrah|ziyarat|hajj|schengen|embassy|sticker\s+visa|asan)\b/i;
+const HOTEL_WORD_RE = /\b(hotel|resort|accommodation|stay|room|suite|nights?|check-?in|check-?out|bed\s*&\s*breakfast|half\s+board|full\s+board|package|family\s+tour|group\s+tour|holiday|honeymoon|umrah|ziyarat|hajj|makkah|madinah|baku|shahdag|gabala|dubai|abu\s+dhabi|doha|tashkent|samarkand|almaty|shymbulak|istanbul|cappadocia|antalya|kuala\s+lumpur|langkawi|bangkok|phuket|maldives|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis|villa|palace|apartments?)\b/i;
+const TICKET_WORD_RE = /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way|pia|emirates|qatar\s+airways|saudia|flydubai|airblue|serene|etihad|turkish\s+airlines|azerbaijan\s+airlines|azal)\b/i;
+const TRANSFER_WORD_RE = /\b(transfer|tour|excursion|coaster|transport|pickup|pick-up|drop-off|haramain|train|railway|safari|cruise|cable\s+car|sightseeing|ziyarat\s+tour|package|family\s+tour)\b/i;
+const INSURANCE_WORD_RE = /\b(insurance|medical\s+cover|travel\s+care|policy|coverage)\b/i;
+
 const VISA_STATUS_LABEL: Record<VisaProgressStatus, string> = {
   not_started: 'Not Started',
   in_progress: 'In Progress',
@@ -60,7 +81,13 @@ const HOTEL_STATUS_LABEL: Record<VisaProgressStatus, string> = {
   issued: 'Confirmed',
 };
 const visaTone = (s: VisaProgressStatus): 'slate' | 'amber' | 'green' => (s === 'issued' ? 'green' : s === 'in_progress' ? 'amber' : 'slate');
-const hasVisaKeyword = (sections?: Array<{ title?: string; lines?: Array<{ description?: string }> }>): boolean =>
+const hasVisaKeyword = (
+  sections?: Array<{ title?: string; lines?: Array<{ description?: string }> }>,
+  reference = '',
+  notes = ''
+): boolean =>
+  VISA_WORD_RE.test(String(reference || '')) ||
+  VISA_WORD_RE.test(String(notes || '')) ||
   (sections || []).some((sec) => VISA_WORD_RE.test(String(sec?.title || '')) || (sec?.lines || []).some((ln) => VISA_WORD_RE.test(String(ln?.description || ''))));
 const hasHotelKeyword = (
   sections?: Array<{ title?: string; lines?: Array<{ description?: string }> }>,
@@ -72,16 +99,60 @@ const hasHotelKeyword = (
   (sections || []).some((sec) => HOTEL_WORD_RE.test(String(sec?.title || '')) || (sec?.lines || []).some((ln) => HOTEL_WORD_RE.test(String(ln?.description || ''))));
 const hasTicketKeyword = (
   sections?: Array<{ title?: string; lines?: Array<{ description?: string }> }>,
-  reference = ''
+  reference = '',
+  notes = ''
 ): boolean =>
   TICKET_WORD_RE.test(String(reference || '')) ||
+  TICKET_WORD_RE.test(String(notes || '')) ||
   (sections || []).some((sec) => TICKET_WORD_RE.test(String(sec?.title || '')) || (sec?.lines || []).some((ln) => TICKET_WORD_RE.test(String(ln?.description || ''))));
+const hasTransferKeyword = (
+  sections?: Array<{ title?: string; lines?: Array<{ description?: string }> }>,
+  reference = '',
+  notes = ''
+): boolean =>
+  TRANSFER_WORD_RE.test(String(reference || '')) ||
+  TRANSFER_WORD_RE.test(String(notes || '')) ||
+  (sections || []).some((sec) => TRANSFER_WORD_RE.test(String(sec?.title || '')) || (sec?.lines || []).some((ln) => TRANSFER_WORD_RE.test(String(ln?.description || ''))));
+const hasInsuranceKeyword = (
+  sections?: Array<{ title?: string; lines?: Array<{ description?: string }> }>,
+  reference = '',
+  notes = ''
+): boolean =>
+  INSURANCE_WORD_RE.test(String(reference || '')) ||
+  INSURANCE_WORD_RE.test(String(notes || '')) ||
+  (sections || []).some((sec) => INSURANCE_WORD_RE.test(String(sec?.title || '')) || (sec?.lines || []).some((ln) => INSURANCE_WORD_RE.test(String(ln?.description || ''))));
+
+function extractSmartHotelName(
+  sections?: Array<{ title?: string; lines?: Array<{ description?: string }> }>,
+  reference = '',
+  notes = ''
+): string {
+  for (const sec of sections || []) {
+    const title = String(sec?.title || '').trim();
+    for (const ln of sec?.lines || []) {
+      const desc = String(ln?.description || '').trim();
+      if (HOTEL_WORD_RE.test(desc)) return desc.slice(0, 140);
+    }
+    if (HOTEL_WORD_RE.test(title)) {
+      const firstLine = String(sec?.lines?.[0]?.description || '').trim();
+      return (firstLine || title).slice(0, 140);
+    }
+  }
+  if (HOTEL_WORD_RE.test(String(reference || ''))) return String(reference).trim().slice(0, 140);
+  if (HOTEL_WORD_RE.test(String(notes || ''))) return String(notes).trim().slice(0, 140);
+  return '';
+}
+
 const isVisaInvoice = (inv: CrmInvoice): boolean =>
-  (inv.kind || 'customer') !== 'vendor' && (Boolean(inv.visaProgress?.enabled) || hasVisaKeyword(inv.sections));
+  (inv.kind || 'customer') !== 'vendor' && (Boolean(inv.visaProgress?.enabled) || hasVisaKeyword(inv.sections, inv.reference, inv.notes));
 const isHotelInvoice = (inv: CrmInvoice): boolean =>
   (inv.kind || 'customer') !== 'vendor' && (Boolean(inv.visaProgress?.hotelEnabled) || hasHotelKeyword(inv.sections, inv.reference, inv.notes));
 const isTicketInvoice = (inv: CrmInvoice): boolean =>
-  (inv.kind || 'customer') !== 'vendor' && (Boolean(inv.visaProgress?.ticketEnabled) || hasTicketKeyword(inv.sections, inv.reference));
+  (inv.kind || 'customer') !== 'vendor' && (Boolean(inv.visaProgress?.ticketEnabled) || hasTicketKeyword(inv.sections, inv.reference, inv.notes));
+const isTransferInvoice = (inv: CrmInvoice): boolean =>
+  (inv.kind || 'customer') !== 'vendor' && (Boolean(inv.visaProgress?.transferEnabled) || hasTransferKeyword(inv.sections, inv.reference, inv.notes));
+const isInsuranceInvoice = (inv: CrmInvoice): boolean =>
+  (inv.kind || 'customer') !== 'vendor' && (Boolean(inv.visaProgress?.insuranceEnabled) || hasInsuranceKeyword(inv.sections, inv.reference, inv.notes));
 /** An invoice has vendor lines to pay (office record). */
 const hasVendorLines = (i: CrmInvoice) => (i.kind || 'customer') === 'customer' && (i.vendors || []).some((v) => v.name || (v.amount ?? 0) > 0);
 /** Paid on every side: the customer side, and the vendor side too when the invoice has vendors. */
@@ -94,9 +165,13 @@ const blankVendor = (currency: string): FormVendor => ({ name: '', description: 
 const blankForm = (kind: 'customer' | 'vendor' = 'customer', companyNtn = ''): FormState => ({
   kind, crmId: '', customerName: '', customerPhone: '', reference: '', ntn: companyNtn, showNtn: true, vendors: kind === 'customer' ? [blankVendor('PKR')] : [], invoiceDate: today(), dueDate: '', currency: 'PKR',
   sections: [{ title: '', key: uid(), locked: false, lines: [blankLine('PKR')] }], taxLabel: 'Tax', taxRate: kind === 'vendor' ? '' : '6', discount: '', advancePaid: '', notes: '',
+  paymentApproved: false, paymentApprovedDate: '',
   visaEnabled: false, visaStatus: 'not_started', visaInProgressDate: '', visaIssuedDate: '',
-  hotelEnabled: false, hotelStatus: 'not_started', hotelInProgressDate: '', hotelIssuedDate: '',
-  ticketEnabled: false, ticketStatus: 'not_started', ticketInProgressDate: '', ticketIssuedDate: '',
+  hotelEnabled: false, hotelStatus: 'not_started', hotelName: '', hotelCheckInDate: '', hotelCheckOutDate: '', hotelInProgressDate: '', hotelIssuedDate: '',
+  ticketEnabled: false, ticketStatus: 'not_started', ticketDetails: '', ticketInProgressDate: '', ticketIssuedDate: '',
+  transferEnabled: false, transferStatus: 'not_started', transferDetails: '', transferInProgressDate: '', transferIssuedDate: '',
+  insuranceEnabled: false, insuranceStatus: 'not_started', insuranceDetails: '', insuranceInProgressDate: '', insuranceIssuedDate: '',
+  travelReadyEnabled: false, travelReadyDate: '',
 });
 const PRESETS = ['Package', 'Visa Charges', 'Air Tickets', 'Hotel', 'Transfers', 'Insurance', 'Service Charges'];
 const num = (v: string) => (v.trim() === '' ? NaN : Number(v));
@@ -146,18 +221,36 @@ function toForm(inv: CrmInvoice, companyNtn = ''): FormState {
       })),
     })),
     taxLabel: inv.taxLabel, taxRate: inv.taxRate ? String(inv.taxRate) : '', discount: inv.discount ? String(inv.discount) : '', advancePaid: inv.advancePaid ? String(inv.advancePaid) : '', notes: inv.notes,
-    visaEnabled: Boolean(inv.visaProgress?.enabled) || hasVisaKeyword(inv.sections),
+    paymentApproved: Boolean(inv.visaProgress?.paymentApproved) || inv.status === 'paid' || inv.advancePaid > 0,
+    paymentApprovedDate: inv.visaProgress?.paymentApprovedDate || '',
+    visaEnabled: Boolean(inv.visaProgress?.enabled) || hasVisaKeyword(inv.sections, inv.reference, inv.notes),
     visaStatus: inv.visaProgress?.status || 'not_started',
     visaInProgressDate: inv.visaProgress?.inProgressDate || '',
     visaIssuedDate: inv.visaProgress?.issuedDate || '',
     hotelEnabled: Boolean(inv.visaProgress?.hotelEnabled) || hasHotelKeyword(inv.sections, inv.reference, inv.notes),
     hotelStatus: inv.visaProgress?.hotelStatus || 'not_started',
+    hotelName: inv.visaProgress?.hotelName || extractSmartHotelName(inv.sections, inv.reference, inv.notes),
+    hotelCheckInDate: inv.visaProgress?.hotelCheckInDate || '',
+    hotelCheckOutDate: inv.visaProgress?.hotelCheckOutDate || '',
     hotelInProgressDate: inv.visaProgress?.hotelInProgressDate || '',
     hotelIssuedDate: inv.visaProgress?.hotelIssuedDate || '',
-    ticketEnabled: Boolean(inv.visaProgress?.ticketEnabled) || hasTicketKeyword(inv.sections, inv.reference),
+    ticketEnabled: Boolean(inv.visaProgress?.ticketEnabled) || hasTicketKeyword(inv.sections, inv.reference, inv.notes),
     ticketStatus: inv.visaProgress?.ticketStatus || 'not_started',
+    ticketDetails: inv.visaProgress?.ticketDetails || '',
     ticketInProgressDate: inv.visaProgress?.ticketInProgressDate || '',
     ticketIssuedDate: inv.visaProgress?.ticketIssuedDate || '',
+    transferEnabled: Boolean(inv.visaProgress?.transferEnabled) || hasTransferKeyword(inv.sections, inv.reference, inv.notes),
+    transferStatus: inv.visaProgress?.transferStatus || 'not_started',
+    transferDetails: inv.visaProgress?.transferDetails || '',
+    transferInProgressDate: inv.visaProgress?.transferInProgressDate || '',
+    transferIssuedDate: inv.visaProgress?.transferIssuedDate || '',
+    insuranceEnabled: Boolean(inv.visaProgress?.insuranceEnabled) || hasInsuranceKeyword(inv.sections, inv.reference, inv.notes),
+    insuranceStatus: inv.visaProgress?.insuranceStatus || 'not_started',
+    insuranceDetails: inv.visaProgress?.insuranceDetails || '',
+    insuranceInProgressDate: inv.visaProgress?.insuranceInProgressDate || '',
+    insuranceIssuedDate: inv.visaProgress?.insuranceIssuedDate || '',
+    travelReadyEnabled: Boolean(inv.visaProgress?.travelReadyEnabled),
+    travelReadyDate: inv.visaProgress?.travelReadyDate || '',
   };
 }
 
@@ -267,12 +360,24 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
     Record<
       string,
       {
+        paymentApprovedDate: string;
         inProgressDate: string;
         issuedDate: string;
+        hotelName: string;
+        hotelCheckInDate: string;
+        hotelCheckOutDate: string;
         hotelInProgressDate: string;
         hotelIssuedDate: string;
+        ticketDetails: string;
         ticketInProgressDate: string;
         ticketIssuedDate: string;
+        transferDetails: string;
+        transferInProgressDate: string;
+        transferIssuedDate: string;
+        insuranceDetails: string;
+        insuranceInProgressDate: string;
+        insuranceIssuedDate: string;
+        travelReadyDate: string;
       }
     >
   >({});
@@ -388,6 +493,22 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
       ticketIssuedDate: status === 'issued' ? (form.ticketIssuedDate || today()) : '',
     });
   };
+  const setFormTransferStatus = (status: VisaProgressStatus) => {
+    if (!form) return;
+    patch({
+      transferStatus: status,
+      transferInProgressDate: status === 'not_started' ? '' : (status === 'in_progress' && !form.transferInProgressDate ? today() : form.transferInProgressDate),
+      transferIssuedDate: status === 'issued' ? (form.transferIssuedDate || today()) : '',
+    });
+  };
+  const setFormInsuranceStatus = (status: VisaProgressStatus) => {
+    if (!form) return;
+    patch({
+      insuranceStatus: status,
+      insuranceInProgressDate: status === 'not_started' ? '' : (status === 'in_progress' && !form.insuranceInProgressDate ? today() : form.insuranceInProgressDate),
+      insuranceIssuedDate: status === 'issued' ? (form.insuranceIssuedDate || today()) : '',
+    });
+  };
   const saveCardVisa = async (
     inv: CrmInvoice,
     nextStatus: VisaProgressStatus,
@@ -395,14 +516,32 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
     issuedDate: string | null,
     extra?: {
       enabled?: boolean;
+      paymentApproved?: boolean;
+      paymentApprovedDate?: string | null;
       hotelEnabled?: boolean;
       hotelStatus?: VisaProgressStatus;
+      hotelName?: string | null;
+      hotelCheckInDate?: string | null;
+      hotelCheckOutDate?: string | null;
       hotelInProgressDate?: string | null;
       hotelIssuedDate?: string | null;
       ticketEnabled?: boolean;
       ticketStatus?: VisaProgressStatus;
+      ticketDetails?: string | null;
       ticketInProgressDate?: string | null;
       ticketIssuedDate?: string | null;
+      transferEnabled?: boolean;
+      transferStatus?: VisaProgressStatus;
+      transferDetails?: string | null;
+      transferInProgressDate?: string | null;
+      transferIssuedDate?: string | null;
+      insuranceEnabled?: boolean;
+      insuranceStatus?: VisaProgressStatus;
+      insuranceDetails?: string | null;
+      insuranceInProgressDate?: string | null;
+      insuranceIssuedDate?: string | null;
+      travelReadyEnabled?: boolean;
+      travelReadyDate?: string | null;
     }
   ) => {
     if (!customerPortalBetaEnabled || visaBusyId === inv.id) return;
@@ -415,14 +554,32 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
         status: nextStatus,
         inProgressDate,
         issuedDate,
+        ...(extra?.paymentApproved !== undefined ? { paymentApproved: extra.paymentApproved } : {}),
+        ...(extra?.paymentApprovedDate !== undefined ? { paymentApprovedDate: extra.paymentApprovedDate } : {}),
         ...(extra?.hotelEnabled !== undefined ? { hotelEnabled: extra.hotelEnabled } : {}),
         ...(extra?.hotelStatus !== undefined ? { hotelStatus: extra.hotelStatus } : {}),
+        ...(extra?.hotelName !== undefined ? { hotelName: extra.hotelName } : {}),
+        ...(extra?.hotelCheckInDate !== undefined ? { hotelCheckInDate: extra.hotelCheckInDate } : {}),
+        ...(extra?.hotelCheckOutDate !== undefined ? { hotelCheckOutDate: extra.hotelCheckOutDate } : {}),
         ...(extra?.hotelInProgressDate !== undefined ? { hotelInProgressDate: extra.hotelInProgressDate } : {}),
         ...(extra?.hotelIssuedDate !== undefined ? { hotelIssuedDate: extra.hotelIssuedDate } : {}),
         ...(extra?.ticketEnabled !== undefined ? { ticketEnabled: extra.ticketEnabled } : {}),
         ...(extra?.ticketStatus !== undefined ? { ticketStatus: extra.ticketStatus } : {}),
+        ...(extra?.ticketDetails !== undefined ? { ticketDetails: extra.ticketDetails } : {}),
         ...(extra?.ticketInProgressDate !== undefined ? { ticketInProgressDate: extra.ticketInProgressDate } : {}),
         ...(extra?.ticketIssuedDate !== undefined ? { ticketIssuedDate: extra.ticketIssuedDate } : {}),
+        ...(extra?.transferEnabled !== undefined ? { transferEnabled: extra.transferEnabled } : {}),
+        ...(extra?.transferStatus !== undefined ? { transferStatus: extra.transferStatus } : {}),
+        ...(extra?.transferDetails !== undefined ? { transferDetails: extra.transferDetails } : {}),
+        ...(extra?.transferInProgressDate !== undefined ? { transferInProgressDate: extra.transferInProgressDate } : {}),
+        ...(extra?.transferIssuedDate !== undefined ? { transferIssuedDate: extra.transferIssuedDate } : {}),
+        ...(extra?.insuranceEnabled !== undefined ? { insuranceEnabled: extra.insuranceEnabled } : {}),
+        ...(extra?.insuranceStatus !== undefined ? { insuranceStatus: extra.insuranceStatus } : {}),
+        ...(extra?.insuranceDetails !== undefined ? { insuranceDetails: extra.insuranceDetails } : {}),
+        ...(extra?.insuranceInProgressDate !== undefined ? { insuranceInProgressDate: extra.insuranceInProgressDate } : {}),
+        ...(extra?.insuranceIssuedDate !== undefined ? { insuranceIssuedDate: extra.insuranceIssuedDate } : {}),
+        ...(extra?.travelReadyEnabled !== undefined ? { travelReadyEnabled: extra.travelReadyEnabled } : {}),
+        ...(extra?.travelReadyDate !== undefined ? { travelReadyDate: extra.travelReadyDate } : {}),
       });
       setVisaDrafts((prev) => {
         const next = { ...prev };
@@ -462,24 +619,45 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
 
   const buildPayload = (lockIdx: number | null) => {
     const {
+      paymentApproved,
+      paymentApprovedDate,
       visaEnabled,
       visaStatus,
       visaInProgressDate,
       visaIssuedDate,
       hotelEnabled,
       hotelStatus,
+      hotelName,
+      hotelCheckInDate,
+      hotelCheckOutDate,
       hotelInProgressDate,
       hotelIssuedDate,
       ticketEnabled,
       ticketStatus,
+      ticketDetails,
       ticketInProgressDate,
       ticketIssuedDate,
+      transferEnabled,
+      transferStatus,
+      transferDetails,
+      transferInProgressDate,
+      transferIssuedDate,
+      insuranceEnabled,
+      insuranceStatus,
+      insuranceDetails,
+      insuranceInProgressDate,
+      insuranceIssuedDate,
+      travelReadyEnabled,
+      travelReadyDate,
       ...rest
     } = form!;
-    const visaActive = hasVisaKeyword(form!.sections) || visaEnabled;
+    const visaActive = hasVisaKeyword(form!.sections, form!.reference, form!.notes) || visaEnabled;
     const hotelActive = hasHotelKeyword(form!.sections, form!.reference, form!.notes) || hotelEnabled;
-    const ticketActive = hasTicketKeyword(form!.sections, form!.reference) || ticketEnabled;
-    const anyTrackerActive = visaActive || hotelActive || ticketActive;
+    const ticketActive = hasTicketKeyword(form!.sections, form!.reference, form!.notes) || ticketEnabled;
+    const transferActive = hasTransferKeyword(form!.sections, form!.reference, form!.notes) || transferEnabled;
+    const insuranceActive = hasInsuranceKeyword(form!.sections, form!.reference, form!.notes) || insuranceEnabled;
+    const anyTrackerActive =
+      paymentApproved || visaActive || hotelActive || ticketActive || transferActive || insuranceActive || travelReadyEnabled;
     return {
       ...rest,
       vendors: (form!.vendors || []).filter((v) => v.name.trim() || v.description.trim() || v.unitPrice.trim() || v.units.trim() || v.amount.trim() || v.bank.trim()),
@@ -500,28 +678,64 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                   status: visaActive ? visaStatus : ('not_started' as const),
                   inProgressDate: visaActive ? (visaInProgressDate.trim() || null) : null,
                   issuedDate: visaActive ? (visaIssuedDate.trim() || null) : null,
+                  paymentApproved,
+                  paymentApprovedDate: paymentApproved ? (paymentApprovedDate.trim() || today()) : null,
                   hotelEnabled: hotelActive,
                   hotelStatus: hotelActive ? hotelStatus : ('not_started' as const),
+                  hotelName: hotelActive ? (hotelName.trim() || extractSmartHotelName(form!.sections, form!.reference, form!.notes) || null) : null,
+                  hotelCheckInDate: hotelActive ? (hotelCheckInDate.trim() || null) : null,
+                  hotelCheckOutDate: hotelActive ? (hotelCheckOutDate.trim() || null) : null,
                   hotelInProgressDate: hotelActive ? (hotelInProgressDate.trim() || null) : null,
                   hotelIssuedDate: hotelActive ? (hotelIssuedDate.trim() || null) : null,
                   ticketEnabled: ticketActive,
                   ticketStatus: ticketActive ? ticketStatus : ('not_started' as const),
+                  ticketDetails: ticketActive ? (ticketDetails.trim() || null) : null,
                   ticketInProgressDate: ticketActive ? (ticketInProgressDate.trim() || null) : null,
                   ticketIssuedDate: ticketActive ? (ticketIssuedDate.trim() || null) : null,
+                  transferEnabled: transferActive,
+                  transferStatus: transferActive ? transferStatus : ('not_started' as const),
+                  transferDetails: transferActive ? (transferDetails.trim() || null) : null,
+                  transferInProgressDate: transferActive ? (transferInProgressDate.trim() || null) : null,
+                  transferIssuedDate: transferActive ? (transferIssuedDate.trim() || null) : null,
+                  insuranceEnabled: insuranceActive,
+                  insuranceStatus: insuranceActive ? insuranceStatus : ('not_started' as const),
+                  insuranceDetails: insuranceActive ? (insuranceDetails.trim() || null) : null,
+                  insuranceInProgressDate: insuranceActive ? (insuranceInProgressDate.trim() || null) : null,
+                  insuranceIssuedDate: insuranceActive ? (insuranceIssuedDate.trim() || null) : null,
+                  travelReadyEnabled,
+                  travelReadyDate: travelReadyEnabled ? (travelReadyDate.trim() || today()) : null,
                 }
               : {
                   enabled: false,
                   status: 'not_started' as const,
                   inProgressDate: null,
                   issuedDate: null,
+                  paymentApproved: false,
+                  paymentApprovedDate: null,
                   hotelEnabled: false,
                   hotelStatus: 'not_started' as const,
+                  hotelName: null,
+                  hotelCheckInDate: null,
+                  hotelCheckOutDate: null,
                   hotelInProgressDate: null,
                   hotelIssuedDate: null,
                   ticketEnabled: false,
                   ticketStatus: 'not_started' as const,
+                  ticketDetails: null,
                   ticketInProgressDate: null,
                   ticketIssuedDate: null,
+                  transferEnabled: false,
+                  transferStatus: 'not_started' as const,
+                  transferDetails: null,
+                  transferInProgressDate: null,
+                  transferIssuedDate: null,
+                  insuranceEnabled: false,
+                  insuranceStatus: 'not_started' as const,
+                  insuranceDetails: null,
+                  insuranceInProgressDate: null,
+                  insuranceIssuedDate: null,
+                  travelReadyEnabled: false,
+                  travelReadyDate: null,
                 },
           }
         : {}),
@@ -701,33 +915,107 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
             const showVisa = customerPortalBetaEnabled && !vendorSide && isVisaInvoice(i);
             const showHotel = customerPortalBetaEnabled && !vendorSide && isHotelInvoice(i);
             const showTicket = customerPortalBetaEnabled && !vendorSide && isTicketInvoice(i);
-            const showAnyTracker = showVisa || showHotel || showTicket;
+            const showTransfer = customerPortalBetaEnabled && !vendorSide && isTransferInvoice(i);
+            const showInsurance = customerPortalBetaEnabled && !vendorSide && isInsuranceInvoice(i);
             const vp = i.visaProgress;
             const vStatus: VisaProgressStatus = vp?.status || 'not_started';
             const hStatus: VisaProgressStatus = vp?.hotelStatus || 'not_started';
             const tStatus: VisaProgressStatus = vp?.ticketStatus || 'not_started';
+            const trStatus: VisaProgressStatus = vp?.transferStatus || 'not_started';
+            const insStatus: VisaProgressStatus = vp?.insuranceStatus || 'not_started';
+            const savedPayApproved = Boolean(vp?.paymentApproved);
+            const savedPayDate = vp?.paymentApprovedDate || '';
             const savedInProg = vp?.inProgressDate || '';
             const savedIssued = vp?.issuedDate || '';
+            const smartHotelDefault = extractSmartHotelName(i.sections, i.reference, i.notes);
+            const savedHotelName = vp?.hotelName || smartHotelDefault || '';
+            const savedHotelCheckIn = vp?.hotelCheckInDate || '';
+            const savedHotelCheckOut = vp?.hotelCheckOutDate || '';
             const savedHotelInProg = vp?.hotelInProgressDate || '';
             const savedHotelIssued = vp?.hotelIssuedDate || '';
+            const savedTicketDetails = vp?.ticketDetails || '';
             const savedTicketInProg = vp?.ticketInProgressDate || '';
             const savedTicketIssued = vp?.ticketIssuedDate || '';
+            const savedTransferDetails = vp?.transferDetails || '';
+            const savedTransferInProg = vp?.transferInProgressDate || '';
+            const savedTransferIssued = vp?.transferIssuedDate || '';
+            const savedInsuranceDetails = vp?.insuranceDetails || '';
+            const savedInsuranceInProg = vp?.insuranceInProgressDate || '';
+            const savedInsuranceIssued = vp?.insuranceIssuedDate || '';
+            const savedTravelReady = Boolean(vp?.travelReadyEnabled);
+            const savedTravelReadyDate = vp?.travelReadyDate || '';
+
             const vDraft = visaDrafts[i.id] ?? {
+              paymentApprovedDate: savedPayDate,
               inProgressDate: savedInProg,
               issuedDate: savedIssued,
+              hotelName: savedHotelName,
+              hotelCheckInDate: savedHotelCheckIn,
+              hotelCheckOutDate: savedHotelCheckOut,
               hotelInProgressDate: savedHotelInProg,
               hotelIssuedDate: savedHotelIssued,
+              ticketDetails: savedTicketDetails,
               ticketInProgressDate: savedTicketInProg,
               ticketIssuedDate: savedTicketIssued,
+              transferDetails: savedTransferDetails,
+              transferInProgressDate: savedTransferInProg,
+              transferIssuedDate: savedTransferIssued,
+              insuranceDetails: savedInsuranceDetails,
+              insuranceInProgressDate: savedInsuranceInProg,
+              insuranceIssuedDate: savedInsuranceIssued,
+              travelReadyDate: savedTravelReadyDate,
             };
             const vDirty =
+              vDraft.paymentApprovedDate !== savedPayDate ||
               vDraft.inProgressDate !== savedInProg ||
               vDraft.issuedDate !== savedIssued ||
+              vDraft.hotelName !== savedHotelName ||
+              vDraft.hotelCheckInDate !== savedHotelCheckIn ||
+              vDraft.hotelCheckOutDate !== savedHotelCheckOut ||
               vDraft.hotelInProgressDate !== savedHotelInProg ||
               vDraft.hotelIssuedDate !== savedHotelIssued ||
+              vDraft.ticketDetails !== savedTicketDetails ||
               vDraft.ticketInProgressDate !== savedTicketInProg ||
-              vDraft.ticketIssuedDate !== savedTicketIssued;
-            const isPaymentApproved = i.status === 'paid' || i.advancePaid > 0 || i.balance <= 0;
+              vDraft.ticketIssuedDate !== savedTicketIssued ||
+              vDraft.transferDetails !== savedTransferDetails ||
+              vDraft.transferInProgressDate !== savedTransferInProg ||
+              vDraft.transferIssuedDate !== savedTransferIssued ||
+              vDraft.insuranceDetails !== savedInsuranceDetails ||
+              vDraft.insuranceInProgressDate !== savedInsuranceInProg ||
+              vDraft.insuranceIssuedDate !== savedInsuranceIssued ||
+              vDraft.travelReadyDate !== savedTravelReadyDate;
+            const isPaymentApproved = savedPayApproved || i.status === 'paid' || i.advancePaid > 0 || i.balance <= 0;
+
+            const buildFullExtra = (overrides: Record<string, unknown> = {}) => ({
+              enabled: showVisa,
+              paymentApproved: savedPayApproved,
+              paymentApprovedDate: vDraft.paymentApprovedDate.trim() || null,
+              hotelEnabled: showHotel,
+              hotelStatus: hStatus,
+              hotelName: vDraft.hotelName.trim() || null,
+              hotelCheckInDate: vDraft.hotelCheckInDate.trim() || null,
+              hotelCheckOutDate: vDraft.hotelCheckOutDate.trim() || null,
+              hotelInProgressDate: vDraft.hotelInProgressDate.trim() || null,
+              hotelIssuedDate: vDraft.hotelIssuedDate.trim() || null,
+              ticketEnabled: showTicket,
+              ticketStatus: tStatus,
+              ticketDetails: vDraft.ticketDetails.trim() || null,
+              ticketInProgressDate: vDraft.ticketInProgressDate.trim() || null,
+              ticketIssuedDate: vDraft.ticketIssuedDate.trim() || null,
+              transferEnabled: showTransfer,
+              transferStatus: trStatus,
+              transferDetails: vDraft.transferDetails.trim() || null,
+              transferInProgressDate: vDraft.transferInProgressDate.trim() || null,
+              transferIssuedDate: vDraft.transferIssuedDate.trim() || null,
+              insuranceEnabled: showInsurance,
+              insuranceStatus: insStatus,
+              insuranceDetails: vDraft.insuranceDetails.trim() || null,
+              insuranceInProgressDate: vDraft.insuranceInProgressDate.trim() || null,
+              insuranceIssuedDate: vDraft.insuranceIssuedDate.trim() || null,
+              travelReadyEnabled: savedTravelReady,
+              travelReadyDate: vDraft.travelReadyDate.trim() || null,
+              ...overrides,
+            });
 
             return (
               <div key={i.id} className={`${cardCls} p-4 ${fullyPaid(i) ? '!bg-emerald-100/80 !border-emerald-300 dark:!bg-emerald-950/40 dark:!border-emerald-800/70' : ''}`}>
@@ -748,8 +1036,11 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                           <span className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{i.customerName}</span>
                           <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? 'Paid' : i.status === 'cancelled' ? 'Cancelled' : 'Unpaid'}</Pill>
                           {showVisa && <Pill tone={visaTone(vStatus)}>Visa: {VISA_STATUS_LABEL[vStatus]}</Pill>}
-                          {showHotel && <Pill tone={visaTone(hStatus)}>Hotel: {HOTEL_STATUS_LABEL[hStatus]}</Pill>}
+                          {showHotel && <Pill tone={visaTone(hStatus)}>Hotel: {HOTEL_STATUS_LABEL[hStatus]}{savedHotelName ? ` (${savedHotelName.slice(0, 24)})` : ''}</Pill>}
                           {showTicket && <Pill tone={visaTone(tStatus)}>Ticket: {VISA_STATUS_LABEL[tStatus]}</Pill>}
+                          {showTransfer && <Pill tone={visaTone(trStatus)}>Transfers: {HOTEL_STATUS_LABEL[trStatus]}</Pill>}
+                          {showInsurance && <Pill tone={visaTone(insStatus)}>Insurance: {VISA_STATUS_LABEL[insStatus]}</Pill>}
+                          {savedTravelReady && <Pill tone="green">✓ Travel Ready</Pill>}
                           {i.reference && <Pill tone="slate">Ref {i.reference}</Pill>}
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -762,33 +1053,260 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                       </div>
                     </div>
 
-                    {showAnyTracker && (
+                    {customerPortalBetaEnabled && !vendorSide && (
                       <div className="rounded-lg border border-indigo-200/80 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/25 p-2.5 space-y-2.5">
-                        {/* Sequential Step Progress Strip */}
-                        <div className="flex flex-wrap items-center justify-between gap-2 pb-1.5 border-b border-indigo-200/60 dark:border-indigo-900/50">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-200">
-                            Customer Portal Process Steps
-                          </span>
-                          <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                              isPaymentApproved
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
-                                : 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
-                            }`}
-                          >
-                            {isPaymentApproved
-                              ? '✓ Payment Approved — Active Steps Unlocked'
-                              : '⏳ Awaiting Payment Approval (Sequential Gate)'}
-                          </span>
+                        {/* Top Header & Package Requirements Toggle Bar */}
+                        <div className="space-y-1.5 pb-2 border-b border-indigo-200/60 dark:border-indigo-900/50">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-200">
+                              Customer Portal Process Steps &amp; Package Requirements
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                isPaymentApproved
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800'
+                                  : 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800'
+                              }`}
+                            >
+                              {isPaymentApproved
+                                ? '✓ Payment Approved — Active Steps Unlocked'
+                                : '⏳ Awaiting Payment Approval (Sequential Gate)'}
+                            </span>
+                          </div>
+
+                          {canUpdateVisa(i) && (
+                            <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 mr-1">
+                                Catalogue Requirements (Toggle On/Off):
+                              </span>
+                              <button
+                                type="button"
+                                disabled={visaBusyId === i.id}
+                                onClick={() => {
+                                  const nextApproved = !savedPayApproved;
+                                  void saveCardVisa(
+                                    i,
+                                    vStatus,
+                                    vDraft.inProgressDate.trim() || null,
+                                    vDraft.issuedDate.trim() || null,
+                                    buildFullExtra({
+                                      paymentApproved: nextApproved,
+                                      paymentApprovedDate: nextApproved ? vDraft.paymentApprovedDate.trim() || today() : null,
+                                    })
+                                  );
+                                }}
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                                  isPaymentApproved
+                                    ? 'bg-emerald-600 text-white border-emerald-600'
+                                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                {isPaymentApproved ? '✓ Payment Approved' : '+ Approve Payment'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={visaBusyId === i.id}
+                                onClick={() =>
+                                  void saveCardVisa(
+                                    i,
+                                    vStatus,
+                                    vDraft.inProgressDate.trim() || null,
+                                    vDraft.issuedDate.trim() || null,
+                                    buildFullExtra({ enabled: !showVisa })
+                                  )
+                                }
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                                  showVisa
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                {showVisa ? '✓ Visa Progress' : '+ Visa Progress'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={visaBusyId === i.id}
+                                onClick={() =>
+                                  void saveCardVisa(
+                                    i,
+                                    vStatus,
+                                    vDraft.inProgressDate.trim() || null,
+                                    vDraft.issuedDate.trim() || null,
+                                    buildFullExtra({
+                                      hotelEnabled: !showHotel,
+                                      hotelName: vDraft.hotelName.trim() || smartHotelDefault || null,
+                                    })
+                                  )
+                                }
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                                  showHotel
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                {showHotel ? '✓ Hotel Booking' : '+ Hotel Booking'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={visaBusyId === i.id}
+                                onClick={() =>
+                                  void saveCardVisa(
+                                    i,
+                                    vStatus,
+                                    vDraft.inProgressDate.trim() || null,
+                                    vDraft.issuedDate.trim() || null,
+                                    buildFullExtra({ ticketEnabled: !showTicket })
+                                  )
+                                }
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                                  showTicket
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                {showTicket ? '✓ Air Tickets' : '+ Air Tickets'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={visaBusyId === i.id}
+                                onClick={() =>
+                                  void saveCardVisa(
+                                    i,
+                                    vStatus,
+                                    vDraft.inProgressDate.trim() || null,
+                                    vDraft.issuedDate.trim() || null,
+                                    buildFullExtra({ transferEnabled: !showTransfer })
+                                  )
+                                }
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                                  showTransfer
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                {showTransfer ? '✓ Tours & Transfers' : '+ Tours & Transfers'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={visaBusyId === i.id}
+                                onClick={() =>
+                                  void saveCardVisa(
+                                    i,
+                                    vStatus,
+                                    vDraft.inProgressDate.trim() || null,
+                                    vDraft.issuedDate.trim() || null,
+                                    buildFullExtra({ insuranceEnabled: !showInsurance })
+                                  )
+                                }
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                                  showInsurance
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                {showInsurance ? '✓ Insurance' : '+ Insurance'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={visaBusyId === i.id}
+                                onClick={() => {
+                                  const nextReady = !savedTravelReady;
+                                  void saveCardVisa(
+                                    i,
+                                    vStatus,
+                                    vDraft.inProgressDate.trim() || null,
+                                    vDraft.issuedDate.trim() || null,
+                                    buildFullExtra({
+                                      travelReadyEnabled: nextReady,
+                                      travelReadyDate: nextReady ? vDraft.travelReadyDate.trim() || today() : null,
+                                    })
+                                  );
+                                }}
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors cursor-pointer ${
+                                  savedTravelReady
+                                    ? 'bg-emerald-600 text-white border-emerald-600'
+                                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                }`}
+                              >
+                                {savedTravelReady ? '✓ Travel Ready' : '+ Travel Ready'}
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         {canUpdateVisa(i) ? (
                           <>
+                            {/* 1. Payment Progress Separate Toggle */}
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
+                                1. Payment Progress
+                              </span>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={visaBusyId === i.id}
+                                  onClick={() =>
+                                    void saveCardVisa(
+                                      i,
+                                      vStatus,
+                                      vDraft.inProgressDate.trim() || null,
+                                      vDraft.issuedDate.trim() || null,
+                                      buildFullExtra({ paymentApproved: false, paymentApprovedDate: null })
+                                    )
+                                  }
+                                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                                    !isPaymentApproved
+                                      ? 'bg-slate-700 text-white border-slate-700'
+                                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  Awaiting Payment
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={visaBusyId === i.id}
+                                  onClick={() =>
+                                    void saveCardVisa(
+                                      i,
+                                      vStatus,
+                                      vDraft.inProgressDate.trim() || null,
+                                      vDraft.issuedDate.trim() || null,
+                                      buildFullExtra({
+                                        paymentApproved: true,
+                                        paymentApprovedDate: vDraft.paymentApprovedDate.trim() || today(),
+                                      })
+                                    )
+                                  }
+                                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                                    isPaymentApproved
+                                      ? 'bg-emerald-600 text-white border-emerald-600'
+                                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                  }`}
+                                >
+                                  ✓ Payment Approved
+                                </button>
+                                <input
+                                  type="date"
+                                  aria-label={`Payment Approved Date for ${i.invoiceNo}`}
+                                  className={`${inputCls} !w-auto !py-0.5 !px-2 !text-[11px]`}
+                                  value={vDraft.paymentApprovedDate}
+                                  disabled={visaBusyId === i.id}
+                                  onChange={(e) =>
+                                    setVisaDrafts((prev) => ({
+                                      ...prev,
+                                      [i.id]: { ...vDraft, paymentApprovedDate: e.target.value },
+                                    }))
+                                  }
+                                />
+                              </div>
+                            </div>
+
+                            {/* 2. Visa Progress Separate Toggle */}
                             {showVisa && (
-                              <div className="space-y-1.5">
+                              <div className="space-y-1.5 pt-2 border-t border-indigo-200/60 dark:border-indigo-900/50">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                   <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
-                                    Visa Progress
+                                    2. Visa Progress (Visa Started / Visa Issued)
                                   </span>
                                   <div className="flex flex-wrap items-center gap-1">
                                     {(['not_started', 'in_progress', 'issued'] as const).map((st) => (
@@ -805,17 +1323,13 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                                                 : vDraft.inProgressDate.trim() || savedInProg || today();
                                           const nextIssued =
                                             st === 'issued' ? vDraft.issuedDate.trim() || today() : null;
-                                          void saveCardVisa(i, st, nextInProgress, nextIssued, {
-                                            enabled: true,
-                                            hotelEnabled: showHotel,
-                                            hotelStatus: hStatus,
-                                            hotelInProgressDate: vDraft.hotelInProgressDate.trim() || null,
-                                            hotelIssuedDate: vDraft.hotelIssuedDate.trim() || null,
-                                            ticketEnabled: showTicket,
-                                            ticketStatus: tStatus,
-                                            ticketInProgressDate: vDraft.ticketInProgressDate.trim() || null,
-                                            ticketIssuedDate: vDraft.ticketIssuedDate.trim() || null,
-                                          });
+                                          void saveCardVisa(
+                                            i,
+                                            st,
+                                            nextInProgress,
+                                            nextIssued,
+                                            buildFullExtra({ enabled: true })
+                                          );
                                         }}
                                         className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
                                           vStatus === st
@@ -827,7 +1341,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                                             : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
                                         }`}
                                       >
-                                        {VISA_STATUS_LABEL[st]}
+                                        {st === 'in_progress' ? 'Visa Started (In Progress)' : VISA_STATUS_LABEL[st]}
                                       </button>
                                     ))}
                                     <select
@@ -845,29 +1359,25 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                                               : vDraft.inProgressDate.trim() || null;
                                         const nextIssued =
                                           nextStatus === 'issued' ? vDraft.issuedDate.trim() || today() : null;
-                                        void saveCardVisa(i, nextStatus, nextInProgress, nextIssued, {
-                                          enabled: true,
-                                          hotelEnabled: showHotel,
-                                          hotelStatus: hStatus,
-                                          hotelInProgressDate: vDraft.hotelInProgressDate.trim() || null,
-                                          hotelIssuedDate: vDraft.hotelIssuedDate.trim() || null,
-                                          ticketEnabled: showTicket,
-                                          ticketStatus: tStatus,
-                                          ticketInProgressDate: vDraft.ticketInProgressDate.trim() || null,
-                                          ticketIssuedDate: vDraft.ticketIssuedDate.trim() || null,
-                                        });
+                                        void saveCardVisa(
+                                          i,
+                                          nextStatus,
+                                          nextInProgress,
+                                          nextIssued,
+                                          buildFullExtra({ enabled: true })
+                                        );
                                       }}
                                     >
                                       <option value="not_started">Not Started</option>
-                                      <option value="in_progress">In Progress</option>
-                                      <option value="issued">Issued</option>
+                                      <option value="in_progress">Visa Started (In Progress)</option>
+                                      <option value="issued">Visa Issued</option>
                                     </select>
                                   </div>
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   <label className="block space-y-0.5">
                                     <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
-                                      In Progress Date{savedInProg ? ` (${niceDate(savedInProg)})` : ''}
+                                      Visa Started Date{savedInProg ? ` (${niceDate(savedInProg)})` : ''}
                                     </span>
                                     <input
                                       type="date"
@@ -885,7 +1395,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                                   </label>
                                   <label className="block space-y-0.5">
                                     <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
-                                      Issued Date{savedIssued ? ` (${niceDate(savedIssued)})` : ''}
+                                      Visa Issued Date{savedIssued ? ` (${niceDate(savedIssued)})` : ''}
                                     </span>
                                     <input
                                       type="date"
@@ -905,11 +1415,12 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                               </div>
                             )}
 
+                            {/* 3. Hotel Booking Confirmation Separate Toggle + Hotel Name & Check-In/Out Dates */}
                             {showHotel && (
-                              <div className="space-y-1.5 pt-2 border-t border-indigo-200/60 dark:border-indigo-900/50">
+                              <div className="space-y-2 pt-2 border-t border-indigo-200/60 dark:border-indigo-900/50">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                   <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
-                                    Hotel Booking Progress (Smart AI Detected)
+                                    3. Hotel Booking Confirmation (Name &amp; Dates)
                                   </span>
                                   <div className="flex flex-wrap items-center gap-1">
                                     {(['not_started', 'in_progress', 'issued'] as const).map((st) => (
@@ -931,17 +1442,15 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                                             vStatus,
                                             vDraft.inProgressDate.trim() || null,
                                             vDraft.issuedDate.trim() || null,
-                                            {
-                                              enabled: showVisa,
+                                            buildFullExtra({
                                               hotelEnabled: true,
                                               hotelStatus: st,
+                                              hotelName: vDraft.hotelName.trim() || smartHotelDefault || null,
+                                              hotelCheckInDate: vDraft.hotelCheckInDate.trim() || null,
+                                              hotelCheckOutDate: vDraft.hotelCheckOutDate.trim() || null,
                                               hotelInProgressDate: nextHotelInProg,
                                               hotelIssuedDate: nextHotelIssued,
-                                              ticketEnabled: showTicket,
-                                              ticketStatus: tStatus,
-                                              ticketInProgressDate: vDraft.ticketInProgressDate.trim() || null,
-                                              ticketIssuedDate: vDraft.ticketIssuedDate.trim() || null,
-                                            }
+                                            })
                                           );
                                         }}
                                         className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
@@ -954,7 +1463,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                                             : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
                                         }`}
                                       >
-                                        {HOTEL_STATUS_LABEL[st]}
+                                        {st === 'issued' ? '✓ Hotel Confirmed' : HOTEL_STATUS_LABEL[st]}
                                       </button>
                                     ))}
                                     <select
@@ -979,27 +1488,81 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                                           vStatus,
                                           vDraft.inProgressDate.trim() || null,
                                           vDraft.issuedDate.trim() || null,
-                                          {
-                                            enabled: showVisa,
+                                          buildFullExtra({
                                             hotelEnabled: true,
                                             hotelStatus: nextHotelStatus,
+                                            hotelName: vDraft.hotelName.trim() || smartHotelDefault || null,
+                                            hotelCheckInDate: vDraft.hotelCheckInDate.trim() || null,
+                                            hotelCheckOutDate: vDraft.hotelCheckOutDate.trim() || null,
                                             hotelInProgressDate: nextHotelInProg,
                                             hotelIssuedDate: nextHotelIssued,
-                                            ticketEnabled: showTicket,
-                                            ticketStatus: tStatus,
-                                            ticketInProgressDate: vDraft.ticketInProgressDate.trim() || null,
-                                            ticketIssuedDate: vDraft.ticketIssuedDate.trim() || null,
-                                          }
+                                          })
                                         );
                                       }}
                                     >
                                       <option value="not_started">Not Started</option>
                                       <option value="in_progress">In Progress</option>
-                                      <option value="issued">Confirmed</option>
+                                      <option value="issued">Hotel Confirmed</option>
                                     </select>
                                   </div>
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <label className="block space-y-0.5 sm:col-span-2">
+                                    <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                                      Hotel Name (Shown on Customer Portal Timeline)
+                                    </span>
+                                    <input
+                                      type="text"
+                                      maxLength={160}
+                                      placeholder="e.g. Pullman Zamzam Makkah / Hilton Baku / Swissotel"
+                                      aria-label={`Hotel Name for ${i.invoiceNo}`}
+                                      className={`${inputCls} !py-1 !text-xs`}
+                                      value={vDraft.hotelName}
+                                      disabled={visaBusyId === i.id}
+                                      onChange={(e) =>
+                                        setVisaDrafts((prev) => ({
+                                          ...prev,
+                                          [i.id]: { ...vDraft, hotelName: e.target.value },
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                  <label className="block space-y-0.5">
+                                    <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                                      Check-In Date{savedHotelCheckIn ? ` (${niceDate(savedHotelCheckIn)})` : ''}
+                                    </span>
+                                    <input
+                                      type="date"
+                                      aria-label={`Hotel Check-In Date for ${i.invoiceNo}`}
+                                      className={`${inputCls} !py-1 !text-xs`}
+                                      value={vDraft.hotelCheckInDate}
+                                      disabled={visaBusyId === i.id}
+                                      onChange={(e) =>
+                                        setVisaDrafts((prev) => ({
+                                          ...prev,
+                                          [i.id]: { ...vDraft, hotelCheckInDate: e.target.value },
+                                        }))
+                                      }
+                                    />
+                                  </label>
+                                  <label className="block space-y-0.5">
+                                    <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                                      Check-Out Date{savedHotelCheckOut ? ` (${niceDate(savedHotelCheckOut)})` : ''}
+                                    </span>
+                                    <input
+                                      type="date"
+                                      aria-label={`Hotel Check-Out Date for ${i.invoiceNo}`}
+                                      className={`${inputCls} !py-1 !text-xs`}
+                                      value={vDraft.hotelCheckOutDate}
+                                      disabled={visaBusyId === i.id}
+                                      onChange={(e) =>
+                                        setVisaDrafts((prev) => ({
+                                          ...prev,
+                                          [i.id]: { ...vDraft, hotelCheckOutDate: e.target.value },
+                                        }))
+                                      }
+                                    />
+                                  </label>
                                   <label className="block space-y-0.5">
                                     <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
                                       Hotel In Progress Date{savedHotelInProg ? ` (${niceDate(savedHotelInProg)})` : ''}
@@ -1040,11 +1603,12 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                               </div>
                             )}
 
+                            {/* 4. Air Tickets Separate Toggle */}
                             {showTicket && (
                               <div className="space-y-1.5 pt-2 border-t border-indigo-200/60 dark:border-indigo-900/50">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                   <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
-                                    Flight / Ticket Progress
+                                    4. Flight / Air Tickets Progress
                                   </span>
                                   <div className="flex flex-wrap items-center gap-1">
                                     {(['not_started', 'in_progress', 'issued'] as const).map((st) => (
@@ -1066,17 +1630,12 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                                             vStatus,
                                             vDraft.inProgressDate.trim() || null,
                                             vDraft.issuedDate.trim() || null,
-                                            {
-                                              enabled: showVisa,
-                                              hotelEnabled: showHotel,
-                                              hotelStatus: hStatus,
-                                              hotelInProgressDate: vDraft.hotelInProgressDate.trim() || null,
-                                              hotelIssuedDate: vDraft.hotelIssuedDate.trim() || null,
+                                            buildFullExtra({
                                               ticketEnabled: true,
                                               ticketStatus: st,
                                               ticketInProgressDate: nextTicketInProg,
                                               ticketIssuedDate: nextTicketIssued,
-                                            }
+                                            })
                                           );
                                         }}
                                         className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
@@ -1089,7 +1648,171 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                                             : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
                                         }`}
                                       >
-                                        {VISA_STATUS_LABEL[st]}
+                                        {st === 'issued' ? '✓ Ticket Issued' : VISA_STATUS_LABEL[st]}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <input
+                                    type="text"
+                                    maxLength={160}
+                                    placeholder="Airline / PNR / Sector (e.g. Saudia · LHE-JED)"
+                                    className={`${inputCls} !py-1 !text-xs`}
+                                    value={vDraft.ticketDetails}
+                                    disabled={visaBusyId === i.id}
+                                    onChange={(e) =>
+                                      setVisaDrafts((prev) => ({
+                                        ...prev,
+                                        [i.id]: { ...vDraft, ticketDetails: e.target.value },
+                                      }))
+                                    }
+                                  />
+                                  <input
+                                    type="date"
+                                    aria-label={`Ticket Issued Date for ${i.invoiceNo}`}
+                                    className={`${inputCls} !py-1 !text-xs`}
+                                    value={vDraft.ticketIssuedDate}
+                                    disabled={visaBusyId === i.id}
+                                    onChange={(e) =>
+                                      setVisaDrafts((prev) => ({
+                                        ...prev,
+                                        [i.id]: { ...vDraft, ticketIssuedDate: e.target.value },
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 5. Tours & Transfers Separate Toggle */}
+                            {showTransfer && (
+                              <div className="space-y-1.5 pt-2 border-t border-indigo-200/60 dark:border-indigo-900/50">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
+                                    5. Tours &amp; Transfers Progress
+                                  </span>
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {(['not_started', 'in_progress', 'issued'] as const).map((st) => (
+                                      <button
+                                        key={st}
+                                        type="button"
+                                        disabled={visaBusyId === i.id}
+                                        onClick={() => {
+                                          const nextTrInProg =
+                                            st === 'not_started'
+                                              ? null
+                                              : st === 'in_progress'
+                                                ? vDraft.transferInProgressDate.trim() || today()
+                                                : vDraft.transferInProgressDate.trim() || savedTransferInProg || today();
+                                          const nextTrIssued =
+                                            st === 'issued' ? vDraft.transferIssuedDate.trim() || today() : null;
+                                          void saveCardVisa(
+                                            i,
+                                            vStatus,
+                                            vDraft.inProgressDate.trim() || null,
+                                            vDraft.issuedDate.trim() || null,
+                                            buildFullExtra({
+                                              transferEnabled: true,
+                                              transferStatus: st,
+                                              transferInProgressDate: nextTrInProg,
+                                              transferIssuedDate: nextTrIssued,
+                                            })
+                                          );
+                                        }}
+                                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                                          trStatus === st
+                                            ? st === 'issued'
+                                              ? 'bg-emerald-600 text-white border-emerald-600'
+                                              : st === 'in_progress'
+                                                ? 'bg-amber-500 text-white border-amber-500'
+                                                : 'bg-slate-700 text-white border-slate-700'
+                                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        {st === 'issued' ? '✓ Transfers Confirmed' : HOTEL_STATUS_LABEL[st]}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <input
+                                    type="text"
+                                    maxLength={160}
+                                    placeholder="Transfer / Tour details (e.g. Private VIP Coaster / Haramain Train)"
+                                    className={`${inputCls} !py-1 !text-xs`}
+                                    value={vDraft.transferDetails}
+                                    disabled={visaBusyId === i.id}
+                                    onChange={(e) =>
+                                      setVisaDrafts((prev) => ({
+                                        ...prev,
+                                        [i.id]: { ...vDraft, transferDetails: e.target.value },
+                                      }))
+                                    }
+                                  />
+                                  <input
+                                    type="date"
+                                    aria-label={`Transfer Confirmed Date for ${i.invoiceNo}`}
+                                    className={`${inputCls} !py-1 !text-xs`}
+                                    value={vDraft.transferIssuedDate}
+                                    disabled={visaBusyId === i.id}
+                                    onChange={(e) =>
+                                      setVisaDrafts((prev) => ({
+                                        ...prev,
+                                        [i.id]: { ...vDraft, transferIssuedDate: e.target.value },
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 6. Travel Insurance Separate Toggle */}
+                            {showInsurance && (
+                              <div className="space-y-1.5 pt-2 border-t border-indigo-200/60 dark:border-indigo-900/50">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">
+                                    6. Travel Insurance Progress
+                                  </span>
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {(['not_started', 'in_progress', 'issued'] as const).map((st) => (
+                                      <button
+                                        key={st}
+                                        type="button"
+                                        disabled={visaBusyId === i.id}
+                                        onClick={() => {
+                                          const nextInsInProg =
+                                            st === 'not_started'
+                                              ? null
+                                              : st === 'in_progress'
+                                                ? vDraft.insuranceInProgressDate.trim() || today()
+                                                : vDraft.insuranceInProgressDate.trim() || savedInsuranceInProg || today();
+                                          const nextInsIssued =
+                                            st === 'issued' ? vDraft.insuranceIssuedDate.trim() || today() : null;
+                                          void saveCardVisa(
+                                            i,
+                                            vStatus,
+                                            vDraft.inProgressDate.trim() || null,
+                                            vDraft.issuedDate.trim() || null,
+                                            buildFullExtra({
+                                              insuranceEnabled: true,
+                                              insuranceStatus: st,
+                                              insuranceInProgressDate: nextInsInProg,
+                                              insuranceIssuedDate: nextInsIssued,
+                                            })
+                                          );
+                                        }}
+                                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors cursor-pointer ${
+                                          insStatus === st
+                                            ? st === 'issued'
+                                              ? 'bg-emerald-600 text-white border-emerald-600'
+                                              : st === 'in_progress'
+                                                ? 'bg-amber-500 text-white border-amber-500'
+                                                : 'bg-slate-700 text-white border-slate-700'
+                                            : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        {st === 'issued' ? '✓ Policy Issued' : VISA_STATUS_LABEL[st]}
                                       </button>
                                     ))}
                                   </div>
@@ -1098,7 +1821,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                             )}
 
                             {vDirty && (
-                              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                              <div className="flex flex-wrap items-center gap-2 pt-1.5 border-t border-indigo-200/60 dark:border-indigo-900/50">
                                 <button
                                   type="button"
                                   className={`${btnPrimary} !py-1 !px-2.5 !text-[11px]`}
@@ -1109,21 +1832,11 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                                       vStatus,
                                       vDraft.inProgressDate.trim() || null,
                                       vDraft.issuedDate.trim() || null,
-                                      {
-                                        enabled: showVisa,
-                                        hotelEnabled: showHotel,
-                                        hotelStatus: hStatus,
-                                        hotelInProgressDate: vDraft.hotelInProgressDate.trim() || null,
-                                        hotelIssuedDate: vDraft.hotelIssuedDate.trim() || null,
-                                        ticketEnabled: showTicket,
-                                        ticketStatus: tStatus,
-                                        ticketInProgressDate: vDraft.ticketInProgressDate.trim() || null,
-                                        ticketIssuedDate: vDraft.ticketIssuedDate.trim() || null,
-                                      }
+                                      buildFullExtra()
                                     )
                                   }
                                 >
-                                  {visaBusyId === i.id ? 'Saving…' : 'Save dates'}
+                                  {visaBusyId === i.id ? 'Saving…' : 'Save Hotel Name, Dates & Progress'}
                                 </button>
                                 <button
                                   type="button"
@@ -1155,7 +1868,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                             )}
                             {showHotel && (
                               <span className="font-bold text-indigo-900 dark:text-indigo-200">
-                                Hotel: {HOTEL_STATUS_LABEL[hStatus]}
+                                Hotel: {HOTEL_STATUS_LABEL[hStatus]}{savedHotelName ? ` (${savedHotelName})` : ''}
                               </span>
                             )}
                             {showTicket && (
@@ -1405,14 +2118,42 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
             </div>
 
             {customerPortalBetaEnabled && form.kind === 'customer' && (() => {
-              const visaAutoDetected = hasVisaKeyword(form.sections);
+              const visaAutoDetected = hasVisaKeyword(form.sections, form.reference, form.notes);
               const visaTrackingActive = visaAutoDetected || form.visaEnabled;
               const hotelAutoDetected = hasHotelKeyword(form.sections, form.reference, form.notes);
               const hotelTrackingActive = hotelAutoDetected || form.hotelEnabled;
-              const ticketAutoDetected = hasTicketKeyword(form.sections, form.reference);
+              const ticketAutoDetected = hasTicketKeyword(form.sections, form.reference, form.notes);
               const ticketTrackingActive = ticketAutoDetected || form.ticketEnabled;
+              const transferAutoDetected = hasTransferKeyword(form.sections, form.reference, form.notes);
+              const transferTrackingActive = transferAutoDetected || form.transferEnabled;
+              const insuranceAutoDetected = hasInsuranceKeyword(form.sections, form.reference, form.notes);
+              const insuranceTrackingActive = insuranceAutoDetected || form.insuranceEnabled;
               return (
                 <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 p-3.5 space-y-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-indigo-200/60 dark:border-indigo-900/50">
+                    <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.paymentApproved}
+                        onChange={(e) =>
+                          patch({
+                            paymentApproved: e.target.checked,
+                            paymentApprovedDate: e.target.checked ? form.paymentApprovedDate || today() : '',
+                          })
+                        }
+                      />
+                      Payment Approved (Unlocks Customer Portal Process Steps)
+                    </label>
+                    {form.paymentApproved && (
+                      <input
+                        type="date"
+                        className={`${inputCls} !w-auto !py-1 !text-xs`}
+                        value={form.paymentApprovedDate}
+                        onChange={(e) => patch({ paymentApprovedDate: e.target.value })}
+                      />
+                    )}
+                  </div>
+
                   <div className="space-y-2.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">
@@ -1424,7 +2165,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                         />
                         Track Visa progress on Customers Page
                       </label>
-                      {visaAutoDetected && <Pill tone="blue">Auto-detected from Visa item</Pill>}
+                      {visaAutoDetected && <Pill tone="blue">Auto-detected from Catalogue</Pill>}
                     </div>
                     {visaTrackingActive && (
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1435,11 +2176,11 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                             onChange={(e) => setFormVisaStatus(e.target.value as VisaProgressStatus)}
                           >
                             <option value="not_started">Not Started</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="issued">Issued</option>
+                            <option value="in_progress">Visa Started (In Progress)</option>
+                            <option value="issued">Visa Issued</option>
                           </select>
                         </Field>
-                        <Field label="In Progress date">
+                        <Field label="Visa Started date">
                           <input
                             type="date"
                             className={inputCls}
@@ -1447,7 +2188,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                             onChange={(e) => patch({ visaInProgressDate: e.target.value })}
                           />
                         </Field>
-                        <Field label="Issued date">
+                        <Field label="Visa Issued date">
                           <input
                             type="date"
                             className={inputCls}
@@ -1468,12 +2209,24 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                           disabled={hotelAutoDetected}
                           onChange={(e) => patch({ hotelEnabled: e.target.checked })}
                         />
-                        Track Hotel Booking progress on Customers Page (Smart AI Auto-Detection)
+                        Track Hotel Booking Confirmation on Customers Page (Name &amp; Dates)
                       </label>
-                      {hotelAutoDetected && <Pill tone="green">Smart AI Detected Hotel Booking</Pill>}
+                      {hotelAutoDetected && <Pill tone="green">Auto-detected from Package / Hotel</Pill>}
                     </div>
                     {hotelTrackingActive && (
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="sm:col-span-2">
+                          <Field label="Hotel Name">
+                            <input
+                              type="text"
+                              maxLength={160}
+                              placeholder="e.g. Pullman Zamzam Makkah / Hilton Baku"
+                              className={inputCls}
+                              value={form.hotelName}
+                              onChange={(e) => patch({ hotelName: e.target.value })}
+                            />
+                          </Field>
+                        </div>
                         <Field label="Hotel booking status">
                           <select
                             className={inputCls}
@@ -1482,15 +2235,23 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                           >
                             <option value="not_started">Not Started</option>
                             <option value="in_progress">In Progress</option>
-                            <option value="issued">Confirmed</option>
+                            <option value="issued">Hotel Confirmed</option>
                           </select>
                         </Field>
-                        <Field label="Hotel In Progress date">
+                        <Field label="Check-In date">
                           <input
                             type="date"
                             className={inputCls}
-                            value={form.hotelInProgressDate}
-                            onChange={(e) => patch({ hotelInProgressDate: e.target.value })}
+                            value={form.hotelCheckInDate}
+                            onChange={(e) => patch({ hotelCheckInDate: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="Check-Out date">
+                          <input
+                            type="date"
+                            className={inputCls}
+                            value={form.hotelCheckOutDate}
+                            onChange={(e) => patch({ hotelCheckOutDate: e.target.value })}
                           />
                         </Field>
                         <Field label="Hotel Confirmed date">
@@ -1531,12 +2292,14 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                             <option value="issued">Issued</option>
                           </select>
                         </Field>
-                        <Field label="Ticket In Progress date">
+                        <Field label="Airline / PNR details">
                           <input
-                            type="date"
+                            type="text"
+                            maxLength={160}
+                            placeholder="e.g. Saudia · LHE-JED"
                             className={inputCls}
-                            value={form.ticketInProgressDate}
-                            onChange={(e) => patch({ ticketInProgressDate: e.target.value })}
+                            value={form.ticketDetails}
+                            onChange={(e) => patch({ ticketDetails: e.target.value })}
                           />
                         </Field>
                         <Field label="Ticket Issued date">
@@ -1549,6 +2312,90 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                         </Field>
                       </div>
                     )}
+                  </div>
+
+                  <div className="pt-2.5 border-t border-indigo-200/60 dark:border-indigo-900/50 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={transferTrackingActive}
+                          disabled={transferAutoDetected}
+                          onChange={(e) => patch({ transferEnabled: e.target.checked })}
+                        />
+                        Track Tours &amp; Transfers on Customers Page
+                      </label>
+                      {transferAutoDetected && <Pill tone="blue">Auto-detected from Package / Transfer</Pill>}
+                    </div>
+                    {transferTrackingActive && (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <Field label="Tours & Transfers status">
+                          <select
+                            className={inputCls}
+                            value={form.transferStatus}
+                            onChange={(e) => setFormTransferStatus(e.target.value as VisaProgressStatus)}
+                          >
+                            <option value="not_started">Not Started</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="issued">Confirmed</option>
+                          </select>
+                        </Field>
+                        <Field label="Transfer / Tour details">
+                          <input
+                            type="text"
+                            maxLength={160}
+                            placeholder="e.g. Private Coaster / Haramain Train"
+                            className={inputCls}
+                            value={form.transferDetails}
+                            onChange={(e) => patch({ transferDetails: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="Confirmed date">
+                          <input
+                            type="date"
+                            className={inputCls}
+                            value={form.transferIssuedDate}
+                            onChange={(e) => patch({ transferIssuedDate: e.target.value })}
+                          />
+                        </Field>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-2.5 border-t border-indigo-200/60 dark:border-indigo-900/50 flex flex-wrap items-center justify-between gap-3">
+                    <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={insuranceTrackingActive}
+                        disabled={insuranceAutoDetected}
+                        onChange={(e) => patch({ insuranceEnabled: e.target.checked })}
+                      />
+                      Track Travel Insurance ({form.insuranceStatus === 'issued' ? 'Issued' : form.insuranceStatus === 'in_progress' ? 'In Progress' : 'Not Started'})
+                    </label>
+                    {insuranceTrackingActive && (
+                      <select
+                        className={`${inputCls} !w-auto !py-1 !text-xs`}
+                        value={form.insuranceStatus}
+                        onChange={(e) => setFormInsuranceStatus(e.target.value as VisaProgressStatus)}
+                      >
+                        <option value="not_started">Insurance: Not Started</option>
+                        <option value="in_progress">Insurance: In Progress</option>
+                        <option value="issued">Insurance: Policy Issued</option>
+                      </select>
+                    )}
+                    <label className="inline-flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.travelReadyEnabled}
+                        onChange={(e) =>
+                          patch({
+                            travelReadyEnabled: e.target.checked,
+                            travelReadyDate: e.target.checked ? form.travelReadyDate || today() : '',
+                          })
+                        }
+                      />
+                      Mark Travel Ready Confirmed
+                    </label>
                   </div>
                 </div>
               );

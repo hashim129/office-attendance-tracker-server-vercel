@@ -68,10 +68,14 @@ const parseJsonObj = (v, fallback = {}) => {
   return fallback;
 };
 const VISA_STATUSES = ['not_started', 'in_progress', 'issued'];
-const VISA_WORD_RE = /\bvisa\b/i;
-const HOTEL_WORD_RE = /\b(hotel|resort|accommodation|stay|room|suite|makkah\s+hotel|madinah\s+hotel|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis)\b/i;
-const TICKET_WORD_RE = /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way)\b/i;
-function hasVisaKeyword(sections) {
+const VISA_WORD_RE = /\b(visa|e-visa|evisa|umrah|ziyarat|hajj|schengen|embassy|sticker\s+visa|asan)\b/i;
+const HOTEL_WORD_RE = /\b(hotel|resort|accommodation|stay|room|suite|nights?|check-?in|check-?out|bed\s*&\s*breakfast|half\s+board|full\s+board|package|family\s+tour|group\s+tour|holiday|honeymoon|umrah|ziyarat|hajj|makkah|madinah|baku|shahdag|gabala|dubai|abu\s+dhabi|doha|tashkent|samarkand|almaty|shymbulak|istanbul|cappadocia|antalya|kuala\s+lumpur|langkawi|bangkok|phuket|maldives|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis|villa|palace|apartments?)\b/i;
+const TICKET_WORD_RE = /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way|pia|emirates|qatar\s+airways|saudia|flydubai|airblue|serene|etihad|turkish\s+airlines|azerbaijan\s+airlines|azal)\b/i;
+const TRANSFER_WORD_RE = /\b(transfer|tour|excursion|coaster|transport|pickup|pick-up|drop-off|haramain|train|railway|safari|cruise|cable\s+car|sightseeing|ziyarat\s+tour|package|family\s+tour)\b/i;
+const INSURANCE_WORD_RE = /\b(insurance|medical\s+cover|travel\s+care|policy|coverage)\b/i;
+
+function hasVisaKeyword(sections, reference = '', notes = '') {
+  if (VISA_WORD_RE.test(String(reference || '')) || VISA_WORD_RE.test(String(notes || ''))) return true;
   return asArray(sections).some((sec) => {
     if (VISA_WORD_RE.test(String(sec?.title || ''))) return true;
     return asArray(sec?.lines).some((ln) => VISA_WORD_RE.test(String(ln?.description || '')));
@@ -84,12 +88,42 @@ function hasHotelKeyword(sections, reference = '', notes = '') {
     return asArray(sec?.lines).some((ln) => HOTEL_WORD_RE.test(String(ln?.description || '')));
   });
 }
-function hasTicketKeyword(sections, reference = '') {
-  if (TICKET_WORD_RE.test(String(reference || ''))) return true;
+function hasTicketKeyword(sections, reference = '', notes = '') {
+  if (TICKET_WORD_RE.test(String(reference || '')) || TICKET_WORD_RE.test(String(notes || ''))) return true;
   return asArray(sections).some((sec) => {
     if (TICKET_WORD_RE.test(String(sec?.title || ''))) return true;
     return asArray(sec?.lines).some((ln) => TICKET_WORD_RE.test(String(ln?.description || '')));
   });
+}
+function hasTransferKeyword(sections, reference = '', notes = '') {
+  if (TRANSFER_WORD_RE.test(String(reference || '')) || TRANSFER_WORD_RE.test(String(notes || ''))) return true;
+  return asArray(sections).some((sec) => {
+    if (TRANSFER_WORD_RE.test(String(sec?.title || ''))) return true;
+    return asArray(sec?.lines).some((ln) => TRANSFER_WORD_RE.test(String(ln?.description || '')));
+  });
+}
+function hasInsuranceKeyword(sections, reference = '', notes = '') {
+  if (INSURANCE_WORD_RE.test(String(reference || '')) || INSURANCE_WORD_RE.test(String(notes || ''))) return true;
+  return asArray(sections).some((sec) => {
+    if (INSURANCE_WORD_RE.test(String(sec?.title || ''))) return true;
+    return asArray(sec?.lines).some((ln) => INSURANCE_WORD_RE.test(String(ln?.description || '')));
+  });
+}
+function extractSmartHotelName(sections, reference = '', notes = '') {
+  for (const sec of asArray(sections)) {
+    const title = String(sec?.title || '').trim();
+    for (const ln of asArray(sec?.lines)) {
+      const desc = String(ln?.description || '').trim();
+      if (HOTEL_WORD_RE.test(desc)) return desc.slice(0, 140);
+    }
+    if (HOTEL_WORD_RE.test(title)) {
+      const firstLine = String(asArray(sec?.lines)[0]?.description || '').trim();
+      return (firstLine || title).slice(0, 140);
+    }
+  }
+  if (HOTEL_WORD_RE.test(String(reference || ''))) return String(reference).trim().slice(0, 140);
+  if (HOTEL_WORD_RE.test(String(notes || ''))) return String(notes).trim().slice(0, 140);
+  return '';
 }
 const strictDateOnly = (v, name) => {
   if (v === undefined || v === null || v === '') return null;
@@ -132,9 +166,24 @@ function normalizeVisaProgress(raw, existing = null) {
     ? strictDateOnly(raw.issuedDate, 'Issued date')
     : (status === 'issued' ? (exIssued || todayPktDate()) : null);
 
+  const paymentApproved = raw?.paymentApproved !== undefined ? Boolean(raw.paymentApproved) : Boolean(existing?.paymentApproved);
+  const exPayDate = safeDateOnly(existing?.paymentApprovedDate);
+  const paymentApprovedDate = raw?.paymentApprovedDate !== undefined
+    ? strictDateOnly(raw.paymentApprovedDate, 'Payment Approved date')
+    : (paymentApproved ? (exPayDate || todayPktDate()) : null);
+
   const hotelEnabled = raw?.hotelEnabled !== undefined ? Boolean(raw.hotelEnabled) : Boolean(existing?.hotelEnabled);
   const hotelStatus = String(raw?.hotelStatus !== undefined ? raw.hotelStatus : (existing?.hotelStatus || 'not_started'));
   if (!VISA_STATUSES.includes(hotelStatus)) throw bad('Choose Not Started, In Progress, or Confirmed for Hotel Booking.');
+  const hotelName = raw?.hotelName !== undefined
+    ? String(raw.hotelName || '').trim().slice(0, 160) || null
+    : (existing?.hotelName ? String(existing.hotelName).trim().slice(0, 160) : null);
+  const hotelCheckInDate = raw?.hotelCheckInDate !== undefined
+    ? strictDateOnly(raw.hotelCheckInDate, 'Hotel Check-In date')
+    : safeDateOnly(existing?.hotelCheckInDate);
+  const hotelCheckOutDate = raw?.hotelCheckOutDate !== undefined
+    ? strictDateOnly(raw.hotelCheckOutDate, 'Hotel Check-Out date')
+    : safeDateOnly(existing?.hotelCheckOutDate);
   const exHotelInProg = safeDateOnly(existing?.hotelInProgressDate);
   const exHotelIssued = safeDateOnly(existing?.hotelIssuedDate);
   const hotelInProgressDate = raw?.hotelInProgressDate !== undefined
@@ -147,6 +196,9 @@ function normalizeVisaProgress(raw, existing = null) {
   const ticketEnabled = raw?.ticketEnabled !== undefined ? Boolean(raw.ticketEnabled) : Boolean(existing?.ticketEnabled);
   const ticketStatus = String(raw?.ticketStatus !== undefined ? raw.ticketStatus : (existing?.ticketStatus || 'not_started'));
   if (!VISA_STATUSES.includes(ticketStatus)) throw bad('Choose Not Started, In Progress, or Issued for Air Tickets.');
+  const ticketDetails = raw?.ticketDetails !== undefined
+    ? String(raw.ticketDetails || '').trim().slice(0, 160) || null
+    : (existing?.ticketDetails ? String(existing.ticketDetails).trim().slice(0, 160) : null);
   const exTicketInProg = safeDateOnly(existing?.ticketInProgressDate);
   const exTicketIssued = safeDateOnly(existing?.ticketIssuedDate);
   const ticketInProgressDate = raw?.ticketInProgressDate !== undefined
@@ -156,19 +208,73 @@ function normalizeVisaProgress(raw, existing = null) {
     ? strictDateOnly(raw.ticketIssuedDate, 'Ticket Issued date')
     : (ticketStatus === 'issued' ? (exTicketIssued || todayPktDate()) : null);
 
+  const transferEnabled = raw?.transferEnabled !== undefined ? Boolean(raw.transferEnabled) : Boolean(existing?.transferEnabled);
+  const transferStatus = String(raw?.transferStatus !== undefined ? raw.transferStatus : (existing?.transferStatus || 'not_started'));
+  if (!VISA_STATUSES.includes(transferStatus)) throw bad('Choose Not Started, In Progress, or Confirmed for Tours & Transfers.');
+  const transferDetails = raw?.transferDetails !== undefined
+    ? String(raw.transferDetails || '').trim().slice(0, 160) || null
+    : (existing?.transferDetails ? String(existing.transferDetails).trim().slice(0, 160) : null);
+  const exTransferInProg = safeDateOnly(existing?.transferInProgressDate);
+  const exTransferIssued = safeDateOnly(existing?.transferIssuedDate);
+  const transferInProgressDate = raw?.transferInProgressDate !== undefined
+    ? strictDateOnly(raw.transferInProgressDate, 'Transfer In Progress date')
+    : (transferStatus === 'in_progress' ? (exTransferInProg || todayPktDate()) : transferStatus === 'issued' ? exTransferInProg : null);
+  const transferIssuedDate = raw?.transferIssuedDate !== undefined
+    ? strictDateOnly(raw.transferIssuedDate, 'Transfer Confirmed date')
+    : (transferStatus === 'issued' ? (exTransferIssued || todayPktDate()) : null);
+
+  const insuranceEnabled = raw?.insuranceEnabled !== undefined ? Boolean(raw.insuranceEnabled) : Boolean(existing?.insuranceEnabled);
+  const insuranceStatus = String(raw?.insuranceStatus !== undefined ? raw.insuranceStatus : (existing?.insuranceStatus || 'not_started'));
+  if (!VISA_STATUSES.includes(insuranceStatus)) throw bad('Choose Not Started, In Progress, or Issued for Travel Insurance.');
+  const insuranceDetails = raw?.insuranceDetails !== undefined
+    ? String(raw.insuranceDetails || '').trim().slice(0, 160) || null
+    : (existing?.insuranceDetails ? String(existing.insuranceDetails).trim().slice(0, 160) : null);
+  const exInsInProg = safeDateOnly(existing?.insuranceInProgressDate);
+  const exInsIssued = safeDateOnly(existing?.insuranceIssuedDate);
+  const insuranceInProgressDate = raw?.insuranceInProgressDate !== undefined
+    ? strictDateOnly(raw.insuranceInProgressDate, 'Insurance In Progress date')
+    : (insuranceStatus === 'in_progress' ? (exInsInProg || todayPktDate()) : insuranceStatus === 'issued' ? exInsInProg : null);
+  const insuranceIssuedDate = raw?.insuranceIssuedDate !== undefined
+    ? strictDateOnly(raw.insuranceIssuedDate, 'Insurance Issued date')
+    : (insuranceStatus === 'issued' ? (exInsIssued || todayPktDate()) : null);
+
+  const travelReadyEnabled = raw?.travelReadyEnabled !== undefined ? Boolean(raw.travelReadyEnabled) : Boolean(existing?.travelReadyEnabled);
+  const exReadyDate = safeDateOnly(existing?.travelReadyDate);
+  const travelReadyDate = raw?.travelReadyDate !== undefined
+    ? strictDateOnly(raw.travelReadyDate, 'Travel Ready date')
+    : (travelReadyEnabled ? (exReadyDate || todayPktDate()) : null);
+
   return {
     enabled,
     status,
     inProgressDate,
     issuedDate,
+    paymentApproved,
+    paymentApprovedDate,
     hotelEnabled,
     hotelStatus,
+    hotelName,
+    hotelCheckInDate,
+    hotelCheckOutDate,
     hotelInProgressDate,
     hotelIssuedDate,
     ticketEnabled,
     ticketStatus,
+    ticketDetails,
     ticketInProgressDate,
     ticketIssuedDate,
+    transferEnabled,
+    transferStatus,
+    transferDetails,
+    transferInProgressDate,
+    transferIssuedDate,
+    insuranceEnabled,
+    insuranceStatus,
+    insuranceDetails,
+    insuranceInProgressDate,
+    insuranceIssuedDate,
+    travelReadyEnabled,
+    travelReadyDate,
     updatedAt: nowIso(),
   };
 }
@@ -176,25 +282,51 @@ function formatVisaProgress(raw, rowUpdatedAt = null) {
   const vp = parseJsonObj(raw, null);
   if (!vp) return null;
   const enabled = vp.enabled === true;
+  const paymentApproved = vp.paymentApproved === true;
   const hotelEnabled = vp.hotelEnabled === true;
   const ticketEnabled = vp.ticketEnabled === true;
-  if (!enabled && !hotelEnabled && !ticketEnabled) return null;
+  const transferEnabled = vp.transferEnabled === true;
+  const insuranceEnabled = vp.insuranceEnabled === true;
+  const travelReadyEnabled = vp.travelReadyEnabled === true;
+  if (!enabled && !paymentApproved && !hotelEnabled && !ticketEnabled && !transferEnabled && !insuranceEnabled && !travelReadyEnabled) {
+    return null;
+  }
   const status = VISA_STATUSES.includes(vp.status) ? vp.status : 'not_started';
   const hotelStatus = VISA_STATUSES.includes(vp.hotelStatus) ? vp.hotelStatus : 'not_started';
   const ticketStatus = VISA_STATUSES.includes(vp.ticketStatus) ? vp.ticketStatus : 'not_started';
+  const transferStatus = VISA_STATUSES.includes(vp.transferStatus) ? vp.transferStatus : 'not_started';
+  const insuranceStatus = VISA_STATUSES.includes(vp.insuranceStatus) ? vp.insuranceStatus : 'not_started';
   return {
     enabled,
     status,
     inProgressDate: safeDateOnly(vp.inProgressDate),
     issuedDate: safeDateOnly(vp.issuedDate),
+    paymentApproved,
+    paymentApprovedDate: safeDateOnly(vp.paymentApprovedDate),
     hotelEnabled,
     hotelStatus,
+    hotelName: vp.hotelName ? String(vp.hotelName).trim().slice(0, 160) : null,
+    hotelCheckInDate: safeDateOnly(vp.hotelCheckInDate),
+    hotelCheckOutDate: safeDateOnly(vp.hotelCheckOutDate),
     hotelInProgressDate: safeDateOnly(vp.hotelInProgressDate),
     hotelIssuedDate: safeDateOnly(vp.hotelIssuedDate),
     ticketEnabled,
     ticketStatus,
+    ticketDetails: vp.ticketDetails ? String(vp.ticketDetails).trim().slice(0, 160) : null,
     ticketInProgressDate: safeDateOnly(vp.ticketInProgressDate),
     ticketIssuedDate: safeDateOnly(vp.ticketIssuedDate),
+    transferEnabled,
+    transferStatus,
+    transferDetails: vp.transferDetails ? String(vp.transferDetails).trim().slice(0, 160) : null,
+    transferInProgressDate: safeDateOnly(vp.transferInProgressDate),
+    transferIssuedDate: safeDateOnly(vp.transferIssuedDate),
+    insuranceEnabled,
+    insuranceStatus,
+    insuranceDetails: vp.insuranceDetails ? String(vp.insuranceDetails).trim().slice(0, 160) : null,
+    insuranceInProgressDate: safeDateOnly(vp.insuranceInProgressDate),
+    insuranceIssuedDate: safeDateOnly(vp.insuranceIssuedDate),
+    travelReadyEnabled,
+    travelReadyDate: safeDateOnly(vp.travelReadyDate),
     updatedAt: vp.updatedAt || rowUpdatedAt || null,
   };
 }
@@ -1042,9 +1174,12 @@ export default async function handler(req, res) {
       let visaOp = null; // null | 'delete' | 'upsert'
       let visaObj = null;
       if (betaEnabled && !vendorBill) {
-        const autoVisa = hasVisaKeyword(sections);
+        const autoVisa = hasVisaKeyword(sections, base.reference, base.notes);
         const autoHotel = hasHotelKeyword(sections, base.reference, base.notes);
-        const autoTicket = hasTicketKeyword(sections, base.reference);
+        const autoTicket = hasTicketKeyword(sections, base.reference, base.notes);
+        const autoTransfer = hasTransferKeyword(sections, base.reference, base.notes);
+        const autoInsurance = hasInsuranceKeyword(sections, base.reference, base.notes);
+        const detectedHotelName = extractSmartHotelName(sections, base.reference, base.notes);
         if (x.visaProgress === undefined) {
           const existingVisaRow = existing ? await getOne('crm_company', `visa-${existing.id}`) : null;
           const existingVp = existingVisaRow
@@ -1056,12 +1191,15 @@ export default async function handler(req, res) {
                 ...existingVp,
                 enabled: existingVp.enabled || autoVisa,
                 hotelEnabled: existingVp.hotelEnabled || autoHotel,
+                hotelName: existingVp.hotelName || detectedHotelName || null,
                 ticketEnabled: existingVp.ticketEnabled || autoTicket,
+                transferEnabled: existingVp.transferEnabled || autoTransfer,
+                insuranceEnabled: existingVp.insuranceEnabled || autoInsurance,
               },
               existingVp
             );
             visaOp = 'upsert';
-          } else if (autoVisa || autoHotel || autoTicket) {
+          } else if (autoVisa || autoHotel || autoTicket || autoTransfer || autoInsurance) {
             visaObj = normalizeVisaProgress(
               {
                 enabled: autoVisa,
@@ -1070,12 +1208,23 @@ export default async function handler(req, res) {
                 issuedDate: null,
                 hotelEnabled: autoHotel,
                 hotelStatus: 'not_started',
+                hotelName: detectedHotelName || null,
+                hotelCheckInDate: null,
+                hotelCheckOutDate: null,
                 hotelInProgressDate: null,
                 hotelIssuedDate: null,
                 ticketEnabled: autoTicket,
                 ticketStatus: 'not_started',
                 ticketInProgressDate: null,
                 ticketIssuedDate: null,
+                transferEnabled: autoTransfer,
+                transferStatus: 'not_started',
+                transferInProgressDate: null,
+                transferIssuedDate: null,
+                insuranceEnabled: autoInsurance,
+                insuranceStatus: 'not_started',
+                insuranceInProgressDate: null,
+                insuranceIssuedDate: null,
               },
               null
             );
@@ -1085,8 +1234,12 @@ export default async function handler(req, res) {
           x.visaProgress === null ||
           x.visaProgress === false ||
           (x.visaProgress?.enabled === false &&
+            x.visaProgress?.paymentApproved !== true &&
             x.visaProgress?.hotelEnabled !== true &&
-            x.visaProgress?.ticketEnabled !== true)
+            x.visaProgress?.ticketEnabled !== true &&
+            x.visaProgress?.transferEnabled !== true &&
+            x.visaProgress?.insuranceEnabled !== true &&
+            x.visaProgress?.travelReadyEnabled !== true)
         ) {
           visaOp = existing ? 'delete' : null;
           visaObj = null;
@@ -1105,12 +1258,26 @@ export default async function handler(req, res) {
             x.visaProgress.ticketEnabled !== undefined
               ? Boolean(x.visaProgress.ticketEnabled)
               : (existingVp?.ticketEnabled === true || autoTicket);
+          const nextTransferEnabled =
+            x.visaProgress.transferEnabled !== undefined
+              ? Boolean(x.visaProgress.transferEnabled)
+              : (existingVp?.transferEnabled === true || autoTransfer);
+          const nextInsuranceEnabled =
+            x.visaProgress.insuranceEnabled !== undefined
+              ? Boolean(x.visaProgress.insuranceEnabled)
+              : (existingVp?.insuranceEnabled === true || autoInsurance);
           visaObj = normalizeVisaProgress(
             {
               ...x.visaProgress,
               enabled: nextEnabled,
               hotelEnabled: nextHotelEnabled,
+              hotelName:
+                x.visaProgress.hotelName !== undefined
+                  ? x.visaProgress.hotelName
+                  : (existingVp?.hotelName || detectedHotelName || null),
               ticketEnabled: nextTicketEnabled,
+              transferEnabled: nextTransferEnabled,
+              insuranceEnabled: nextInsuranceEnabled,
             },
             existingVp
           );
@@ -1155,37 +1322,99 @@ export default async function handler(req, res) {
             status: body.status,
             inProgressDate: body.inProgressDate,
             issuedDate: body.issuedDate,
+            paymentApproved: body.paymentApproved,
+            paymentApprovedDate: body.paymentApprovedDate,
             hotelEnabled: body.hotelEnabled,
             hotelStatus: body.hotelStatus,
+            hotelName: body.hotelName,
+            hotelCheckInDate: body.hotelCheckInDate,
+            hotelCheckOutDate: body.hotelCheckOutDate,
             hotelInProgressDate: body.hotelInProgressDate,
             hotelIssuedDate: body.hotelIssuedDate,
             ticketEnabled: body.ticketEnabled,
             ticketStatus: body.ticketStatus,
+            ticketDetails: body.ticketDetails,
             ticketInProgressDate: body.ticketInProgressDate,
             ticketIssuedDate: body.ticketIssuedDate,
+            transferEnabled: body.transferEnabled,
+            transferStatus: body.transferStatus,
+            transferDetails: body.transferDetails,
+            transferInProgressDate: body.transferInProgressDate,
+            transferIssuedDate: body.transferIssuedDate,
+            insuranceEnabled: body.insuranceEnabled,
+            insuranceStatus: body.insuranceStatus,
+            insuranceDetails: body.insuranceDetails,
+            insuranceInProgressDate: body.insuranceInProgressDate,
+            insuranceIssuedDate: body.insuranceIssuedDate,
+            travelReadyEnabled: body.travelReadyEnabled,
+            travelReadyDate: body.travelReadyDate,
           };
       const visaRowId = `visa-${existing.id}`;
       const existingVisaRow = await getOne('crm_company', visaRowId);
       const existingVp = existingVisaRow ? parseJsonObj(existingVisaRow.data, null) : null;
+      const autoVisa = hasVisaKeyword(existing.sections, existing.reference, existing.notes);
+      const autoHotel = hasHotelKeyword(existing.sections, existing.reference, existing.notes);
+      const autoTicket = hasTicketKeyword(existing.sections, existing.reference, existing.notes);
+      const autoTransfer = hasTransferKeyword(existing.sections, existing.reference, existing.notes);
+      const autoInsurance = hasInsuranceKeyword(existing.sections, existing.reference, existing.notes);
+      const detectedHotelName = extractSmartHotelName(existing.sections, existing.reference, existing.notes);
+
+      const nextEnabled =
+        vpInput.enabled !== undefined
+          ? vpInput.enabled !== false
+          : (existingVp?.enabled === true || autoVisa || vpInput.status !== undefined);
+      const nextHotelEnabled =
+        vpInput.hotelEnabled !== undefined
+          ? Boolean(vpInput.hotelEnabled)
+          : (existingVp?.hotelEnabled === true || autoHotel || vpInput.hotelStatus !== undefined || vpInput.hotelName !== undefined);
+      const nextTicketEnabled =
+        vpInput.ticketEnabled !== undefined
+          ? Boolean(vpInput.ticketEnabled)
+          : (existingVp?.ticketEnabled === true || autoTicket || vpInput.ticketStatus !== undefined);
+      const nextTransferEnabled =
+        vpInput.transferEnabled !== undefined
+          ? Boolean(vpInput.transferEnabled)
+          : (existingVp?.transferEnabled === true || autoTransfer || vpInput.transferStatus !== undefined);
+      const nextInsuranceEnabled =
+        vpInput.insuranceEnabled !== undefined
+          ? Boolean(vpInput.insuranceEnabled)
+          : (existingVp?.insuranceEnabled === true || autoInsurance || vpInput.insuranceStatus !== undefined);
+      const nextPaymentApproved =
+        vpInput.paymentApproved !== undefined
+          ? Boolean(vpInput.paymentApproved)
+          : Boolean(existingVp?.paymentApproved);
+      const nextTravelReady =
+        vpInput.travelReadyEnabled !== undefined
+          ? Boolean(vpInput.travelReadyEnabled)
+          : Boolean(existingVp?.travelReadyEnabled);
+
       if (
-        vpInput.enabled === false &&
-        vpInput.hotelEnabled !== true &&
-        vpInput.ticketEnabled !== true &&
-        !existingVp?.hotelEnabled &&
-        !existingVp?.ticketEnabled
+        !nextEnabled &&
+        !nextPaymentApproved &&
+        !nextHotelEnabled &&
+        !nextTicketEnabled &&
+        !nextTransferEnabled &&
+        !nextInsuranceEnabled &&
+        !nextTravelReady
       ) {
         await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(visaRowId)}`, { method: 'DELETE' });
         return res.status(200).json({ ok: true, visaProgress: null, invoice: mapInvoice(existing, null) });
       }
-      const autoVisa = hasVisaKeyword(existing.sections);
-      const autoHotel = hasHotelKeyword(existing.sections, existing.reference, existing.notes);
-      const autoTicket = hasTicketKeyword(existing.sections, existing.reference);
+
       const vpObj = normalizeVisaProgress(
         {
           ...vpInput,
-          enabled: vpInput.enabled !== undefined ? vpInput.enabled !== false : (existingVp?.enabled === true || autoVisa || vpInput.status !== undefined),
-          hotelEnabled: vpInput.hotelEnabled !== undefined ? Boolean(vpInput.hotelEnabled) : (existingVp?.hotelEnabled === true || autoHotel || vpInput.hotelStatus !== undefined),
-          ticketEnabled: vpInput.ticketEnabled !== undefined ? Boolean(vpInput.ticketEnabled) : (existingVp?.ticketEnabled === true || autoTicket || vpInput.ticketStatus !== undefined),
+          enabled: nextEnabled,
+          paymentApproved: nextPaymentApproved,
+          hotelEnabled: nextHotelEnabled,
+          hotelName:
+            vpInput.hotelName !== undefined
+              ? vpInput.hotelName
+              : (existingVp?.hotelName || detectedHotelName || null),
+          ticketEnabled: nextTicketEnabled,
+          transferEnabled: nextTransferEnabled,
+          insuranceEnabled: nextInsuranceEnabled,
+          travelReadyEnabled: nextTravelReady,
         },
         existingVp
       );

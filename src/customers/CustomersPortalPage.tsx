@@ -42,14 +42,32 @@ interface PublicVisaProgress {
   status: VisaProgressStatus;
   inProgressDate: string | null;
   issuedDate: string | null;
+  paymentApproved?: boolean;
+  paymentApprovedDate?: string | null;
   hotelEnabled?: boolean;
   hotelStatus?: VisaProgressStatus;
+  hotelName?: string | null;
+  hotelCheckInDate?: string | null;
+  hotelCheckOutDate?: string | null;
   hotelInProgressDate?: string | null;
   hotelIssuedDate?: string | null;
   ticketEnabled?: boolean;
   ticketStatus?: VisaProgressStatus;
+  ticketDetails?: string | null;
   ticketInProgressDate?: string | null;
   ticketIssuedDate?: string | null;
+  transferEnabled?: boolean;
+  transferStatus?: VisaProgressStatus;
+  transferDetails?: string | null;
+  transferInProgressDate?: string | null;
+  transferIssuedDate?: string | null;
+  insuranceEnabled?: boolean;
+  insuranceStatus?: VisaProgressStatus;
+  insuranceDetails?: string | null;
+  insuranceInProgressDate?: string | null;
+  insuranceIssuedDate?: string | null;
+  travelReadyEnabled?: boolean;
+  travelReadyDate?: string | null;
   updatedAt: string | null;
 }
 
@@ -91,6 +109,8 @@ interface PublicInvoiceDTO {
   isVisa: boolean;
   isHotel?: boolean;
   isTicket?: boolean;
+  isTransfer?: boolean;
+  isInsurance?: boolean;
   visaProgress: PublicVisaProgress | null;
   createdAt: string;
   updatedAt: string;
@@ -1026,25 +1046,37 @@ export default function CustomersPortalPage() {
     const isPaid = inv.status === 'paid' || inv.balance <= 0;
     const hasPartialPayment = !isPaid && inv.advancePaid > 0;
     const receiptsCount = foundData?.receiptsSummary.length || 0;
-    const isPaymentApproved = !isCancelled && (isPaid || hasPartialPayment || receiptsCount > 0);
+    const employeePayApproved = Boolean(inv.visaProgress?.paymentApproved);
+    const payApprovedDate = niceDate(inv.visaProgress?.paymentApprovedDate);
+    const isPaymentApproved = !isCancelled && (isPaid || hasPartialPayment || receiptsCount > 0 || employeePayApproved);
+
+    const invText = [
+      inv.reference || '',
+      ...inv.sections.flatMap((s) => [s.title || '', ...s.lines.map((l) => l.description || '')]),
+    ].join(' ');
+
     const hasHotel =
       Boolean(inv.isHotel) ||
       Boolean(inv.visaProgress?.hotelEnabled) ||
-      /\b(hotel|resort|accommodation|stay|room|suite|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis)\b/i.test(
-        [
-          inv.reference || '',
-          ...inv.sections.flatMap((s) => [s.title || '', ...s.lines.map((l) => l.description || '')]),
-        ].join(' ')
+      /\b(hotel|resort|accommodation|stay|room|suite|nights?|check-?in|check-?out|bed\s*&\s*breakfast|half\s+board|full\s+board|package|family\s+tour|group\s+tour|holiday|honeymoon|umrah|ziyarat|hajj|makkah|madinah|baku|shahdag|gabala|dubai|abu\s+dhabi|doha|tashkent|samarkand|almaty|shymbulak|istanbul|cappadocia|antalya|kuala\s+lumpur|langkawi|bangkok|phuket|maldives|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis|villa|palace|apartments?)\b/i.test(
+        invText
       );
     const hasTicket =
       Boolean(inv.isTicket) ||
       Boolean(inv.visaProgress?.ticketEnabled) ||
-      /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way)\b/i.test(
-        [
-          inv.reference || '',
-          ...inv.sections.flatMap((s) => [s.title || '', ...s.lines.map((l) => l.description || '')]),
-        ].join(' ')
+      /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way|pia|emirates|qatar\s+airways|saudia|flydubai|airblue|serene|etihad|turkish\s+airlines|azerbaijan\s+airlines|azal)\b/i.test(
+        invText
       );
+    const hasTransfer =
+      Boolean(inv.isTransfer) ||
+      Boolean(inv.visaProgress?.transferEnabled) ||
+      /\b(transfer|tour|excursion|coaster|transport|pickup|pick-up|drop-off|haramain|train|railway|safari|cruise|cable\s+car|sightseeing|ziyarat\s+tour)\b/i.test(
+        invText
+      );
+    const hasInsurance =
+      Boolean(inv.isInsurance) ||
+      Boolean(inv.visaProgress?.insuranceEnabled) ||
+      /\b(insurance|medical\s+cover|travel\s+care|policy|coverage)\b/i.test(invText);
 
     const steps: TimelineStep[] = [
       {
@@ -1060,26 +1092,30 @@ export default function CustomersPortalPage() {
       },
       {
         id: 'payment',
-        title: 'Payment Approval',
+        title: 'Payment Progress',
         subtitle: isCancelled
           ? 'Cancelled'
           : isPaid
             ? 'Approved & Settled'
             : hasPartialPayment || receiptsCount > 0
               ? 'Approved (Advance Received)'
-              : 'Awaiting Payment Approval',
+              : employeePayApproved
+                ? payApprovedDate
+                  ? `Approved · ${payApprovedDate}`
+                  : 'Payment Approved'
+                : 'Awaiting Payment',
         dateLabel: isCancelled
           ? 'Cancelled'
           : isPaid
             ? `${inv.currency} ${fmtAmount(inv.total)} paid`
-            : `${inv.currency} ${fmtAmount(inv.balance)} balance`,
+            : employeePayApproved
+              ? payApprovedDate || 'Approved'
+              : `${inv.currency} ${fmtAmount(inv.balance)} balance`,
         state: isCancelled
           ? 'cancelled'
-          : isPaid
+          : isPaymentApproved
             ? 'completed'
-            : hasPartialPayment || receiptsCount > 0
-              ? 'completed'
-              : 'current',
+            : 'current',
         detail: isCancelled
           ? 'This booking invoice is marked as cancelled.'
           : isPaid
@@ -1088,7 +1124,9 @@ export default function CustomersPortalPage() {
               }. Downstream visa, hotel, and travel steps are unlocked.`
             : hasPartialPayment || receiptsCount > 0
               ? `Payment approved with advance received (${inv.currency} ${fmtAmount(inv.advancePaid)}). Remaining balance: ${inv.currency} ${fmtAmount(inv.balance)}. Downstream processing steps are active.`
-              : `Awaiting payment approval (${inv.currency} ${fmtAmount(inv.balance)} balance due). Subsequent steps unlock one after another once payment is approved.`,
+              : employeePayApproved
+                ? `Payment approval confirmed by our team${payApprovedDate ? ` on ${payApprovedDate}` : ''}. Downstream visa, hotel, and travel requirements are unlocked.`
+                : `Awaiting payment approval (${inv.currency} ${fmtAmount(inv.balance)} balance due). Subsequent steps unlock one after another once payment is approved.`,
       },
     ];
 
@@ -1096,19 +1134,21 @@ export default function CustomersPortalPage() {
       const vs = inv.visaProgress.status;
       const inProgDate = niceDate(inv.visaProgress.inProgressDate);
       const issDate = niceDate(inv.visaProgress.issuedDate);
+      const visaExplicitlyStarted = vs === 'in_progress' || vs === 'issued';
+      const visaStepUnlocked = isPaymentApproved || visaExplicitlyStarted;
 
       steps.push(
         {
           id: 'visa_progress',
           title: 'Visa Progress',
-          subtitle: !isPaymentApproved
+          subtitle: !visaStepUnlocked
             ? 'Awaiting Payment Approval'
             : vs === 'issued'
               ? 'Visa Issued'
               : vs === 'in_progress'
                 ? 'Visa Started (In Progress)'
                 : 'Visa Not Started',
-          dateLabel: !isPaymentApproved
+          dateLabel: !visaStepUnlocked
             ? 'Locked until payment'
             : vs === 'issued'
               ? issDate || inProgDate || 'Issued'
@@ -1117,12 +1157,12 @@ export default function CustomersPortalPage() {
                 : 'Not Started',
           state: isCancelled
             ? 'cancelled'
-            : !isPaymentApproved
+            : !visaStepUnlocked
               ? 'upcoming'
               : vs === 'issued'
                 ? 'completed'
                 : 'current',
-          detail: !isPaymentApproved
+          detail: !visaStepUnlocked
             ? 'Visa Progress unlocks automatically right after your booking payment is approved.'
             : vs === 'issued'
               ? `Visa Progress is complete — your visa was issued${issDate ? ` on ${issDate}` : ''}.`
@@ -1133,27 +1173,27 @@ export default function CustomersPortalPage() {
         },
         {
           id: 'visa_in_progress',
-          title: !isPaymentApproved || vs === 'not_started' ? 'Visa Not Started' : 'Visa Started',
-          subtitle: !isPaymentApproved
+          title: !visaStepUnlocked || vs === 'not_started' ? 'Visa Not Started' : 'Visa Started',
+          subtitle: !visaStepUnlocked
             ? 'Awaiting Payment Approval'
             : vs === 'in_progress' || vs === 'issued'
               ? inProgDate
                 ? `Started · ${inProgDate}`
                 : 'Application Started'
               : 'Not Started Yet',
-          dateLabel: !isPaymentApproved
+          dateLabel: !visaStepUnlocked
             ? 'Pending payment'
             : inProgDate || (vs === 'not_started' ? 'Not Started' : 'Started'),
           state: isCancelled
             ? 'cancelled'
-            : !isPaymentApproved
+            : !visaStepUnlocked
               ? 'upcoming'
               : vs === 'issued'
                 ? 'completed'
                 : vs === 'in_progress'
                   ? 'current'
                   : 'upcoming',
-          detail: !isPaymentApproved
+          detail: !visaStepUnlocked
             ? 'This step activates sequentially once Payment Approval is completed.'
             : vs === 'not_started'
               ? 'Visa Status: Not Started — your visa file is queued and awaiting submission.'
@@ -1165,20 +1205,20 @@ export default function CustomersPortalPage() {
         {
           id: 'visa_issued',
           title: 'Visa Issued',
-          subtitle: !isPaymentApproved
+          subtitle: !visaStepUnlocked
             ? 'Awaiting Payment Approval'
             : vs === 'issued'
               ? issDate || 'Approved & Issued'
               : 'Pending Issuance',
-          dateLabel: !isPaymentApproved ? 'Pending' : issDate || (vs === 'issued' ? 'Issued' : 'Pending'),
+          dateLabel: !visaStepUnlocked ? 'Pending' : issDate || (vs === 'issued' ? 'Issued' : 'Pending'),
           state: isCancelled
             ? 'cancelled'
-            : !isPaymentApproved
+            : !visaStepUnlocked
               ? 'upcoming'
               : vs === 'issued'
                 ? 'completed'
                 : 'upcoming',
-          detail: !isPaymentApproved
+          detail: !visaStepUnlocked
             ? 'Visa issuance follows sequentially after Payment Approval and Visa Started.'
             : vs === 'issued'
               ? issDate
@@ -1191,112 +1231,209 @@ export default function CustomersPortalPage() {
 
     if (hasHotel) {
       const hs: VisaProgressStatus = inv.visaProgress?.hotelStatus || 'not_started';
+      const hName = (inv.visaProgress?.hotelName || '').trim();
+      const hCheckIn = niceDate(inv.visaProgress?.hotelCheckInDate);
+      const hCheckOut = niceDate(inv.visaProgress?.hotelCheckOutDate);
       const hInProgDate = niceDate(inv.visaProgress?.hotelInProgressDate);
       const hIssDate = niceDate(inv.visaProgress?.hotelIssuedDate);
+      const hotelExplicitlyStarted = hs === 'in_progress' || hs === 'issued';
       const visaGatePassed = !inv.isVisa || inv.visaProgress?.status === 'in_progress' || inv.visaProgress?.status === 'issued';
-      const hotelUnlocked = isPaymentApproved && visaGatePassed;
+      const hotelUnlocked = (isPaymentApproved && visaGatePassed) || hotelExplicitlyStarted;
+      const stayRangeLabel =
+        hCheckIn && hCheckOut
+          ? `${hCheckIn} – ${hCheckOut}`
+          : hCheckIn
+            ? `Check-in ${hCheckIn}`
+            : hCheckOut
+              ? `Check-out ${hCheckOut}`
+              : '';
 
       steps.push({
         id: 'hotel_booking',
-        title: 'Hotel Booking',
-        subtitle: !isPaymentApproved
-          ? 'Awaiting Payment Approval'
-          : hs === 'issued'
-            ? hIssDate
-              ? `Confirmed · ${hIssDate}`
-              : 'Reservation Confirmed'
+        title: hs === 'issued' ? 'Hotel Confirmed' : 'Hotel Booking',
+        subtitle:
+          hs === 'issued'
+            ? [hName, stayRangeLabel || (hIssDate ? `Confirmed · ${hIssDate}` : 'Confirmed')]
+                .filter(Boolean)
+                .join(' · ')
             : hs === 'in_progress'
-              ? hInProgDate
-                ? `In Progress · ${hInProgDate}`
-                : 'Reservation In Progress'
-              : hotelUnlocked
-                ? 'Smart AI Detected · Queued'
-                : 'Awaiting Prior Step',
-        dateLabel: !isPaymentApproved
-          ? 'Locked until payment'
-          : hs === 'issued'
-            ? hIssDate || 'Confirmed'
+              ? [hName, hInProgDate ? `In Progress · ${hInProgDate}` : 'In Progress']
+                  .filter(Boolean)
+                  .join(' · ')
+              : !isPaymentApproved
+                ? hName
+                  ? `${hName} · Awaiting Payment`
+                  : 'Awaiting Payment Approval'
+                : hName
+                  ? `${hName} · Queued`
+                  : 'Package Requirement · Queued',
+        dateLabel:
+          hs === 'issued'
+            ? hIssDate || stayRangeLabel || 'Confirmed'
             : hs === 'in_progress'
-              ? hInProgDate || 'In Progress'
-              : 'Queued',
+              ? hInProgDate || stayRangeLabel || 'In Progress'
+              : !isPaymentApproved
+                ? 'Locked until payment'
+                : stayRangeLabel || 'Queued',
         state: isCancelled
           ? 'cancelled'
-          : !isPaymentApproved
-            ? 'upcoming'
-            : hs === 'issued'
-              ? 'completed'
-              : hs === 'in_progress' || hotelUnlocked
-                ? 'current'
-                : 'upcoming',
-        detail: !isPaymentApproved
-          ? 'Smart AI detected a Hotel Booking in your itinerary. Hotel reservation processing unlocks after Payment Approval.'
           : hs === 'issued'
-            ? `Hotel reservation is confirmed${hIssDate ? ` on ${hIssDate}` : ''}. Your check-in voucher is ready.`
+            ? 'completed'
+            : hs === 'in_progress' || (isPaymentApproved && hotelUnlocked)
+              ? 'current'
+              : 'upcoming',
+        detail:
+          hs === 'issued'
+            ? `Hotel reservation is confirmed${hName ? ` at ${hName}` : ''}${
+                stayRangeLabel ? ` (${stayRangeLabel})` : ''
+              }${hIssDate ? ` — confirmed on ${hIssDate}` : ''}. Your check-in voucher is ready.`
             : hs === 'in_progress'
-              ? `Hotel booking is actively in progress with the property${hInProgDate ? ` (started ${hInProgDate})` : ''}.`
-              : 'Smart AI detected hotel accommodation in your booking description. Room allocation and voucher confirmation are queued.',
+              ? `Hotel booking${hName ? ` at ${hName}` : ''} is actively in progress${
+                  stayRangeLabel ? ` (${stayRangeLabel})` : ''
+                }${hInProgDate ? ` — started ${hInProgDate}` : ''}.`
+              : !isPaymentApproved
+                ? `Product catalogue requirement: Hotel Booking${
+                    hName ? ` (${hName})` : ''
+                  }. Hotel reservation processing unlocks after Payment Approval.`
+                : `Product catalogue requirement: Hotel Booking${
+                    hName ? ` (${hName})` : ''
+                  }. Room allocation and voucher confirmation are queued.`,
+        meta:
+          hName || stayRangeLabel
+            ? [hName ? `Hotel: ${hName}` : '', stayRangeLabel ? `Stay Dates: ${stayRangeLabel}` : '']
+                .filter(Boolean)
+                .join(' · ')
+            : undefined,
       });
     }
 
-    if (hasTicket && !inv.isVisa) {
+    if (hasTicket) {
       const ts: VisaProgressStatus = inv.visaProgress?.ticketStatus || 'not_started';
+      const tDetails = (inv.visaProgress?.ticketDetails || '').trim();
       const tInProgDate = niceDate(inv.visaProgress?.ticketInProgressDate);
       const tIssDate = niceDate(inv.visaProgress?.ticketIssuedDate);
+      const ticketExplicit = ts === 'in_progress' || ts === 'issued';
+      const ticketUnlocked = isPaymentApproved || ticketExplicit;
       steps.push({
         id: 'ticket_booking',
-        title: 'Flight Tickets',
-        subtitle: !isPaymentApproved
-          ? 'Awaiting Payment Approval'
-          : ts === 'issued'
-            ? tIssDate
-              ? `Issued · ${tIssDate}`
-              : 'E-Ticket Issued'
+        title: ts === 'issued' ? 'Tickets Issued' : 'Air Tickets',
+        subtitle:
+          ts === 'issued'
+            ? [tDetails, tIssDate ? `Issued · ${tIssDate}` : 'E-Ticket Issued'].filter(Boolean).join(' · ')
             : ts === 'in_progress'
-              ? tInProgDate
-                ? `In Progress · ${tInProgDate}`
-                : 'Ticketing In Progress'
-              : 'Reservation Queued',
-        dateLabel: !isPaymentApproved
-          ? 'Locked until payment'
-          : ts === 'issued'
+              ? [tDetails, tInProgDate ? `In Progress · ${tInProgDate}` : 'Ticketing In Progress']
+                  .filter(Boolean)
+                  .join(' · ')
+              : !ticketUnlocked
+                ? 'Awaiting Payment Approval'
+                : tDetails || 'Reservation Queued',
+        dateLabel:
+          ts === 'issued'
             ? tIssDate || 'Issued'
             : ts === 'in_progress'
               ? tInProgDate || 'In Progress'
+              : !ticketUnlocked
+                ? 'Locked until payment'
+                : 'Queued',
+        state: isCancelled
+          ? 'cancelled'
+          : ts === 'issued'
+            ? 'completed'
+            : ts === 'in_progress'
+              ? 'current'
+              : 'upcoming',
+        detail:
+          ts === 'issued'
+            ? `Flight e-tickets${tDetails ? ` (${tDetails})` : ''} have been issued${
+                tIssDate ? ` on ${tIssDate}` : ''
+              }.`
+            : ts === 'in_progress'
+              ? `Airline PNR and ticket issuance${tDetails ? ` (${tDetails})` : ''} are currently in progress.`
+              : 'Product catalogue requirement: Air Tickets. Flight sector ticketing is queued.',
+      });
+    }
+
+    if (hasTransfer && (inv.visaProgress?.transferEnabled || inv.visaProgress?.transferStatus === 'in_progress' || inv.visaProgress?.transferStatus === 'issued')) {
+      const trs: VisaProgressStatus = inv.visaProgress?.transferStatus || 'not_started';
+      const trDetails = (inv.visaProgress?.transferDetails || '').trim();
+      const trInProgDate = niceDate(inv.visaProgress?.transferInProgressDate);
+      const trIssDate = niceDate(inv.visaProgress?.transferIssuedDate);
+      steps.push({
+        id: 'transfer_booking',
+        title: trs === 'issued' ? 'Transfers Confirmed' : 'Tours & Transfers',
+        subtitle:
+          trs === 'issued'
+            ? [trDetails, trIssDate ? `Confirmed · ${trIssDate}` : 'Confirmed'].filter(Boolean).join(' · ')
+            : trs === 'in_progress'
+              ? [trDetails, trInProgDate ? `In Progress · ${trInProgDate}` : 'In Progress']
+                  .filter(Boolean)
+                  .join(' · ')
+              : trDetails || 'Transport Queued',
+        dateLabel:
+          trs === 'issued'
+            ? trIssDate || 'Confirmed'
+            : trs === 'in_progress'
+              ? trInProgDate || 'In Progress'
               : 'Queued',
         state: isCancelled
           ? 'cancelled'
-          : !isPaymentApproved
-            ? 'upcoming'
-            : ts === 'issued'
-              ? 'completed'
-              : ts === 'in_progress'
-                ? 'current'
-                : 'upcoming',
-        detail: !isPaymentApproved
-          ? 'Flight ticketing unlocks after Payment Approval.'
-          : ts === 'issued'
-            ? `Flight e-tickets have been issued${tIssDate ? ` on ${tIssDate}` : ''}.`
-            : ts === 'in_progress'
-              ? 'Airline PNR and ticket issuance are currently in progress.'
-              : 'Flight sector detected in your booking; ticket issuance is queued.',
+          : trs === 'issued'
+            ? 'completed'
+            : trs === 'in_progress'
+              ? 'current'
+              : 'upcoming',
+        detail:
+          trs === 'issued'
+            ? `Tours and ground transfers${trDetails ? ` (${trDetails})` : ''} are confirmed${
+                trIssDate ? ` on ${trIssDate}` : ''
+              }.`
+            : trs === 'in_progress'
+              ? `Ground transport and tour arrangements${trDetails ? ` (${trDetails})` : ''} are in progress.`
+              : 'Product catalogue requirement: Tours & Transfers.',
+      });
+    }
+
+    if (hasInsurance && (inv.visaProgress?.insuranceEnabled || inv.visaProgress?.insuranceStatus === 'in_progress' || inv.visaProgress?.insuranceStatus === 'issued')) {
+      const ins: VisaProgressStatus = inv.visaProgress?.insuranceStatus || 'not_started';
+      const insIssDate = niceDate(inv.visaProgress?.insuranceIssuedDate);
+      steps.push({
+        id: 'insurance_booking',
+        title: ins === 'issued' ? 'Insurance Issued' : 'Travel Insurance',
+        subtitle: ins === 'issued' ? (insIssDate ? `Issued · ${insIssDate}` : 'Policy Issued') : ins === 'in_progress' ? 'In Progress' : 'Queued',
+        dateLabel: ins === 'issued' ? insIssDate || 'Issued' : ins === 'in_progress' ? 'In Progress' : 'Queued',
+        state: isCancelled ? 'cancelled' : ins === 'issued' ? 'completed' : ins === 'in_progress' ? 'current' : 'upcoming',
+        detail:
+          ins === 'issued'
+            ? `Travel insurance policy is issued${insIssDate ? ` on ${insIssDate}` : ''}.`
+            : 'Product catalogue requirement: Travel Insurance coverage.',
       });
     }
 
     const visaReady = !inv.isVisa || inv.visaProgress?.status === 'issued';
-    const hotelReady = !hasHotel || inv.visaProgress?.hotelStatus === 'issued' || (!inv.visaProgress?.hotelEnabled && isPaid);
-    const travelReady = !isCancelled && isPaid && visaReady && hotelReady;
+    const hotelReady = !hasHotel || inv.visaProgress?.hotelStatus === 'issued';
+    const manualTravelReady = Boolean(inv.visaProgress?.travelReadyEnabled);
+    const travelReadyDate = niceDate(inv.visaProgress?.travelReadyDate);
+    const travelReady = !isCancelled && (manualTravelReady || (isPaymentApproved && visaReady && hotelReady));
 
     steps.push({
       id: 'travel_ready',
       title: 'Travel Ready',
-      subtitle: isCancelled ? 'Cancelled' : travelReady ? 'Cleared to Travel' : 'Pending Milestones',
-      dateLabel: travelReady ? 'All set' : 'Awaiting completion',
+      subtitle: isCancelled
+        ? 'Cancelled'
+        : travelReady
+          ? travelReadyDate
+            ? `Ready · ${travelReadyDate}`
+            : 'Cleared to Travel'
+          : 'Pending Milestones',
+      dateLabel: travelReady ? travelReadyDate || 'All set' : 'Awaiting completion',
       state: isCancelled ? 'cancelled' : travelReady ? 'completed' : 'upcoming',
       detail: isCancelled
         ? 'Booking is cancelled.'
         : travelReady
-          ? 'Payment is approved and all visa, hotel, and travel requirements for this booking are complete.'
-          : 'Travel readiness unlocks sequentially once payment is settled and all active visa / hotel milestones are completed.',
+          ? `All travel requirements for ${inv.invoiceNo} are confirmed and cleared for departure${
+              travelReadyDate ? ` (${travelReadyDate})` : ''
+            }.`
+          : 'Travel readiness unlocks sequentially once payment is approved and all active visa / hotel package milestones are completed.',
     });
 
     return steps;
@@ -2175,6 +2312,68 @@ export default function CustomersPortalPage() {
                     </div>
                   </div>
                 )}
+
+                {/* Hotel Booking Confirmation Breakdown Bar (Hotel Name, Check-In / Check-Out & Confirmed Dates) */}
+                {timelineSteps.some((s) => s.id === 'hotel_booking') && (() => {
+                  const hs: VisaProgressStatus = timelineInvoice.visaProgress?.hotelStatus || 'not_started';
+                  const hName = (timelineInvoice.visaProgress?.hotelName || '').trim();
+                  const hCheckIn = niceDate(timelineInvoice.visaProgress?.hotelCheckInDate);
+                  const hCheckOut = niceDate(timelineInvoice.visaProgress?.hotelCheckOutDate);
+                  const hInProg = niceDate(timelineInvoice.visaProgress?.hotelInProgressDate);
+                  const hIssued = niceDate(timelineInvoice.visaProgress?.hotelIssuedDate);
+                  return (
+                    <div className="mt-2.5 rounded-2xl border border-emerald-200/80 bg-emerald-50/45 p-3 print:p-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-emerald-950 uppercase tracking-wider text-[11px]">
+                          Hotel Booking:
+                        </span>
+                        {hName && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-white px-2.5 py-0.5 font-bold text-emerald-950">
+                            🏨 {hName}
+                          </span>
+                        )}
+                        {(hCheckIn || hCheckOut) && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 font-semibold text-sky-900">
+                            📅 {hCheckIn ? `Check-In: ${hCheckIn}` : ''}
+                            {hCheckIn && hCheckOut ? ' → ' : ''}
+                            {hCheckOut ? `Check-Out: ${hCheckOut}` : ''}
+                          </span>
+                        )}
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 font-bold ${
+                            hs === 'not_started'
+                              ? 'bg-amber-100 text-amber-900 border-amber-300'
+                              : 'bg-white text-slate-600 border-slate-200'
+                          }`}
+                        >
+                          {hs === 'not_started' ? '● ' : ''}Hotel Not Started
+                        </span>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 font-bold ${
+                            hs === 'in_progress'
+                              ? 'bg-sky-600 text-white border-sky-600'
+                              : hs === 'issued'
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : 'bg-white text-slate-500 border-slate-200'
+                          }`}
+                        >
+                          {hs === 'in_progress' ? '● ' : hs === 'issued' ? '✓ ' : ''}
+                          Hotel In Progress{hInProg ? ` · ${hInProg}` : ''}
+                        </span>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 font-bold ${
+                            hs === 'issued'
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-white text-slate-500 border-slate-200'
+                          }`}
+                        >
+                          {hs === 'issued' ? '✓ ' : ''}
+                          Hotel Confirmed{hIssued ? ` · ${hIssued}` : ''}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <AnimatePresence mode="wait">
                   {activeTimelineStep && (

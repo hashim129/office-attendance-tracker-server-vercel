@@ -229,13 +229,17 @@ function validDateOnly(d) {
   return s;
 }
 
-const HOTEL_WORD_RE = /\b(hotel|resort|accommodation|stay|room|suite|makkah\s+hotel|madinah\s+hotel|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis)\b/i;
-const TICKET_WORD_RE = /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way)\b/i;
+const VISA_WORD_RE = /\b(visa|e-visa|evisa|umrah|ziyarat|hajj|schengen|embassy|sticker\s+visa|asan)\b/i;
+const HOTEL_WORD_RE = /\b(hotel|resort|accommodation|stay|room|suite|nights?|check-?in|check-?out|bed\s*&\s*breakfast|half\s+board|full\s+board|package|family\s+tour|group\s+tour|holiday|honeymoon|umrah|ziyarat|hajj|makkah|madinah|baku|shahdag|gabala|dubai|abu\s+dhabi|doha|tashkent|samarkand|almaty|shymbulak|istanbul|cappadocia|antalya|kuala\s+lumpur|langkawi|bangkok|phuket|maldives|pullman|hilton|marriott|hyatt|sheraton|swissotel|fairmont|mov[eé]npick|rotana|intercontinental|radisson|holiday\s+inn|novotel|ibis|villa|palace|apartments?)\b/i;
+const TICKET_WORD_RE = /\b(ticket|flight|airfare|airline|pnr|sector|return\s+ticket|one\s+way|pia|emirates|qatar\s+airways|saudia|flydubai|airblue|serene|etihad|turkish\s+airlines|azerbaijan\s+airlines|azal)\b/i;
+const TRANSFER_WORD_RE = /\b(transfer|tour|excursion|coaster|transport|pickup|pick-up|drop-off|haramain|train|railway|safari|cruise|cable\s+car|sightseeing|ziyarat\s+tour|package|family\s+tour)\b/i;
+const INSURANCE_WORD_RE = /\b(insurance|medical\s+cover|travel\s+care|policy|coverage)\b/i;
 
-function hasVisaKeyword(sections) {
+function hasVisaKeyword(sections, reference = '') {
+  if (VISA_WORD_RE.test(String(reference || ''))) return true;
   return parseJsonArr(sections).some((sec) => {
-    if (/\bvisa\b/i.test(String(sec?.title || ''))) return true;
-    return parseJsonArr(sec?.lines).some((ln) => /\bvisa\b/i.test(String(ln?.description || '')));
+    if (VISA_WORD_RE.test(String(sec?.title || ''))) return true;
+    return parseJsonArr(sec?.lines).some((ln) => VISA_WORD_RE.test(String(ln?.description || '')));
   });
 }
 
@@ -253,6 +257,38 @@ function hasTicketKeyword(sections, reference = '') {
     if (TICKET_WORD_RE.test(String(sec?.title || ''))) return true;
     return parseJsonArr(sec?.lines).some((ln) => TICKET_WORD_RE.test(String(ln?.description || '')));
   });
+}
+
+function hasTransferKeyword(sections, reference = '') {
+  if (TRANSFER_WORD_RE.test(String(reference || ''))) return true;
+  return parseJsonArr(sections).some((sec) => {
+    if (TRANSFER_WORD_RE.test(String(sec?.title || ''))) return true;
+    return parseJsonArr(sec?.lines).some((ln) => TRANSFER_WORD_RE.test(String(ln?.description || '')));
+  });
+}
+
+function hasInsuranceKeyword(sections, reference = '') {
+  if (INSURANCE_WORD_RE.test(String(reference || ''))) return true;
+  return parseJsonArr(sections).some((sec) => {
+    if (INSURANCE_WORD_RE.test(String(sec?.title || ''))) return true;
+    return parseJsonArr(sec?.lines).some((ln) => INSURANCE_WORD_RE.test(String(ln?.description || '')));
+  });
+}
+
+function extractSmartHotelName(sections, reference = '') {
+  for (const sec of parseJsonArr(sections)) {
+    const title = String(sec?.title || '').trim();
+    for (const ln of parseJsonArr(sec?.lines)) {
+      const desc = String(ln?.description || '').trim();
+      if (HOTEL_WORD_RE.test(desc)) return desc.slice(0, 140);
+    }
+    if (HOTEL_WORD_RE.test(title)) {
+      const firstLine = String(parseJsonArr(sec?.lines)[0]?.description || '').trim();
+      return (firstLine || title).slice(0, 140);
+    }
+  }
+  if (HOTEL_WORD_RE.test(String(reference || ''))) return String(reference).trim().slice(0, 140);
+  return '';
 }
 
 function sanitizePortalQueryDto(row) {
@@ -921,12 +957,17 @@ export default async function handler(req, res) {
     const publicInvoices = matchedInvoices.map((r) => {
       const visaEntry = visaMap.get(r.id);
       const vp = visaEntry?.data || null;
-      const isVisa = Boolean(vp?.enabled) || hasVisaKeyword(r.sections);
+      const isVisa = Boolean(vp?.enabled) || hasVisaKeyword(r.sections, r.reference);
       const isHotel = Boolean(vp?.hotelEnabled) || hasHotelKeyword(r.sections, r.reference);
       const isTicket = Boolean(vp?.ticketEnabled) || hasTicketKeyword(r.sections, r.reference);
+      const isTransfer = Boolean(vp?.transferEnabled) || hasTransferKeyword(r.sections, r.reference);
+      const isInsurance = Boolean(vp?.insuranceEnabled) || hasInsuranceKeyword(r.sections, r.reference);
+      const paymentApproved = Boolean(vp?.paymentApproved);
+      const travelReadyEnabled = Boolean(vp?.travelReadyEnabled);
+      const detectedHotelName = extractSmartHotelName(r.sections, r.reference);
       let visaProgress = null;
 
-      if (isVisa || isHotel || isTicket) {
+      if (isVisa || isHotel || isTicket || isTransfer || isInsurance || paymentApproved || travelReadyEnabled) {
         const status = ['not_started', 'in_progress', 'issued'].includes(vp?.status)
           ? vp.status
           : 'not_started';
@@ -936,19 +977,43 @@ export default async function handler(req, res) {
         const ticketStatus = ['not_started', 'in_progress', 'issued'].includes(vp?.ticketStatus)
           ? vp.ticketStatus
           : 'not_started';
+        const transferStatus = ['not_started', 'in_progress', 'issued'].includes(vp?.transferStatus)
+          ? vp.transferStatus
+          : 'not_started';
+        const insuranceStatus = ['not_started', 'in_progress', 'issued'].includes(vp?.insuranceStatus)
+          ? vp.insuranceStatus
+          : 'not_started';
         visaProgress = {
           enabled: isVisa,
           status,
           inProgressDate: validDateOnly(vp?.inProgressDate),
           issuedDate: validDateOnly(vp?.issuedDate),
+          paymentApproved,
+          paymentApprovedDate: validDateOnly(vp?.paymentApprovedDate),
           hotelEnabled: isHotel,
           hotelStatus,
+          hotelName: vp?.hotelName ? String(vp.hotelName).trim().slice(0, 160) : (detectedHotelName || null),
+          hotelCheckInDate: validDateOnly(vp?.hotelCheckInDate),
+          hotelCheckOutDate: validDateOnly(vp?.hotelCheckOutDate),
           hotelInProgressDate: validDateOnly(vp?.hotelInProgressDate),
           hotelIssuedDate: validDateOnly(vp?.hotelIssuedDate),
           ticketEnabled: isTicket,
           ticketStatus,
+          ticketDetails: vp?.ticketDetails ? String(vp.ticketDetails).trim().slice(0, 160) : null,
           ticketInProgressDate: validDateOnly(vp?.ticketInProgressDate),
           ticketIssuedDate: validDateOnly(vp?.ticketIssuedDate),
+          transferEnabled: isTransfer,
+          transferStatus,
+          transferDetails: vp?.transferDetails ? String(vp.transferDetails).trim().slice(0, 160) : null,
+          transferInProgressDate: validDateOnly(vp?.transferInProgressDate),
+          transferIssuedDate: validDateOnly(vp?.transferIssuedDate),
+          insuranceEnabled: isInsurance,
+          insuranceStatus,
+          insuranceDetails: vp?.insuranceDetails ? String(vp.insuranceDetails).trim().slice(0, 160) : null,
+          insuranceInProgressDate: validDateOnly(vp?.insuranceInProgressDate),
+          insuranceIssuedDate: validDateOnly(vp?.insuranceIssuedDate),
+          travelReadyEnabled,
+          travelReadyDate: validDateOnly(vp?.travelReadyDate),
           updatedAt: vp?.updatedAt || visaEntry?.updatedAt || null,
         };
         if (isVisa) {
@@ -982,6 +1047,8 @@ export default async function handler(req, res) {
         isVisa,
         isHotel,
         isTicket,
+        isTransfer,
+        isInsurance,
         visaProgress,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
