@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Terminal,
   Zap,
+  ExternalLink,
 } from 'lucide-react';
 import { OfficeSettings } from '../../types';
 import { Switch } from '../common/Switch';
@@ -52,6 +53,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
     allowedOfficeIps: settings.allowedOfficeIps ?? [],
     allowedOfficeIsps: settings.allowedOfficeIsps ?? [],
     allowAdminBypassIpLock: settings.allowAdminBypassIpLock ?? true,
+    customerPortalBetaEnabled: settings.customerPortalBetaEnabled === true,
   });
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
   const [detectedIp, setDetectedIp] = useState<string>(currentClientIp || 'Detecting...');
@@ -70,6 +72,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
       allowedOfficeIps: settings.allowedOfficeIps ?? [],
       allowedOfficeIsps: settings.allowedOfficeIsps ?? [],
       allowAdminBypassIpLock: settings.allowAdminBypassIpLock ?? true,
+      customerPortalBetaEnabled: settings.customerPortalBetaEnabled === true,
     });
   }, [settings]);
 
@@ -734,6 +737,74 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
               </select>
             </div>
           </div>
+        </div>
+
+        {/* Customer Portal & Visa Tracking (Beta) */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+              <Globe className="w-4 h-4 text-blue-600" />
+              <span>Customers Page (Beta)</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                Beta
+              </span>
+            </div>
+            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              {formData.customerPortalBetaEnabled === true ? 'Enabled · Live at /customers' : 'Hidden (Default OFF)'}
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Control visibility of the public Bahaar Journeys Customers Page (<code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">/customers</code>), the public lookup endpoint, and Visa progress controls on customer Visa invoices. When OFF, all portal links and Visa controls are hidden and public endpoints return 404.
+          </p>
+
+          <div className="flex items-center justify-between gap-4 p-4 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-900/40">
+            <div className="text-xs min-w-0">
+              <span className="font-semibold text-slate-900 dark:text-slate-100 block">
+                Customer Portal &amp; Visa Tracking
+              </span>
+              <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                Off by default. Toggle on to allow customers to look up their Query Code, CRM ID, or Invoice Number and view live Visa progress.
+              </span>
+            </div>
+            <Switch
+              tone="blue"
+              label="Enable Public Customers Page (Beta)"
+              checked={Boolean(formData.customerPortalBetaEnabled)}
+              onChange={(v) => {
+                const updated: OfficeSettings = {
+                  ...formData,
+                  customerPortalBetaEnabled: v,
+                };
+                setFormData(updated);
+                onUpdateSettings(updated);
+                setSaveSuccess(true);
+                setTimeout(() => setSaveSuccess(false), 3000);
+              }}
+            />
+          </div>
+
+          {formData.customerPortalBetaEnabled === true && (
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 text-xs">
+              <div className="min-w-0">
+                <span className="font-semibold text-emerald-900 dark:text-emerald-200 block">
+                  Public Customers Portal Active
+                </span>
+                <span className="text-emerald-700 dark:text-emerald-300/90 text-[11px] font-mono">
+                  /customers
+                </span>
+              </div>
+              <a
+                href="/customers"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors"
+              >
+                <span>Open /customers</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Save Confirmation Button */}

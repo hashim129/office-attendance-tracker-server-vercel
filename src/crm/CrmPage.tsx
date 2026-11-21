@@ -21,9 +21,10 @@ interface Props {
   employees: Employee[];
   currentUser: Employee;
   onNavigate: (tab: ActiveDesktopTab) => void;
+  customerPortalBetaEnabled?: boolean;
 }
 
-export const CrmPage: React.FC<Props> = ({ section, crm, employees, currentUser, onNavigate }) => {
+export const CrmPage: React.FC<Props> = ({ section, crm, employees, currentUser, onNavigate, customerPortalBetaEnabled = false }) => {
   if (!getSessionToken()) {
     return (
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-8 text-center text-xs text-slate-600 dark:text-slate-300">
@@ -41,7 +42,7 @@ export const CrmPage: React.FC<Props> = ({ section, crm, employees, currentUser,
       )}
       {section === 'crm-sales' && (currentUser.salesAccess || ['admin', 'accounts', 'ceo'].includes(currentUser.role)) && <SalesView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-purchases' && <PurchasesView crm={crm} employees={employees} currentUser={currentUser} />}
-      {section === 'crm-invoices' && <InvoicesView crm={crm} employees={employees} currentUser={currentUser} />}
+      {section === 'crm-invoices' && <InvoicesView crm={crm} employees={employees} currentUser={currentUser} customerPortalBetaEnabled={Boolean(customerPortalBetaEnabled)} />}
       {section === 'crm-receipts' && <ReceiptsView crm={crm} employees={employees} currentUser={currentUser} />}
       {section === 'crm-notifications' && <NotificationsView crm={crm} onOpen={onNavigate} />}
       {section === 'crm-meetings' && <MeetingsView crm={crm} employees={employees} currentUser={currentUser} />}

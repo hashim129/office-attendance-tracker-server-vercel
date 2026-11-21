@@ -52,6 +52,7 @@ export const DEFAULT_DB = {
     faceScanPunchEnabled: false,
     faceScanAllowUnenrolled: true,
     faceEnrollRequired: false,
+    customerPortalBetaEnabled: false,
   },
   shifts: [
     {
@@ -688,8 +689,10 @@ export default async function handler(req, res) {
       const current = {
         ...rawCurrent,
         settings: {
-          ...(rawCurrent.settings || DEFAULT_DB.settings),
+          ...DEFAULT_DB.settings,
+          ...(rawCurrent.settings || {}),
           enforceDeviceBinding: false,
+          customerPortalBetaEnabled: rawCurrent.settings?.customerPortalBetaEnabled === true,
         },
       };
 
@@ -704,8 +707,10 @@ export default async function handler(req, res) {
         return res.status(200).json({
           ...current,
           settings: {
-            ...(current.settings || DEFAULT_DB.settings),
+            ...DEFAULT_DB.settings,
+            ...(current.settings || {}),
             enforceDeviceBinding: false,
+            customerPortalBetaEnabled: current.settings?.customerPortalBetaEnabled === true,
           },
           attendance: displayRecs,
         });
@@ -714,8 +719,10 @@ export default async function handler(req, res) {
       return res.status(200).json({
         ...current,
         settings: {
-          ...(current.settings || DEFAULT_DB.settings),
+          ...DEFAULT_DB.settings,
+          ...(current.settings || {}),
           enforceDeviceBinding: false,
+          customerPortalBetaEnabled: current.settings?.customerPortalBetaEnabled === true,
         },
       });
     }
@@ -817,6 +824,10 @@ export default async function handler(req, res) {
                   ...finalSettings,
                   ...incoming.settings,
                   enforceDeviceBinding: false,
+                  customerPortalBetaEnabled:
+                    incoming.settings.customerPortalBetaEnabled !== undefined
+                      ? incoming.settings.customerPortalBetaEnabled === true
+                      : finalSettings?.customerPortalBetaEnabled === true,
                   settingsUpdatedAt:
                     authoritativeIso || incoming.settings.settingsUpdatedAt || new Date().toISOString(),
                 };
@@ -908,7 +919,12 @@ export default async function handler(req, res) {
               finalEmployees.length > 1;
             if (!hasDummyNames && !isDefaultFallback) {
               if (incoming.settings) {
-                finalSettings = { ...incoming.settings, enforceDeviceBinding: false };
+                finalSettings = {
+                  ...DEFAULT_DB.settings,
+                  ...incoming.settings,
+                  enforceDeviceBinding: false,
+                  customerPortalBetaEnabled: incoming.settings.customerPortalBetaEnabled === true,
+                };
               }
               if (Array.isArray(incoming.shifts) && incoming.shifts.length > 0) finalShifts = incoming.shifts;
               if (Array.isArray(incoming.employees) && incoming.employees.length > 0) {
@@ -1021,8 +1037,10 @@ export default async function handler(req, res) {
         db: {
           ...mutationResult.db,
           settings: {
+            ...DEFAULT_DB.settings,
             ...(mutationResult.db.settings || DEFAULT_DB.settings),
             enforceDeviceBinding: false,
+            customerPortalBetaEnabled: mutationResult.db.settings?.customerPortalBetaEnabled === true,
           },
         },
       });

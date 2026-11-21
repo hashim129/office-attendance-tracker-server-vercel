@@ -44,8 +44,6 @@ export interface CrmFollowup {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
-  /** Remarks added by everyone on the follow-up, kept permanently */
-  remarkLog?: { id: string; at: string; by: string; text: string }[];
 }
 
 export interface CrmMeeting {
@@ -160,6 +158,16 @@ export interface InvoiceSection {
   lines: InvoiceLine[];
 }
 
+export type VisaProgressStatus = 'not_started' | 'in_progress' | 'issued';
+
+export interface VisaProgress {
+  enabled: boolean;
+  status: VisaProgressStatus;
+  inProgressDate: string | null; // YYYY-MM-DD
+  issuedDate: string | null;     // YYYY-MM-DD
+  updatedAt?: string | null;
+}
+
 export interface CrmInvoice {
   id: string;
   /** 'customer' = what we bill customers; 'vendor' = what we owe a vendor (payable, never printed on a customer's invoice) */
@@ -192,10 +200,7 @@ export interface CrmInvoice {
   balance: number;
   notes: string;
   status: 'unpaid' | 'paid' | 'cancelled';
-  /** Paid state of the vendor side (what we owe the vendors listed on this invoice), separate from the customer side */
-  vendorStatus?: 'unpaid' | 'paid';
-  vendorPaidAt?: string | null;
-  vendorPaidBy?: string | null;
+  visaProgress?: VisaProgress | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -389,4 +394,28 @@ export async function crmCall<T = any>(action: string, payload: Record<string, u
     throw new CrmError((data && (data.error || data.message)) || 'The CRM could not complete that request.', data?.code);
   }
   return data as T;
+}
+
+export interface UpdateInvoiceVisaProgressInput {
+  id: string;
+  enabled?: boolean;
+  status: VisaProgressStatus;
+  inProgressDate?: string | null;
+  issuedDate?: string | null;
+}
+
+export async function updateInvoiceVisaProgress(
+  input: UpdateInvoiceVisaProgressInput
+): Promise<{ ok: boolean; invoice: CrmInvoice; visaProgress?: VisaProgress | null }> {
+  const payload: Record<string, unknown> = {
+    id: input.id,
+    status: input.status,
+  };
+  if (input.enabled !== undefined) payload.enabled = input.enabled;
+  if (input.inProgressDate !== undefined) payload.inProgressDate = input.inProgressDate;
+  if (input.issuedDate !== undefined) payload.issuedDate = input.issuedDate;
+  return crmCall<{ ok: boolean; invoice: CrmInvoice; visaProgress?: VisaProgress | null }>(
+    'invoice_visa_update',
+    payload
+  );
 }

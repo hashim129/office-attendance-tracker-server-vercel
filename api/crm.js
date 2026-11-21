@@ -34,7 +34,7 @@ class HttpError extends Error {
   constructor(status, message, code) { super(message); this.status = status; this.code = code; }
 }
 const bad = (m, code = 'BAD_REQUEST') => new HttpError(400, m, code);
-const forbidden = (m = 'You do not have permission to do this.') => new HttpError(403, m, 'FORBIDDEN');
+const forbidden = (m = 'You do not have permission to do this.', code = 'FORBIDDEN') => new HttpError(403, m, code);
 const notFound = (m = 'Not found.') => new HttpError(404, m, 'NOT_FOUND');
 
 const id = (p) => `${p}-${crypto.randomUUID()}`;
@@ -55,6 +55,86 @@ const isoOrNull = (v, name, { required = false } = {}) => {
   return new Date(t).toISOString();
 };
 const asArray = (v) => (Array.isArray(v) ? v : typeof v === 'string' ? (() => { try { return JSON.parse(v); } catch { return []; } })() : []);
+const parseJsonObj = (v, fallback = {}) => {
+  if (v && typeof v === 'object' && !Array.isArray(v)) return v;
+  if (typeof v === 'string') {
+    try {
+      const parsed = JSON.parse(v);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+};
+const VISA_STATUSES = ['not_started', 'in_progress', 'issued'];
+const VISA_WORD_RE = /\bvisa\b/i;
+function hasVisaKeyword(sections) {
+  return asArray(sections).some((sec) => {
+    if (VISA_WORD_RE.test(String(sec?.title || ''))) return true;
+    return asArray(sec?.lines).some((ln) => VISA_WORD_RE.test(String(ln?.description || '')));
+  });
+}
+const strictDateOnly = (v, name) => {
+  if (v === undefined || v === null || v === '') return null;
+  const d = String(v).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw bad(`${name} must be a valid YYYY-MM-DD date.`);
+  const dt = new Date(`${d}T00:00:00Z`);
+  if (Number.isNaN(dt.getTime()) || dt.toISOString().slice(0, 10) !== d) {
+    throw bad(`${name} is not a valid calendar date.`);
+  }
+  return d;
+};
+const safeDateOnly = (v) => {
+  if (!v) return null;
+  const d = String(v).trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const dt = new Date(`${d}T00:00:00Z`);
+  return !Number.isNaN(dt.getTime()) && dt.toISOString().slice(0, 10) === d ? d : null;
+};
+const todayPktDate = () => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Karachi',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date());
+async function isCustomerPortalBetaEnabled() {
+  const rows = await supabaseFetch('/settings?id=eq.current&select=data');
+  const data = parseJsonObj(rows?.[0]?.data, {});
+  return data.customerPortalBetaEnabled === true;
+}
+function normalizeVisaProgress(raw, existing = null) {
+  const enabled = raw?.enabled !== false;
+  const status = String(raw?.status || 'not_started');
+  if (!VISA_STATUSES.includes(status)) throw bad('Choose Not Started, In Progress, or Issued.');
+  const exInProg = safeDateOnly(existing?.inProgressDate);
+  const exIssued = safeDateOnly(existing?.issuedDate);
+  const inProgressDate = raw?.inProgressDate !== undefined
+    ? strictDateOnly(raw.inProgressDate, 'In Progress date')
+    : (status === 'in_progress' ? (exInProg || todayPktDate()) : status === 'issued' ? exInProg : null);
+  const issuedDate = raw?.issuedDate !== undefined
+    ? strictDateOnly(raw.issuedDate, 'Issued date')
+    : (status === 'issued' ? (exIssued || todayPktDate()) : null);
+  return {
+    enabled,
+    status,
+    inProgressDate,
+    issuedDate,
+    updatedAt: nowIso(),
+  };
+}
+function formatVisaProgress(raw, rowUpdatedAt = null) {
+  const vp = parseJsonObj(raw, null);
+  if (!vp || vp.enabled !== true) return null;
+  const status = VISA_STATUSES.includes(vp.status) ? vp.status : 'not_started';
+  return {
+    enabled: true,
+    status,
+    inProgressDate: safeDateOnly(vp.inProgressDate),
+    issuedDate: safeDateOnly(vp.issuedDate),
+    updatedAt: vp.updatedAt || rowUpdatedAt || null,
+  };
+}
 
 const DESC_PREFIX = '__desc__:';
 const extractCustDesc = (r) => {
@@ -77,7 +157,7 @@ const mapCustomer = (r) => ({
 const mapFollowup = (r) => ({
   id: r.id, customerId: r.customer_id || null, participantIds: asArray(r.participant_ids), kind: r.kind, assignedTo: r.assigned_to, remarks: r.remarks || '', dueAt: r.due_at,
   status: r.status, outcomeRemarks: r.outcome_remarks || '', history: asArray(r.history), createdBy: r.created_by,
-  createdAt: r.created_at, updatedAt: r.updated_at, completedAt: r.completed_at, remarkLog: asArray(r.remark_log),
+  createdAt: r.created_at, updatedAt: r.updated_at, completedAt: r.completed_at,
 });
 const mapInventory = (r) => ({
   id: r.id, requestedBy: r.requested_by, assignedTo: r.assigned_to, items: asArray(r.items), note: r.note || '', status: r.status,
@@ -96,15 +176,14 @@ const DEFAULT_COMPANY = {
   address: '', phone: '', email: '', website: '', bankDetails: '', terms: '', footer: 'Thanking you',
 };
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-const mapInvoice = (r) => ({
+const mapInvoice = (r, visaProgress = null) => ({
   id: r.id, kind: r.kind === 'vendor' ? 'vendor' : 'customer', crmId: r.crm_id || '', queryCode: r.query_code || '', invoiceNo: r.invoice_no, createdBy: r.created_by, customerName: r.customer_name, customerPhone: r.customer_phone || '',
   customerAddress: r.customer_address || '', customerNtn: r.customer_ntn || '', reference: r.reference || '',
-  invoiceDate: r.invoice_date, dueDate: r.due_date || null, currency: r.currency, sections: Array.isArray(r.sections) ? r.sections : [],
+  invoiceDate: r.invoice_date, dueDate: r.due_date || null, currency: r.currency, sections: asArray(r.sections),
   taxLabel: r.tax_label || 'Tax', taxRate: num(r.tax_rate), discount: num(r.discount), advancePaid: num(r.advance_paid),
   subtotal: num(r.subtotal), taxAmount: num(r.tax_amount), total: num(r.total), balance: num(r.balance), notes: r.notes || '',
   vendors: asArray(r.vendors), ntn: r.ntn === null || r.ntn === undefined ? null : String(r.ntn), showNtn: r.show_ntn !== false,
-  status: r.status, vendorStatus: r.vendor_status === 'paid' ? 'paid' : 'unpaid', vendorPaidAt: r.vendor_paid_at || null, vendorPaidBy: r.vendor_paid_by || null,
-  createdAt: r.created_at, updatedAt: r.updated_at,
+  status: r.status, visaProgress: r.kind === 'vendor' ? null : (visaProgress || null), createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const RECEIPT_ITEMS = ['Package', 'Visa Charges', 'Air Tickets', 'Hotel', 'Transfers', 'Insurance', 'Service Charges'];
 const mapReceipt = (r) => ({
@@ -190,9 +269,9 @@ async function notify(employeeIds, category, refId, message, exceptId) {
   const at = nowIso();
   await upsert('crm_notifications', ids.map((e) => ({ id: id('ntf'), employee_id: e, category, ref_id: refId, message, created_at: at, read_at: null })));
 }
-const salesStaffIds = async () => (await activeEmployees()).filter((e) => e.role === 'admin' || e.role === 'accounts' || e.role === 'ceo').map((e) => e.id);
+const salesStaffIds = async () => (await activeEmployees()).filter((e) => e.role === 'admin' || e.role === 'accounts').map((e) => e.id);
 const accountsIds = async () => (await activeEmployees()).filter((e) => e.role === 'accounts').map((e) => e.id);
-const adminIds = async () => (await activeEmployees()).filter((e) => e.role === 'admin' || e.role === 'ceo').map((e) => e.id);
+const adminIds = async () => (await activeEmployees()).filter((e) => e.role === 'admin').map((e) => e.id);
 
 async function assertEmployee(empId, label = 'Employee') {
   const list = await activeEmployees();
@@ -234,7 +313,7 @@ export default async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
     const me = await getSessionEmployee(body.sessionToken);
     if (!me) throw new HttpError(401, 'Please sign in again.', 'SESSION_REQUIRED');
-    const isAdmin = me.role === 'admin' || me.role === 'ceo'; // the CEO has every administrator right in the CRM and Office sections
+    const isAdmin = me.role === 'admin';
     const seeAllCust = isAdmin || me.role === 'accounts' || me.role === 'ceo';
     // Everyone can add customers; they see their own plus the ones shared with them. Admin, CEO and Accounts see all.
     const canSeeCust = (c) => seeAllCust || c.created_by === me.id || asArray(c.shared_with).includes(me.id);
@@ -301,21 +380,35 @@ export default async function handler(req, res) {
       let company = DEFAULT_COMPANY;
       let inventoryItems = DEFAULT_INVENTORY_ITEMS;
       if (action === 'list') {
-        const [invRows, companyRow, receiptRows, catalogItems, allPurchases, purchaseSchema] = await Promise.all([
+        const [invRows, companyRow, receiptRows, catalogItems, allPurchases, purchaseSchema, betaEnabled] = await Promise.all([
           getAll('crm_invoices'),
           getOne('crm_company', 'main'),
           supabaseFetch(`/crm_receipts?select=id,receipt_no,created_by,query_code,client_name,items,other_item,payment_type,currency,total_amount,amount_received,method,bank_name,reference_no,has_proof,purpose,created_at,updated_at&order=created_at.desc&limit=${LIMIT}`),
           getInventoryCatalog(),
           getAllPurchases(),
           getPurchaseSchema(),
+          isCustomerPortalBetaEnabled(),
         ]);
+        const visaByInvId = new Map();
+        if (betaEnabled) {
+          const visaRows = (await supabaseFetch(`/crm_company?id=like.visa-*&select=id,data,updated_at&limit=${LIMIT}`)) || [];
+          for (const vr of visaRows) {
+            if (typeof vr?.id === 'string' && vr.id.startsWith('visa-')) {
+              const vp = formatVisaProgress(vr.data, vr.updated_at || null);
+              if (vp) visaByInvId.set(vr.id.slice(5), vp);
+            }
+          }
+        }
         // Receipts go to Accounts (and Admin / CEO); everyone else only sees the receipts they made themselves.
         receipts = (receiptRows || []).filter((x) => salesViewer || x.created_by === me.id).map(mapReceipt);
-        invoices = invRows.filter((x) => salesViewer || x.created_by === me.id).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).map(mapInvoice);
+        invoices = invRows
+          .filter((x) => salesViewer || x.created_by === me.id)
+          .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+          .map((r) => mapInvoice(r, betaEnabled && r.kind !== 'vendor' ? (visaByInvId.get(r.id) || null) : null));
         purchases = (allPurchases || []).filter((x) => salesViewer || x.createdBy === me.id);
         purchaseCustomFields = purchaseSchema?.customFields || [];
         purchaseCustomCategories = purchaseSchema?.customCategories || [];
-        company = { ...DEFAULT_COMPANY, ...(companyRow?.data || {}) };
+        company = { ...DEFAULT_COMPANY, ...parseJsonObj(companyRow?.data, {}) };
         inventoryItems = catalogItems;
       }
       const since = Date.now() - 45 * 24 * 3600 * 1000;
@@ -346,7 +439,7 @@ export default async function handler(req, res) {
         method: 'PATCH',
         body: JSON.stringify({ work_confirmed_at: at, record_updated_at: at }),
       });
-      const asks = (await myNotifications(me.id)).filter((n) => !n.read_at && n.category === 'reminder' && /-(end|ask-\d+-\d+)$/.test(String(n.id)));
+      const asks = (await myNotifications(me.id)).filter((n) => !n.read_at && n.category === 'reminder' && String(n.id).includes('-ask-'));
       if (asks.length) await upsert('crm_notifications', asks.map((n) => ({ ...n, read_at: at })));
       return res.status(200).json({ ok: true, confirmedAt: at });
     }
@@ -457,7 +550,7 @@ export default async function handler(req, res) {
     if (action === 'followup_outcome') {
       const existing = await getOne('crm_followups', body.id);
       if (!existing) throw notFound('Follow-up not found.');
-      if (existing.assigned_to !== me.id && existing.created_by !== me.id && !isAdmin) throw forbidden('Only the person who created this follow-up, the assigned employee, an administrator or the CEO can close or update it.');
+      if (existing.assigned_to !== me.id && !isAdmin) throw forbidden('Only the assigned employee (or an administrator) can update this follow-up.');
       const outcome = String(body.outcome || '');
       if (!OUTCOMES.includes(outcome)) throw bad('Choose Completed, Not completed or Rescheduled.');
       const remarks = str(body.remarks, 4000, { name: 'Remarks' });
@@ -472,24 +565,6 @@ export default async function handler(req, res) {
       const customer = existing.customer_id ? await getOne('crm_customers', existing.customer_id) : null;
       const words = { completed: 'completed', not_completed: 'could not be completed', rescheduled: 'was rescheduled' }[outcome];
       await notify([existing.created_by, ...(await adminIds())], 'followup', row.id, `Follow-up${customer ? ` for ${customer.customer_name}` : ''} ${words}.`, me.id);
-      return res.status(200).json({ ok: true, followup: mapFollowup(row) });
-    }
-
-    // Everyone on a follow-up (creator, assigned, added/tagged people, admin, CEO) can add their own remarks; they are kept permanently.
-    if (action === 'followup_remark') {
-      const existing = await getOne('crm_followups', body.id);
-      if (!existing) throw notFound('Follow-up not found.');
-      const involved = existing.created_by === me.id || existing.assigned_to === me.id || asArray(existing.participant_ids).includes(me.id);
-      if (!involved && !isAdmin) throw forbidden('Only people on this follow-up can add remarks.');
-      const text = str(body.text, 2000, { required: true, name: 'Remark' });
-      const at = nowIso();
-      const entry = { id: id('rmk'), at, by: me.id, text };
-      const remarkLog = [...asArray(existing.remark_log), entry].slice(-500);
-      const row = { ...existing, remark_log: remarkLog, updated_at: at };
-      await upsert('crm_followups', row);
-      const customer = existing.customer_id ? await getOne('crm_customers', existing.customer_id) : null;
-      const others = [existing.created_by, existing.assigned_to, ...asArray(existing.participant_ids)].filter((x) => x && x !== me.id);
-      await notify([...new Set(others)], 'followup', row.id, `${me.name || 'Someone'} added a remark on the follow-up${customer ? ` for ${customer.customer_name}` : ''}.`, me.id);
       return res.status(200).json({ ok: true, followup: mapFollowup(row) });
     }
 
@@ -843,18 +918,86 @@ export default async function handler(req, res) {
         subtotal: r2(subtotal), tax_amount: taxAmount, total, balance, notes: str(x.notes, 1500, { name: 'Notes' }),
       };
       const at = nowIso();
+      if (existing && !isAdmin && me.role !== 'accounts' && !(existing.created_by === me.id && existing.status === 'unpaid')) {
+        throw forbidden('You can only edit your own unpaid invoices.');
+      }
+      const betaEnabled = await isCustomerPortalBetaEnabled();
+      let visaOp = null; // null | 'delete' | 'upsert'
+      let visaObj = null;
+      if (betaEnabled && !vendorBill) {
+        if (x.visaProgress === undefined) {
+          const existingVisaRow = existing ? await getOne('crm_company', `visa-${existing.id}`) : null;
+          const existingVp = existingVisaRow
+            ? formatVisaProgress(existingVisaRow.data, existingVisaRow.updated_at || null)
+            : null;
+          if (existingVp) {
+            visaObj = existingVp;
+          } else if (hasVisaKeyword(sections)) {
+            visaObj = normalizeVisaProgress(
+              { enabled: true, status: 'not_started', inProgressDate: null, issuedDate: null },
+              null
+            );
+            visaOp = 'upsert';
+          }
+        } else if (x.visaProgress === null || x.visaProgress === false || x.visaProgress?.enabled === false) {
+          visaOp = existing ? 'delete' : null;
+          visaObj = null;
+        } else {
+          const existingVisaRow = existing ? await getOne('crm_company', `visa-${existing.id}`) : null;
+          const existingVp = existingVisaRow ? parseJsonObj(existingVisaRow.data, null) : null;
+          visaObj = normalizeVisaProgress({ ...x.visaProgress, enabled: true }, existingVp);
+          visaOp = 'upsert';
+        }
+      }
       if (existing) {
-        if (!isAdmin && me.role !== 'accounts' && !(existing.created_by === me.id && existing.status === 'unpaid')) throw forbidden('You can only edit your own unpaid invoices.');
         const row = { ...existing, ...base, updated_at: at };
         await upsert('crm_invoices', row);
+        if (visaOp === 'delete') {
+          await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(`visa-${row.id}`)}`, { method: 'DELETE' });
+        } else if (visaOp === 'upsert' && visaObj) {
+          await upsert('crm_company', { id: `visa-${row.id}`, data: visaObj, updated_at: visaObj.updatedAt });
+        }
         await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'Someone'} updated ${vendorBill ? 'vendor payable' : 'invoice'} ${row.invoice_no} (${currency} ${total}).`, me.id);
-        return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
+        return res.status(200).json({ ok: true, invoice: mapInvoice(row, visaObj) });
       }
       const invoiceNo = await supabaseFetch(vendorBill ? '/rpc/crm_next_payable_no' : '/rpc/crm_next_invoice_no', { method: 'POST', body: '{}' });
       const row = { id: id('inv'), kind, invoice_no: String(invoiceNo), created_by: me.id, status: 'unpaid', created_at: at, updated_at: at, ...base };
       await upsert('crm_invoices', row);
+      if (visaOp === 'upsert' && visaObj) {
+        await upsert('crm_company', { id: `visa-${row.id}`, data: visaObj, updated_at: visaObj.updatedAt });
+      }
       await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'An employee'} generated ${vendorBill ? 'vendor payable' : 'invoice'} ${row.invoice_no} ${vendorBill ? 'for vendor' : 'for'} ${base.customer_name} (${currency} ${total}).`, me.id);
-      return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
+      return res.status(200).json({ ok: true, invoice: mapInvoice(row, visaObj) });
+    }
+
+    if (action === 'invoice_visa_update') {
+      const betaEnabled = await isCustomerPortalBetaEnabled();
+      if (!betaEnabled) throw forbidden('Customer Portal Beta is currently disabled.', 'BETA_DISABLED');
+      const invId = str(body.id, 100, { required: true, name: 'Invoice ID' });
+      const existing = await getOne('crm_invoices', invId);
+      if (!existing) throw notFound('Invoice not found.');
+      if (existing.kind === 'vendor') throw bad('Visa progress tracking is only available for customer invoices.');
+      if (!isAdmin && me.role !== 'accounts' && existing.created_by !== me.id) {
+        throw forbidden('Only the invoice creator, Accounts, or Admin can update Visa progress.');
+      }
+      const vpInput = body.visaProgress && typeof body.visaProgress === 'object' && !Array.isArray(body.visaProgress)
+        ? body.visaProgress
+        : {
+            enabled: body.enabled,
+            status: body.status,
+            inProgressDate: body.inProgressDate,
+            issuedDate: body.issuedDate,
+          };
+      const visaRowId = `visa-${existing.id}`;
+      if (vpInput.enabled === false) {
+        await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(visaRowId)}`, { method: 'DELETE' });
+        return res.status(200).json({ ok: true, visaProgress: null, invoice: mapInvoice(existing, null) });
+      }
+      const existingVisaRow = await getOne('crm_company', visaRowId);
+      const existingVp = existingVisaRow ? parseJsonObj(existingVisaRow.data, null) : null;
+      const vpObj = normalizeVisaProgress({ ...vpInput, enabled: true }, existingVp);
+      await upsert('crm_company', { id: visaRowId, data: vpObj, updated_at: vpObj.updatedAt });
+      return res.status(200).json({ ok: true, visaProgress: vpObj, invoice: mapInvoice(existing, vpObj) });
     }
 
     if (action === 'invoice_status') {
@@ -870,26 +1013,12 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
 
-    // The vendor side of an invoice is paid separately from the customer side (Accounts / Admin / CEO).
-    if (action === 'invoice_vendor_status') {
-      const existing = await getOne('crm_invoices', body.id);
-      if (!existing) throw notFound('Invoice not found.');
-      const status = String(body.status || '');
-      if (!['unpaid', 'paid'].includes(status)) throw bad('Choose Paid or Unpaid for the vendor side.');
-      if (!(isAdmin || me.role === 'accounts')) throw forbidden('Only Accounts or Admin can mark the vendor side paid.');
-      if (existing.kind === 'vendor') throw bad('This is a vendor payable itself. Use its own Mark paid button.');
-      const at = nowIso();
-      const row = { ...existing, vendor_status: status, vendor_paid_at: status === 'paid' ? at : null, vendor_paid_by: status === 'paid' ? me.id : null, updated_at: at };
-      await upsert('crm_invoices', row);
-      if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Vendor side of invoice ${existing.invoice_no} was marked ${status.toUpperCase()}.`, me.id);
-      return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
-    }
-
     if (action === 'invoice_delete') {
       if (!isAdmin) throw forbidden('Only an administrator can delete an invoice. You can cancel it instead.');
       const existing = await getOne('crm_invoices', body.id);
       if (!existing) throw notFound('Invoice not found.');
       await supabaseFetch(`/crm_invoices?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
+      await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(`visa-${existing.id}`)}`, { method: 'DELETE' });
       return res.status(200).json({ ok: true });
     }
 
@@ -909,11 +1038,14 @@ export default async function handler(req, res) {
       const items = [...new Set(asArray(x.items).map(String))].filter((i) => RECEIPT_ITEMS.includes(i));
       const otherItem = str(x.otherItem, 120, { name: 'Other item' });
       const paymentType = x.paymentType === 'partial' ? 'partial' : 'full';
-      // The form no longer asks what the whole thing was sold for: only the amount received is entered.
-      const amountReceived = money(x.amountReceived, 'Amount received');
-      if (amountReceived <= 0) throw bad('Enter the amount received.');
-      // older partial receipts keep the total they were saved with (their balance still shows)
-      const totalAmount = existing && num(existing.total_amount) > amountReceived ? num(existing.total_amount) : amountReceived;
+      const totalAmount = money(x.totalAmount, 'Total payment sold for');
+      if (totalAmount <= 0) throw bad('Enter the total payment this was sold for.');
+      let amountReceived = totalAmount;
+      if (paymentType === 'partial') {
+        amountReceived = money(x.amountReceived, 'Amount received');
+        if (amountReceived <= 0) throw bad('Enter the amount received.');
+        if (amountReceived >= totalAmount) throw bad('For a partial payment the amount received must be less than the total. Choose Full payment if everything was received.');
+      }
       const method = x.method === 'bank' ? 'bank' : 'cash';
       let proof = existing ? existing.proof_image || null : null;
       if (x.removeProof) proof = null;

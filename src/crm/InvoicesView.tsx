@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, FileDown, Share2, Eye, Pencil, Building2, FileText, X, Lock, Info } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
-import { CompanyProfile, CrmInvoice, InvoiceSection, InvoiceVendor, crmCall } from './crmApi';
+import { CompanyProfile, CrmInvoice, InvoiceSection, VisaProgressStatus, crmCall, updateInvoiceVisaProgress } from './crmApi';
 import { crmQueryOf, ntnShown } from './invoiceHelpers';
-import { downloadInvoicePdf, downloadVendorPayablesPdf, invoicePdfFile } from './invoicePdf';
+import { downloadInvoicePdf, invoicePdfFile } from './invoicePdf';
 import { CrmState } from './useCrm';
 import { ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
@@ -13,6 +13,7 @@ interface Props {
   crm: CrmState;
   employees: Employee[];
   currentUser: Employee;
+  customerPortalBetaEnabled?: boolean;
 }
 
 interface FormLine { description: string; unitPrice: string; units: string; currency: string; rate: string; taxable: boolean; note: boolean; key: string; locked: boolean }
@@ -30,22 +31,33 @@ interface FormState {
   invoiceDate: string; dueDate: string; currency: string;
   sections: FormSection[];
   taxLabel: string; taxRate: string; discount: string; advancePaid: string; notes: string;
+  visaEnabled: boolean;
+  visaStatus: VisaProgressStatus;
+  visaInProgressDate: string;
+  visaIssuedDate: string;
 }
 
 const today = () => new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd in the person's own time zone
+const VISA_WORD_RE = /\bvisa\b/i;
+const VISA_STATUS_LABEL: Record<VisaProgressStatus, string> = {
+  not_started: 'Not Started',
+  in_progress: 'In Progress',
+  issued: 'Issued',
+};
+const visaTone = (s: VisaProgressStatus): 'slate' | 'amber' | 'green' => (s === 'issued' ? 'green' : s === 'in_progress' ? 'amber' : 'slate');
+const hasVisaKeyword = (sections?: Array<{ title?: string; lines?: Array<{ description?: string }> }>): boolean =>
+  (sections || []).some((sec) => VISA_WORD_RE.test(String(sec?.title || '')) || (sec?.lines || []).some((ln) => VISA_WORD_RE.test(String(ln?.description || ''))));
+const isVisaInvoice = (inv: CrmInvoice): boolean =>
+  (inv.kind || 'customer') !== 'vendor' && (Boolean(inv.visaProgress?.enabled) || hasVisaKeyword(inv.sections));
 const isServiceTitle = (t: string) => /service/i.test(t);
 const uid = () => `k${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
 const blankLine = (currency: string, taxable = false): FormLine => ({ description: '', unitPrice: '', units: '1', currency, rate: '', taxable, note: false, key: uid(), locked: false });
 const newSection = (title: string, currency: string): FormSection => ({ title, key: uid(), locked: false, lines: [blankLine(currency, isServiceTitle(title))] });
-/** An invoice has vendor lines to pay (office record). */
-const hasVendorLines = (i: CrmInvoice) => (i.kind || 'customer') === 'customer' && (i.vendors || []).some((v) => v.name || (v.amount ?? 0) > 0);
-/** Paid on every side: the customer side, and the vendor side too when the invoice has vendors. */
-const fullyPaid = (i: CrmInvoice) => i.status === 'paid' && (!hasVendorLines(i) || i.vendorStatus === 'paid');
-
 const blankVendor = (currency: string): FormVendor => ({ name: '', description: '', unitPrice: '', units: '', amount: '', currency, bank: '' });
 const blankForm = (kind: 'customer' | 'vendor' = 'customer', companyNtn = ''): FormState => ({
   kind, crmId: '', customerName: '', customerPhone: '', reference: '', ntn: companyNtn, showNtn: true, vendors: kind === 'customer' ? [blankVendor('PKR')] : [], invoiceDate: today(), dueDate: '', currency: 'PKR',
   sections: [{ title: '', key: uid(), locked: false, lines: [blankLine('PKR')] }], taxLabel: 'Tax', taxRate: kind === 'vendor' ? '' : '6', discount: '', advancePaid: '', notes: '',
+  visaEnabled: false, visaStatus: 'not_started', visaInProgressDate: '', visaIssuedDate: '',
 });
 const PRESETS = ['Package', 'Visa Charges', 'Air Tickets', 'Hotel', 'Transfers', 'Insurance', 'Service Charges'];
 const num = (v: string) => (v.trim() === '' ? NaN : Number(v));
@@ -95,6 +107,10 @@ function toForm(inv: CrmInvoice, companyNtn = ''): FormState {
       })),
     })),
     taxLabel: inv.taxLabel, taxRate: inv.taxRate ? String(inv.taxRate) : '', discount: inv.discount ? String(inv.discount) : '', advancePaid: inv.advancePaid ? String(inv.advancePaid) : '', notes: inv.notes,
+    visaEnabled: Boolean(inv.visaProgress?.enabled) || hasVisaKeyword(inv.sections),
+    visaStatus: inv.visaProgress?.status || 'not_started',
+    visaInProgressDate: inv.visaProgress?.inProgressDate || '',
+    visaIssuedDate: inv.visaProgress?.issuedDate || '',
   };
 }
 
@@ -180,9 +196,9 @@ const InvoicePreview: React.FC<{ inv: CrmInvoice; company: CompanyProfile; by: s
   );
 };
 
-export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
-  const isStaff = currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.role === 'ceo';
-  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
+export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, customerPortalBetaEnabled = false }) => {
+  const isStaff = currentUser.role === 'admin' || currentUser.role === 'accounts';
+  const isAdmin = currentUser.role === 'admin';
   const seesAll = isStaff || currentUser.role === 'ceo';
   const { invoices: allInvoices, company } = crm.data;
   const [side, setSide] = useState<'customer' | 'vendor'>('customer');
@@ -200,6 +216,8 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
   const [filter, setFilter] = useState<'all' | 'unpaid' | 'paid' | 'cancelled'>('all');
   const [query, setQuery] = useState('');
   const [canShare, setCanShare] = useState(false);
+  const [visaDrafts, setVisaDrafts] = useState<Record<string, { inProgressDate: string; issuedDate: string }>>({});
+  const [visaBusyId, setVisaBusyId] = useState<string | null>(null);
 
   useEffect(() => { void crm.refresh(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -231,10 +249,9 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
   }), [customerInvoices]);
 
   const payableCounts = useMemo(() => {
-    const lines = (i: CrmInvoice) => (i.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0).length;
-    const inlineUnpaid = customerInvoices.filter((i) => i.status !== 'cancelled' && i.vendorStatus !== 'paid').reduce((acc, i) => acc + lines(i), 0);
-    const inlinePaid = customerInvoices.filter((i) => i.status !== 'cancelled' && i.vendorStatus === 'paid').reduce((acc, i) => acc + lines(i), 0);
-    const inlineCancelled = customerInvoices.filter((i) => i.status === 'cancelled').reduce((acc, i) => acc + lines(i), 0);
+    const inlineUnpaid = customerInvoices.filter((i) => i.status === 'unpaid').reduce((acc, i) => acc + (i.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0).length, 0);
+    const inlinePaid = customerInvoices.filter((i) => i.status === 'paid').reduce((acc, i) => acc + (i.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0).length, 0);
+    const inlineCancelled = customerInvoices.filter((i) => i.status === 'cancelled').reduce((acc, i) => acc + (i.vendors || []).filter((v) => v.name || (v.amount ?? 0) > 0).length, 0);
     return {
       unpaid: vendorInvoices.filter((i) => i.status === 'unpaid').length + inlineUnpaid,
       paid: vendorInvoices.filter((i) => i.status === 'paid').length + inlinePaid,
@@ -251,7 +268,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
   const payablesOutstanding = useMemo(() => {
     const m = new Map<string, number>();
     vendorInvoices.filter((i) => i.status === 'unpaid').forEach((i) => m.set(i.currency, (m.get(i.currency) || 0) + i.balance));
-    customerInvoices.filter((i) => i.status !== 'cancelled' && i.vendorStatus !== 'paid').forEach((i) => {
+    customerInvoices.filter((i) => i.status === 'unpaid').forEach((i) => {
       (i.vendors || []).forEach((v) => {
         if ((v.amount ?? 0) > 0) {
           const cur = v.currency || i.currency;
@@ -264,10 +281,11 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return invoices.filter((i) => (filter === 'all' ? !fullyPaid(i) : filter === 'paid' ? fullyPaid(i) : filter === 'unpaid' ? (i.status === 'unpaid' || (i.status === 'paid' && !fullyPaid(i))) : i.status === filter) && (!q || [i.invoiceNo, i.customerName, i.reference, i.crmId || '', i.queryCode || '', i.customerPhone, empName.get(i.createdBy) || '', ...(i.vendors || []).flatMap((v) => [v.name, v.description || ''])].some((v) => v.toLowerCase().includes(q))));
+    return invoices.filter((i) => (filter === 'all' ? i.status !== 'paid' : i.status === filter) && (!q || [i.invoiceNo, i.customerName, i.reference, i.crmId || '', i.queryCode || '', i.customerPhone, empName.get(i.createdBy) || '', ...(i.vendors || []).flatMap((v) => [v.name, v.description || ''])].some((v) => v.toLowerCase().includes(q))));
   }, [invoices, filter, query, empName]);
 
   const canEdit = (i: CrmInvoice) => isStaff || (i.createdBy === currentUser.id && i.status === 'unpaid');
+  const canUpdateVisa = (i: CrmInvoice) => (i.kind || 'customer') !== 'vendor' && (isStaff || i.createdBy === currentUser.id);
   const calc = form ? compute(form) : null;
   const draft: CrmInvoice | null = form && calc ? {
     id: form.id || 'draft', kind: form.kind, crmId: form.crmId, queryCode: '', vendors: [], ntn: form.ntn.trim(), showNtn: form.showNtn,
@@ -286,6 +304,43 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
   } : null;
 
   const patch = (p: Partial<FormState>) => { setForm((f) => (f ? { ...f, ...p } : f)); setError(''); setNotice(''); };
+  const setFormVisaStatus = (status: VisaProgressStatus) => {
+    if (!form) return;
+    patch({
+      visaStatus: status,
+      visaInProgressDate: status === 'not_started' ? '' : (status === 'in_progress' && !form.visaInProgressDate ? today() : form.visaInProgressDate),
+      visaIssuedDate: status === 'issued' ? (form.visaIssuedDate || today()) : '',
+    });
+  };
+  const saveCardVisa = async (
+    inv: CrmInvoice,
+    nextStatus: VisaProgressStatus,
+    inProgressDate: string | null,
+    issuedDate: string | null
+  ) => {
+    if (!customerPortalBetaEnabled || visaBusyId === inv.id) return;
+    setVisaBusyId(inv.id);
+    setError('');
+    try {
+      await updateInvoiceVisaProgress({
+        id: inv.id,
+        enabled: true,
+        status: nextStatus,
+        inProgressDate,
+        issuedDate,
+      });
+      setVisaDrafts((prev) => {
+        const next = { ...prev };
+        delete next[inv.id];
+        return next;
+      });
+      await crm.refresh();
+    } catch (err: any) {
+      setError(err?.message || 'Could not update Visa progress.');
+    } finally {
+      setVisaBusyId(null);
+    }
+  };
   const setSection = (si: number, p: Partial<FormSection>) => patch({ sections: form!.sections.map((s, i) => (i === si ? { ...s, ...p } : s)) });
   const setLine = (si: number, li: number, p: Partial<FormLine>) => setSection(si, { lines: form!.sections[si].lines.map((l, i) => (i === li ? { ...l, ...p } : l)) });
   const changeInvoiceCurrency = (code: string) => {
@@ -310,19 +365,40 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
     patch({ vendors: nextVendors });
   };
 
-  const buildPayload = (lockIdx: number | null) => ({
-    ...form,
-    vendors: (form!.vendors || []).filter((v) => v.name.trim() || v.description.trim() || v.unitPrice.trim() || v.units.trim() || v.amount.trim() || v.bank.trim()),
-    sections: form!.sections.map((s, si) => {
-      const lockThis = si === lockIdx;
-      return {
-        title: s.title, key: s.key, locked: s.locked || lockThis,
-        lines: s.lines.filter((l) => l.description.trim() || l.unitPrice.trim()).map((l) => (l.note
-          ? { description: l.description, key: l.key, locked: l.locked || lockThis }
-          : { description: l.description, unitPrice: l.unitPrice, units: l.units, currency: l.currency, rate: l.rate, taxable: l.taxable, key: l.key, locked: l.locked || lockThis })),
-      };
-    }),
-  });
+  const buildPayload = (lockIdx: number | null) => {
+    const { visaEnabled, visaStatus, visaInProgressDate, visaIssuedDate, ...rest } = form!;
+    const visaActive = hasVisaKeyword(form!.sections) || visaEnabled;
+    return {
+      ...rest,
+      vendors: (form!.vendors || []).filter((v) => v.name.trim() || v.description.trim() || v.unitPrice.trim() || v.units.trim() || v.amount.trim() || v.bank.trim()),
+      sections: form!.sections.map((s, si) => {
+        const lockThis = si === lockIdx;
+        return {
+          title: s.title, key: s.key, locked: s.locked || lockThis,
+          lines: s.lines.filter((l) => l.description.trim() || l.unitPrice.trim()).map((l) => (l.note
+            ? { description: l.description, key: l.key, locked: l.locked || lockThis }
+            : { description: l.description, unitPrice: l.unitPrice, units: l.units, currency: l.currency, rate: l.rate, taxable: l.taxable, key: l.key, locked: l.locked || lockThis })),
+        };
+      }),
+      ...(customerPortalBetaEnabled && form!.kind === 'customer'
+        ? {
+            visaProgress: visaActive
+              ? {
+                  enabled: true,
+                  status: visaStatus,
+                  inProgressDate: visaInProgressDate.trim() || null,
+                  issuedDate: visaIssuedDate.trim() || null,
+                }
+              : {
+                  enabled: false,
+                  status: 'not_started' as const,
+                  inProgressDate: null,
+                  issuedDate: null,
+                },
+          }
+        : {}),
+    };
+  };
 
   const persist = async (lockIdx: number | null, close: boolean) => {
     if (!form || busy) return;
@@ -364,14 +440,6 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
       await downloadInvoicePdf(i, company, by(i));
     } catch (err: any) {
       setError(err?.message || 'Could not create the PDF.');
-    }
-  };
-  const vendorPdf = async (i: CrmInvoice) => {
-    setError('');
-    try {
-      await downloadVendorPayablesPdf(i, company, by(i));
-    } catch (err: any) {
-      setError(err?.message || 'Could not create the vendor PDF.');
     }
   };
   const share = async (i: CrmInvoice) => {
@@ -482,7 +550,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
       {error && !form && !companyForm && <ErrorNote message={error} />}
 
       {shown.length === 0 ? (
-        <div className={`${cardCls} p-8 text-center text-xs text-slate-500`}>{invoices.length === 0 ? (vendorSide ? 'No vendor payables yet. Press “New vendor payable” to add the first one.' : 'No invoices yet. Press “New invoice” to create the first one.') : filter === 'all' && invoices.some((x) => fullyPaid(x)) ? 'No open invoices. Paid ones are in the Paid tab.' : 'No invoices match this filter.'}</div>
+        <div className={`${cardCls} p-8 text-center text-xs text-slate-500`}>{invoices.length === 0 ? (vendorSide ? 'No vendor payables yet. Press “New vendor payable” to add the first one.' : 'No invoices yet. Press “New invoice” to create the first one.') : filter === 'all' && invoices.some((x) => x.status === 'paid') ? 'No open invoices. Paid ones are in the Paid tab.' : 'No invoices match this filter.'}</div>
       ) : (
         <div className="space-y-3">
           {shown.map((i) => {
@@ -494,12 +562,19 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                 vendorTotalsByCur.set(c, (vendorTotalsByCur.get(c) || 0) + v.amount);
               }
             });
+            const showVisa = customerPortalBetaEnabled && !vendorSide && isVisaInvoice(i);
+            const vp = i.visaProgress;
+            const vStatus: VisaProgressStatus = vp?.status || 'not_started';
+            const savedInProg = vp?.inProgressDate || '';
+            const savedIssued = vp?.issuedDate || '';
+            const vDraft = visaDrafts[i.id] ?? { inProgressDate: savedInProg, issuedDate: savedIssued };
+            const vDirty = vDraft.inProgressDate !== savedInProg || vDraft.issuedDate !== savedIssued;
 
             return (
-              <div key={i.id} className={`${cardCls} p-4 ${fullyPaid(i) ? '!bg-emerald-100/80 !border-emerald-300 dark:!bg-emerald-950/40 dark:!border-emerald-800/70' : ''}`}>
+              <div key={i.id} className={`${cardCls} p-4 ${i.status === 'paid' ? '!bg-emerald-100/80 !border-emerald-300 dark:!bg-emerald-950/40 dark:!border-emerald-800/70' : ''}`}>
                 <div className={`grid grid-cols-1 ${!vendorSide ? 'lg:grid-cols-2' : ''} gap-4`}>
                   {/* LEFT HALF (50%): Customer Receivable Side */}
-                  <div className={`min-w-0 flex flex-col justify-between space-y-3 ${i.status === 'paid' && !vendorSide ? 'rounded-lg p-2.5 -m-2.5 bg-emerald-100/90 dark:bg-emerald-950/50' : ''}`}>
+                  <div className="min-w-0 flex flex-col justify-between space-y-3">
                     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
                       <div className="min-w-0 space-y-1.5">
                         <span className="block text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
@@ -513,6 +588,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                           <Pill tone="blue">CRM / Query: {crmQueryOf(i) || '—'}</Pill>
                           <span className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{i.customerName}</span>
                           <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? 'Paid' : i.status === 'cancelled' ? 'Cancelled' : 'Unpaid'}</Pill>
+                          {showVisa && <Pill tone={visaTone(vStatus)}>Visa: {VISA_STATUS_LABEL[vStatus]}</Pill>}
                           {i.reference && <Pill tone="slate">Ref {i.reference}</Pill>}
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -524,6 +600,109 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                         <p className="text-[11px] text-slate-500">Balance <b className={`font-mono ${i.balance > 0 && i.status === 'unpaid' ? 'text-amber-600' : 'text-emerald-600'}`}>{i.currency} {fmtAmount(i.balance)}</b></p>
                       </div>
                     </div>
+
+                    {showVisa && (
+                      <div className="rounded-lg border border-indigo-200/80 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/25 p-2.5 space-y-2">
+                        {canUpdateVisa(i) ? (
+                          <>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-200">Visa Progress</span>
+                              <select
+                                aria-label={`Visa status for ${i.invoiceNo}`}
+                                className={`${inputCls} !w-auto !py-1 !text-xs`}
+                                value={vStatus}
+                                disabled={visaBusyId === i.id}
+                                onChange={(e) => {
+                                  const nextStatus = e.target.value as VisaProgressStatus;
+                                  const nextInProgress = nextStatus === 'not_started'
+                                    ? null
+                                    : nextStatus === 'in_progress'
+                                      ? (vDraft.inProgressDate.trim() || today())
+                                      : (vDraft.inProgressDate.trim() || null);
+                                  const nextIssued = nextStatus === 'issued'
+                                    ? (vDraft.issuedDate.trim() || today())
+                                    : null;
+                                  void saveCardVisa(i, nextStatus, nextInProgress, nextIssued);
+                                }}
+                              >
+                                <option value="not_started">Not Started</option>
+                                <option value="in_progress">In Progress</option>
+                                <option value="issued">Issued</option>
+                              </select>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <label className="block space-y-0.5">
+                                <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                                  In Progress Date{savedInProg ? ` (${niceDate(savedInProg)})` : ''}
+                                </span>
+                                <input
+                                  type="date"
+                                  aria-label={`In Progress Date for ${i.invoiceNo}`}
+                                  className={`${inputCls} !py-1 !text-xs`}
+                                  value={vDraft.inProgressDate}
+                                  disabled={visaBusyId === i.id}
+                                  onChange={(e) => setVisaDrafts((prev) => ({
+                                    ...prev,
+                                    [i.id]: { inProgressDate: e.target.value, issuedDate: vDraft.issuedDate },
+                                  }))}
+                                />
+                              </label>
+                              <label className="block space-y-0.5">
+                                <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                                  Issued Date{savedIssued ? ` (${niceDate(savedIssued)})` : ''}
+                                </span>
+                                <input
+                                  type="date"
+                                  aria-label={`Issued Date for ${i.invoiceNo}`}
+                                  className={`${inputCls} !py-1 !text-xs`}
+                                  value={vDraft.issuedDate}
+                                  disabled={visaBusyId === i.id}
+                                  onChange={(e) => setVisaDrafts((prev) => ({
+                                    ...prev,
+                                    [i.id]: { inProgressDate: vDraft.inProgressDate, issuedDate: e.target.value },
+                                  }))}
+                                />
+                              </label>
+                            </div>
+                            {vDirty && (
+                              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                <button
+                                  type="button"
+                                  className={`${btnPrimary} !py-1 !px-2.5 !text-[11px]`}
+                                  disabled={visaBusyId === i.id}
+                                  onClick={() => void saveCardVisa(
+                                    i,
+                                    vStatus,
+                                    vDraft.inProgressDate.trim() || null,
+                                    vDraft.issuedDate.trim() || null
+                                  )}
+                                >
+                                  {visaBusyId === i.id ? 'Saving…' : 'Save dates'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`${btnGhost} !py-1 !px-2 !text-[11px]`}
+                                  disabled={visaBusyId === i.id}
+                                  onClick={() => setVisaDrafts((prev) => {
+                                    const next = { ...prev };
+                                    delete next[i.id];
+                                    return next;
+                                  })}
+                                >
+                                  Reset
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-700 dark:text-slate-200">
+                            <span className="font-bold text-indigo-900 dark:text-indigo-200">Visa: {VISA_STATUS_LABEL[vStatus]}</span>
+                            <span>In Progress: <b>{savedInProg ? niceDate(savedInProg) : '—'}</b></span>
+                            <span>Issued: <b>{savedIssued ? niceDate(savedIssued) : '—'}</b></span>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div className="flex flex-wrap gap-1.5 pt-1">
                       <button className={btnGhost} onClick={() => setView(i)}><Eye className="w-3.5 h-3.5" /> View</button>
@@ -540,17 +719,16 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
 
                   {/* RIGHT HALF (50%): Vendor Payables for This Invoice */}
                   {!vendorSide && (
-                    <div className={`min-w-0 lg:border-l lg:border-slate-200 dark:lg:border-slate-800 lg:pl-4 flex flex-col justify-between space-y-2 ${i.vendorStatus === 'paid' && invVendors.length > 0 ? 'rounded-lg p-2.5 -m-2.5 lg:ml-1.5 bg-emerald-100/90 dark:bg-emerald-950/50' : ''}`}>
+                    <div className="min-w-0 lg:border-l lg:border-slate-200 dark:lg:border-slate-800 lg:pl-4 flex flex-col justify-between space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1.5 ${i.vendorStatus === 'paid' ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
+                        <span className={`text-[10px] font-bold uppercase tracking-wider ${i.status === 'paid' ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
                           Vendor Payables (Office Only)
-                          {invVendors.length > 0 && <Pill tone={i.vendorStatus === 'paid' ? 'green' : 'amber'}>{i.vendorStatus === 'paid' ? 'Vendors paid' : 'Vendors unpaid'}</Pill>}
                         </span>
                         <div className="flex flex-wrap items-center gap-2 text-[11px]">
                           <span className="text-slate-500">Total Payable:</span>
                           {vendorTotalsByCur.size > 0 ? (
                             [...vendorTotalsByCur.entries()].map(([cur, amt]) => (
-                              <b key={cur} className={`font-mono px-2 py-0.5 rounded border ${i.vendorStatus === 'paid' ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60' : 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60'}`}>
+                              <b key={cur} className={`font-mono px-2 py-0.5 rounded border ${i.status === 'paid' ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60' : 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60'}`}>
                                 {cur} {fmtAmount(amt)}
                               </b>
                             ))
@@ -563,7 +741,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                       {invVendors.length > 0 ? (
                         <div className="space-y-1.5">
                           {invVendors.map((v, vi) => (
-                            <div key={vi} className={`p-2.5 rounded-lg border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${i.vendorStatus === 'paid' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60' : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-900/50'}`}>
+                            <div key={vi} className={`p-2.5 rounded-lg border text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${i.status === 'paid' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60' : 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-900/50'}`}>
                               <div className="min-w-0 space-y-0.5">
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <span className="font-bold text-slate-900 dark:text-slate-100">{v.name}</span>
@@ -582,22 +760,14 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                               </div>
                               <div className="sm:text-right shrink-0">
                                 <span className="block text-[10px] text-slate-400 uppercase">Payable</span>
-                                <b className={`font-mono text-xs ${i.vendorStatus === 'paid' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
+                                <b className={`font-mono text-xs ${i.status === 'paid' ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
                                   {v.currency || i.currency} {fmtAmount(v.amount || 0)}
                                 </b>
                               </div>
                             </div>
                           ))}
                         </div>
-                      ) : null}
-                      {invVendors.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 pt-1">
-                          <button className={btnPrimary} onClick={() => void vendorPdf(i)}><FileDown className="w-3.5 h-3.5" /> Download vendor PDF</button>
-                          {isStaff && i.status !== 'cancelled' && i.vendorStatus !== 'paid' && <button className={btnGhost} onClick={() => void act('invoice_vendor_status', { id: i.id, status: 'paid' })}>Mark vendors paid</button>}
-                          {isStaff && i.vendorStatus === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_vendor_status', { id: i.id, status: 'unpaid' })}>Mark vendors unpaid</button>}
-                        </div>
-                      )}
-                      {invVendors.length === 0 && (
+                      ) : (
                         <div className="flex-1 flex items-center justify-between p-3 rounded-lg border border-dashed border-slate-200 dark:border-slate-800 text-xs text-slate-400">
                           <span>No vendor payables recorded for this invoice.</span>
                           {canEdit(i) && (
@@ -626,7 +796,6 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
               <button className={btnPrimary} onClick={() => void pdf(view)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
-              {hasVendorLines(view) && <button className={btnGhost} onClick={() => void vendorPdf(view)}><FileDown className="w-3.5 h-3.5" /> Vendor PDF</button>}
               {canShare && <button className={btnGhost} onClick={() => void share(view)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
               {canEdit(view) && <button className={btnGhost} onClick={() => { setForm(toForm(view, company.ntn || '')); setView(null); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
             </div>
@@ -744,6 +913,58 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser }) =
                 </div>
               ))}
             </div>
+
+            {customerPortalBetaEnabled && form.kind === 'customer' && (() => {
+              const visaAutoDetected = hasVisaKeyword(form.sections);
+              const visaTrackingActive = visaAutoDetected || form.visaEnabled;
+              return (
+                <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 p-3.5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={visaTrackingActive}
+                        disabled={visaAutoDetected}
+                        onChange={(e) => patch({ visaEnabled: e.target.checked })}
+                      />
+                      Track Visa progress on Customers Page
+                    </label>
+                    {visaAutoDetected && <Pill tone="blue">Auto-detected from Visa item</Pill>}
+                  </div>
+                  {visaTrackingActive && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <Field label="Visa progress status">
+                        <select
+                          className={inputCls}
+                          value={form.visaStatus}
+                          onChange={(e) => setFormVisaStatus(e.target.value as VisaProgressStatus)}
+                        >
+                          <option value="not_started">Not Started</option>
+                          <option value="in_progress">In Progress</option>
+                          <option value="issued">Issued</option>
+                        </select>
+                      </Field>
+                      <Field label="In Progress date">
+                        <input
+                          type="date"
+                          className={inputCls}
+                          value={form.visaInProgressDate}
+                          onChange={(e) => patch({ visaInProgressDate: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="Issued date">
+                        <input
+                          type="date"
+                          className={inputCls}
+                          value={form.visaIssuedDate}
+                          onChange={(e) => patch({ visaIssuedDate: e.target.value })}
+                        />
+                      </Field>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Vendor Details Bar at the Bottom of the Form (with optional Description, Unit Price, Units) */}
             {form.kind === 'customer' && (

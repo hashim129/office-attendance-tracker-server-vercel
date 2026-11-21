@@ -45,8 +45,6 @@ export interface AttendanceRecord {
   overtimeMinutes: number;
   status: AttendanceStatus;
   notes?: string;
-  /** Every punch-in / punch-out / extra remark, kept permanently (the `notes` field only shows the latest) */
-  notesLog?: { id: string; at: string; kind: 'punch_in' | 'punch_out' | 'note' | 'admin_note' | 'system'; by: string; text: string }[];
   isManuallyAdjusted?: boolean;
   adjustmentNote?: string;
   adjustedBy?: string;
@@ -200,6 +198,7 @@ export interface OfficeSettings {
   enableDisconnectStatusTracking?: boolean; // Show "No Internet (In)" when active device loses internet
   autoPunchOutOnInactiveHours?: number; // Auto punch out after N hours of device inactivity (default 2, 0=off)
   disconnectThresholdMinutes?: number; // Minutes without heartbeat before marking "No Internet" (default 3)
+  customerPortalBetaEnabled?: boolean; // Beta toggle for public /customers portal & invoice Visa tracking (default false)
   settingsUpdatedAt?: string;
 }
 

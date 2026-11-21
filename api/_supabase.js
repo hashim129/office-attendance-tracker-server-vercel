@@ -246,7 +246,6 @@ function mapDbAttendance(r) {
     timeIn: r.time_in || '',
     status: r.status || 'absent',
     notes: r.notes || '',
-    notesLog: Array.isArray(r.notes_log) ? r.notes_log : [],
     breaks,
     totalWorkedMinutes: totalWorked,
     regularMinutes: regular,
@@ -285,7 +284,6 @@ function mapAppAttendanceToDb(a) {
     time_out: a.timeOut || a.time_out || null,
     status: a.status || 'absent',
     notes: a.notes || '',
-    notes_log: readJson(a.notesLog, []),
     breaks: readJson(a.breaks, []),
     device_id: a.deviceId || a.device_id || null,
     device_name: a.deviceName || a.device_name || null,
@@ -427,7 +425,11 @@ export async function readSupabaseDb(defaultDb) {
       supabaseFetch('/ceo_comments?select=*&order=created_at.asc'),
     ]);
 
-    const rawSettings = settingsRows?.[0]?.data || {};
+    const parsedSettings = readJson(settingsRows?.[0]?.data, {});
+    const rawSettings =
+      parsedSettings && typeof parsedSettings === 'object' && !Array.isArray(parsedSettings)
+        ? parsedSettings
+        : {};
     const defaultSettings = defaultDb?.settings || {};
     const settingsData = {
       ...defaultSettings,
@@ -440,6 +442,7 @@ export async function readSupabaseDb(defaultDb) {
       allowedOfficeIsps: [],
       enforceOfficeIpLock: rawSettings.enforceOfficeIpLock ?? true,
       enforceDeviceBinding: false,
+      customerPortalBetaEnabled: rawSettings.customerPortalBetaEnabled === true,
     };
     let shifts = Array.isArray(shiftsRows) && shiftsRows.length > 0 ? shiftsRows.map(mapDbShift) : defaultDb.shifts;
     if (!shifts.some((s) => s.id === 'shift-freelance')) {
@@ -579,9 +582,7 @@ export async function sweepShiftReminders({ getShiftEndWindowMs, format12h }) {
         message = `❓ ${graceHours} hours after shift end: Are you currently working on overtime? Please verify now (${minsLeft} min left) — otherwise you will be automatically punched out at ${logoutLabel} and overtime will be recorded separately under auto punch-out remarks.`;
       } else if (nowMs >= shiftEndMs && (graceHours === 0 || nowMs < verifyAtMs)) {
         kind = 'end';
-        message = graceHours > 0
-          ? `🔔 Your shift has ended. Are you working extra hours? Click “Yes, I'm working” to stay punched in (automatic punch-out is paused and you will be asked again after ${graceHours}h), or punch out now.`
-          : '🔔 Your shift has ended. Please punch out.';
+        message = `🔔 Your shift has ended. Please punch out${graceHours > 0 ? ` — after ${graceHours}h you will be asked to verify if you are still working before automatic logout at ${logoutLabel}` : ''}.`;
       }
       if (!kind) continue;
       out.push({ id: `rem-${rec.id}-${kind}`, employee_id: rec.employeeId, category: 'reminder', ref_id: rec.id, message, created_at: new Date().toISOString(), read_at: null });
@@ -642,30 +643,7 @@ export async function persistAutoClosures(originalRecords, evaluatedRecords) {
   return saved;
 }
 
-/**
- * Every punch-in / punch-out / extra remark is kept forever: when a new remark text arrives it is added to the
- * record's notes_log (the single `notes` field only shows the latest one and used to overwrite the earlier remark).
- */
-export function withNotesLog(existing, incomingRec, merged, actorRole) {
-  const prior = Array.isArray(existing?.notesLog) ? existing.notesLog : [];
-  let log = prior;
-  const text = String(incomingRec?.notes ?? '').trim();
-  const before = String(existing?.notes ?? '').trim();
-  if (text && text !== before && !prior.some((e) => e && e.text === text)) {
-    const act = incomingRec.actorAction;
-    const kind = actorRole === 'admin' && act !== 'time_in' && act !== 'time_out' ? 'admin_note'
-      : act === 'time_in' ? 'punch_in' : act === 'time_out' ? 'punch_out' : 'note';
-    log = [...prior, { id: `nl-${Date.now().toString(36)}-${prior.length}`, at: new Date().toISOString(), kind, by: actorRole === 'admin' ? 'admin' : (merged.employeeId || incomingRec.employeeId || ''), text }].slice(-100);
-  }
-  return { ...merged, notesLog: log };
-}
-
 export function mergeSupabaseAttendanceRecord(existing, incomingRec, options = {}) {
-  const merged = mergeSupabaseAttendanceRecordCore(existing, incomingRec, options);
-  return withNotesLog(existing, incomingRec, merged, options.actorRole || incomingRec.lastEditedByRole || 'employee');
-}
-
-function mergeSupabaseAttendanceRecordCore(existing, incomingRec, options = {}) {
   const actorRole = options.actorRole || incomingRec.lastEditedByRole || 'employee';
   const isAdmin = actorRole === 'admin';
   const nowIso = new Date().toISOString();
@@ -1156,7 +1134,11 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
         body: JSON.stringify([
           {
             id: 'current',
-            data: { ...incoming.settings, enforceDeviceBinding: false },
+            data: {
+              ...incoming.settings,
+              enforceDeviceBinding: false,
+              customerPortalBetaEnabled: incoming.settings.customerPortalBetaEnabled === true,
+            },
             updated_at: new Date().toISOString(),
           },
         ]),
@@ -1212,7 +1194,11 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
         body: JSON.stringify([
           {
             id: 'current',
-            data: { ...incoming.settings, enforceDeviceBinding: false },
+            data: {
+              ...incoming.settings,
+              enforceDeviceBinding: false,
+              customerPortalBetaEnabled: incoming.settings.customerPortalBetaEnabled === true,
+            },
             updated_at: new Date().toISOString(),
           },
         ]),
