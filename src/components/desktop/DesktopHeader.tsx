@@ -113,6 +113,8 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         return 'Inventory Requests';
       case 'crm-sales':
         return 'Sales Coupons';
+      case 'crm-purchases':
+        return 'Purchases · Vendor Bookings & Payables';
       case 'crm-invoices':
         return 'Invoices';
       case 'crm-receipts':

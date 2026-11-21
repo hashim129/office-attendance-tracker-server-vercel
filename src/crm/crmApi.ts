@@ -265,6 +265,76 @@ export interface CrmUnread {
   createdAt: string;
 }
 
+export type PurchaseCategory = 'ticket' | 'hotel' | 'visa' | 'tour' | 'insurance' | 'other' | string;
+
+export interface PurchaseCustomCategory {
+  id: string;
+  label: string;
+}
+
+export interface PurchaseCustomField {
+  id: string;
+  category: PurchaseCategory | 'all';
+  label: string;
+}
+
+export interface CrmPurchaseItem {
+  id: string;
+  category: PurchaseCategory;
+  categoryLabel?: string;
+  vendorName: string;
+  quantity?: number;
+  unitPayable?: number;
+  payable: number;
+  receivable: number | null;
+  currency: string;
+  paymentDueDate: string | null;
+  // Paid By fields (present on every category)
+  paidByMethod: 'unpaid' | 'faiq_card' | 'ali_card' | 'third_party' | 'other' | 'card' | 'cash' | 'bank_transfer';
+  cardOption?: 'faiq_card' | 'ali_card' | 'third_party' | 'other' | '';
+  cardBank?: string;
+  paidBySpecify?: string;
+  // Ticket specific
+  ticketNumber?: string;
+  // Hotel specific
+  hotelName?: string;
+  rooms?: string;
+  checkInDate?: string | null;
+  checkOutDate?: string | null;
+  // Visa specific
+  countries?: string;
+  visaType?: string;
+  // Tours & Transfers specific
+  tourDescription?: string;
+  tourDate?: string | null;
+  persons?: number | null;
+  // Insurance specific
+  insuranceType?: string;
+  insuranceDays?: number | null;
+  // Other / notes
+  description?: string;
+  // Live admin-defined custom fields: { [fieldId or label]: value }
+  customValues?: Record<string, string>;
+}
+
+export interface CrmPurchase {
+  id: string;
+  purchaseNo: string;
+  createdBy: string;
+  customerName: string;
+  careOf: string;
+  crmId: string;
+  purchaseDate: string;
+  currency: string;
+  items: CrmPurchaseItem[];
+  totalPayable: number;
+  totalReceivable: number;
+  notes: string;
+  status: 'unpaid' | 'paid' | 'partial';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CrmData {
   customers: CrmCustomer[];
   followups: CrmFollowup[];
@@ -273,6 +343,9 @@ export interface CrmData {
   inventory: CrmInventoryRequest[];
   inventoryItems: string[];
   sales: CrmSale[];
+  purchases?: CrmPurchase[];
+  purchaseCustomFields?: PurchaseCustomField[];
+  purchaseCustomCategories?: PurchaseCustomCategory[];
   invoices: CrmInvoice[];
   receipts: CrmReceipt[];
   company: CompanyProfile;

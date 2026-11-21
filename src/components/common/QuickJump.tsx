@@ -38,6 +38,7 @@ export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, o
       );
       if (staff || currentUser.salesAccess) list.push({ tab: 'crm-sales', label: 'Sales', hint: 'Sales requests' });
       list.push(
+        { tab: 'crm-purchases', label: 'Purchases', hint: 'Vendor purchases (Tickets, Hotels, Visas, Tours, Insurance)' },
         { tab: 'crm-receipts', label: 'Receipts', hint: 'Payment receipts' },
         { tab: 'crm-invoices', label: 'Invoices', hint: 'Customer invoices and vendor payables' },
         { tab: 'crm-notifications', label: 'Notifications', hint: 'Your alerts' },
