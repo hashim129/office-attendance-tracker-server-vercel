@@ -1,5 +1,5 @@
 import { AttendanceRecord, Employee, OfficeSettings, ShiftSchedule } from '../types';
-import { punchNotesText } from './punchNotes';
+import { getPunchNotes, punchNoteLabel, punchNotesText } from './punchNotes';
 import {
   calculateBreaksDuration,
   formatMinutesToDecimal,
@@ -178,3 +178,12 @@ export function exportAttendanceToCsv({
 
   downloadCsvFile(csvContent, `${filePrefix}_${timestamp}.csv`);
 }
+
+/** One row per remark: date, employee, punch times, type, time written and the remark itself. */
+export function exportRemarksToCsv(rows: { date: string; code: string; name: string; department: string; timeIn: string; timeOut: string; type: string; written: string; text: string }[], filename: string): void {
+  const header = ['Date', 'Employee ID', 'Employee', 'Department', 'Punch In', 'Punch Out', 'Remark Type', 'Written At (PKT)', 'Remark'];
+  const lines = rows.map((r) => [r.date, r.code, r.name, r.department, r.timeIn, r.timeOut, r.type, r.written, r.text].map(escapeCsvCell).join(','));
+  downloadCsvFile([header.map(escapeCsvCell).join(','), ...lines].join('\r\n'), filename);
+}
+
+export { getPunchNotes, punchNoteLabel };
