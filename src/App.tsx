@@ -72,6 +72,7 @@ import { CRM_ENABLED } from './crm/config';
 import { useCrm } from './crm/useCrm';
 import { CrmPage } from './crm/CrmPage';
 import { PageHero } from './components/common/PageHero';
+import { DirectivePopup } from './components/common/DirectivePopup';
 import { LiveAlerts } from './crm/LiveAlerts';
 import { KioskMode } from './components/kiosk/KioskMode';
 
@@ -982,6 +983,14 @@ export default function App() {
     saveSettings(stamped, currentUserRef.current?.role || 'admin');
   };
 
+  const handleRecheckNetwork = async () => {
+    const net = await detectClientNetwork();
+    setCurrentClientIp(net.ip);
+    setCurrentClientIsp(net.isp);
+    if (net.ipv4 && net.ip !== net.ipv4) setAlternateIp(net.ipv4);
+    else if (net.ipv6 && net.ip !== net.ipv6) setAlternateIp(net.ipv6);
+  };
+
   const handleReloadAllData = () => {
     setEmployees(loadEmployees());
     setShifts(loadShifts());
@@ -1083,6 +1092,7 @@ export default function App() {
                 <ErrorBoundary>
                 {activeTab === 'clock' && (
                 <PunchClockTab
+                  onRecheckNetwork={handleRecheckNetwork}
                   currentUser={currentUser}
                   allEmployees={statEmployees}
                   shifts={shifts}
@@ -1216,6 +1226,7 @@ export default function App() {
               )}
               </ErrorBoundary>
               {CRM_ENABLED && <LiveAlerts crm={crm} onOpen={setActiveTab} />}
+              {currentUser && <DirectivePopup comments={ceoComments} userId={currentUser.id} onRead={handleMarkCeoCommentRead} />}
       <QuickJump currentUser={currentUser} crmEnabled={CRM_ENABLED} onSelectTab={setActiveTab} />
             </div>
             </main>

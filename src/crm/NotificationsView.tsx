@@ -6,8 +6,8 @@ import { CrmCategory, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { Pill, btnGhost, cardCls, fmtDateTime, isWorkPrompt } from './ui';
 
-const LABEL: Record<CrmCategory, string> = { followup: 'Follow-up / Task', meeting: 'Meeting', inventory: 'Inventory', sale: 'Sales', reminder: 'Reminder', invoice: 'Invoice', receipt: 'Receipt' };
-const TARGET: Record<CrmCategory, ActiveDesktopTab> = { followup: 'crm-tasks', meeting: 'crm-meetings', inventory: 'crm-inventory', sale: 'crm-sales', reminder: 'clock', invoice: 'crm-invoices', receipt: 'crm-receipts' };
+const LABEL: Record<CrmCategory, string> = { followup: 'Follow-up / Task', meeting: 'Meeting', inventory: 'Inventory', sale: 'Sales', reminder: 'Reminder', invoice: 'Invoice', receipt: 'Receipt', customer: 'Customer' };
+const TARGET: Record<CrmCategory, ActiveDesktopTab> = { followup: 'crm-tasks', meeting: 'crm-meetings', inventory: 'crm-inventory', sale: 'crm-sales', reminder: 'clock', invoice: 'crm-invoices', receipt: 'crm-receipts', customer: 'crm-customers' };
 
 interface Props {
   crm: CrmState;

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pencil, Plus, Search, Trash2, X, ClipboardList, Globe } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
@@ -19,6 +19,14 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
   const canChange = (c: CrmCustomer) => seesAll || c.createdBy === currentUser.id;
   const { customers, followups } = crm.data;
   const portalQueries = crm.data.portalQueries || [];
+  // Opening the Customers page clears its "new" badge shortly after (so the person sees what is new first).
+  const hasNewCustomers = crm.data.unread.some((u) => u.category === 'customer');
+  useEffect(() => {
+    if (!hasNewCustomers) return;
+    const t = window.setTimeout(() => { void crm.markRead('customer'); }, 4000);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasNewCustomers]);
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const [query, setQuery] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -130,7 +138,8 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
 
       <ErrorNote message={crm.error} />
 
-      {/* Live Customers Portal Generated Queries Bar */}
+      {/* Live Customers Portal Generated Queries Bar (Admin, or employees an admin allowed) */}
+      {(currentUser.role === 'admin' || currentUser.customerPortalAccess) && (
       <div className={`${cardCls} p-4 border-sky-200 dark:border-sky-900/60 bg-gradient-to-r from-sky-50/70 via-white to-indigo-50/50 dark:from-sky-950/30 dark:via-slate-900 dark:to-indigo-950/20 space-y-3`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
@@ -282,6 +291,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
           </div>
         )}
       </div>
+      )}
 
       <div className={`${cardCls} overflow-hidden`}>
         {crm.loading && !customers.length ? (

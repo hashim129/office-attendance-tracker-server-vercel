@@ -26,7 +26,8 @@ const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.
 
 export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
-  const { meetings, customers, unread, bookedSlots } = crm.data;
+  const { meetings, customers, unread } = crm.data;
+  const bookedSlots = useMemo(() => crm.data.bookedSlots || [], [crm.data.bookedSlots]);
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const customerOf = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const staff = employees.filter((e) => e.isActive !== false);
@@ -201,10 +202,10 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
   };
 
   const card = (m: CrmMeeting) => {
-    const mine = m.attendeeIds.includes(currentUser.id) || m.requestedBy === currentUser.id;
+    const mine = (m.attendeeIds || []).includes(currentUser.id) || m.requestedBy === currentUser.id;
     const cust = m.customerId ? customerOf.get(m.customerId) : undefined;
     const who = [
-      ...m.attendeeIds.map((id) => empName.get(id) || 'Former employee'),
+      ...(m.attendeeIds || []).map((id) => empName.get(id) || 'Former employee'),
       ...(cust ? [`${cust.customerName}${cust.companyName ? ` (${cust.companyName})` : ''}`] : []),
       ...(m.externalName ? [m.externalName] : []),
     ];

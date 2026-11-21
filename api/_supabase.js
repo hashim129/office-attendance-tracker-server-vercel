@@ -120,6 +120,7 @@ function mapDbEmployee(r) {
   );
   const crmCustomerAccess = Boolean(pendingObj?.crmCustomerAccess);
   const salesAccess = Boolean(pendingObj?.salesAccess);
+  const customerPortalAccess = Boolean(pendingObj?.customerPortalAccess);
 
   return {
     id: r.id,
@@ -142,6 +143,7 @@ function mapDbEmployee(r) {
     allowWorkFromHome,
     crmCustomerAccess,
     salesAccess,
+    customerPortalAccess,
     registeredDeviceId: r.registered_device_id || undefined,
     registeredDeviceName: r.registered_device_name || undefined,
     registeredAt: r.registered_at || undefined,
@@ -164,6 +166,7 @@ function mapAppEmployeeToDb(e) {
     allowWorkFromHome: Boolean(e.allowWorkFromHome),
     crmCustomerAccess: Boolean(e.crmCustomerAccess),
     salesAccess: Boolean(e.salesAccess),
+    customerPortalAccess: Boolean(e.customerPortalAccess),
   };
 
   return {
@@ -392,9 +395,12 @@ function mapDbComment(r) {
     id: r.id,
     recordId: r.record_id || '',
     employeeId: r.employee_id || '',
+    employeeName: r.employee_name || '',
+    fromName: r.author_name || '',
+    fromRole: r.from_role || 'ceo',
+    message: r.comment || '',
     date: r.date || '',
-    comment: r.comment || '',
-    authorName: r.author_name || '',
+    isRead: Boolean(r.is_read),
     createdAt: r.created_at || undefined,
     updatedAt: r.updated_at || undefined,
   };
@@ -405,9 +411,12 @@ function mapAppCommentToDb(c) {
     id: c.id,
     record_id: c.recordId || '',
     employee_id: c.employeeId || '',
-    date: c.date || '',
-    comment: c.comment,
-    author_name: c.authorName || '',
+    employee_name: c.employeeName || '',
+    date: (c.date || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
+    comment: String(c.message ?? c.comment ?? ''),
+    author_name: c.fromName || c.authorName || '',
+    from_role: c.fromRole || 'ceo',
+    is_read: Boolean(c.isRead),
     created_at: c.createdAt || new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
@@ -949,6 +958,9 @@ function authorizeExternalMutation(incoming, ctx) {
     if (!actor) throw needSignIn();
     const c = incoming.changedComment;
     if (!c || c.employeeId !== actor.id) throw forbidden();
+    // An employee can only mark their own note as read; nothing else about it can be changed.
+    incoming.markReadId = c.id;
+    incoming.markReadEmployeeId = actor.id;
     incoming.changedComment = undefined;
     incoming.ceoComments = [];
   }
@@ -1172,6 +1184,12 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
       });
     }
   } else if (scope === 'ceoComments') {
+    if (incoming.markReadId && incoming.markReadEmployeeId) {
+      await supabaseFetch(`/ceo_comments?id=eq.${encodeURIComponent(incoming.markReadId)}&employee_id=eq.${encodeURIComponent(incoming.markReadEmployeeId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_read: true, updated_at: new Date().toISOString() }),
+      });
+    }
     const comments = incoming.changedComment ? [incoming.changedComment] : incoming.ceoComments || [];
     if (comments.length > 0) {
       const rows = comments.map(mapAppCommentToDb);

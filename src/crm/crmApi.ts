@@ -1,6 +1,6 @@
 import { getSessionToken } from '../lib/storage';
 
-export type FollowupKind = 'meeting' | 'corporate' | 'internal' | 'regular';
+export type FollowupKind = 'meeting' | 'corporate' | 'internal' | 'regular' | 'personal';
 export type InventoryStatus = 'pending' | 'approved' | 'rejected' | 'delivered';
 export type FollowupStatus = 'pending' | 'completed' | 'not_completed' | 'rescheduled';
 export type MeetingStatus = 'scheduled' | 'pending_approval' | 'rejected' | 'cancelled' | 'completed';
@@ -95,6 +95,7 @@ export interface CrmBadges {
   salesNew: number;
   invoiceNew: number;
   receiptNew: number;
+  customersNew: number;
   salesPending: number;
   unreadTotal: number;
   /** My open deadlines (follow-ups / meetings) within the next 3 days, plus just-missed ones. */
@@ -102,7 +103,7 @@ export interface CrmBadges {
   unreadLatest: { id: string; category: CrmCategory; message: string }[];
 }
 
-export type CrmCategory = 'followup' | 'meeting' | 'inventory' | 'sale' | 'reminder' | 'invoice' | 'receipt';
+export type CrmCategory = 'followup' | 'meeting' | 'inventory' | 'sale' | 'reminder' | 'invoice' | 'receipt' | 'customer';
 
 export interface CrmUpcoming {
   kind: 'followup' | 'meeting';
@@ -395,6 +396,8 @@ export interface CrmData {
   customers: CrmCustomer[];
   followups: CrmFollowup[];
   meetings: CrmMeeting[];
+  /** Times the CEO is booked through a Meeting follow-up (shown in the Meetings portal) */
+  bookedSlots: { id: string; title: string; startAt: string; endAt: string }[];
   unread: CrmUnread[];
   inventory: CrmInventoryRequest[];
   inventoryItems: string[];
@@ -412,7 +415,7 @@ export interface CrmData {
   badges: CrmBadges;
 }
 
-export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0, salesNew: 0, invoiceNew: 0, receiptNew: 0, salesPending: 0, unreadTotal: 0, upcoming: [], unreadLatest: [] };
+export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0, salesNew: 0, invoiceNew: 0, receiptNew: 0, customersNew: 0, salesPending: 0, unreadTotal: 0, upcoming: [], unreadLatest: [] };
 
 export class CrmError extends Error {
   code?: string;

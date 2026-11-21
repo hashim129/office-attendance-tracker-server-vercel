@@ -81,6 +81,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     isActive: true,
     allowWorkFromHome: false,
     salesAccess: false,
+    customerPortalAccess: false,
   });
 
   const departments = Array.from(new Set(employees.map((e) => e.department))).sort();
@@ -116,6 +117,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       isActive: true,
       allowWorkFromHome: false,
       salesAccess: false,
+      customerPortalAccess: false,
     });
     setIsAddModalOpen(true);
   };
@@ -136,6 +138,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       isActive: emp.isActive,
       allowWorkFromHome: Boolean(emp.allowWorkFromHome),
       salesAccess: Boolean(emp.salesAccess),
+      customerPortalAccess: Boolean(emp.customerPortalAccess),
     });
   };
 
@@ -281,6 +284,9 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   <div className="flex items-center gap-1.5 flex-wrap justify-end">
                     {emp.salesAccess && !['admin', 'accounts', 'ceo'].includes(emp.role) && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 dark:bg-violet-950/70 dark:text-violet-300 border border-violet-200 dark:border-violet-900">Sales access</span>
+                    )}
+                    {emp.customerPortalAccess && emp.role !== 'admin' && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 dark:bg-sky-950/70 dark:text-sky-300 border border-sky-200 dark:border-sky-900">Customer Portal</span>
                     )}
                     {emp.allowWorkFromHome && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 inline-flex items-center gap-1">
@@ -685,6 +691,23 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   type="checkbox"
                   checked={Boolean(formData.salesAccess)}
                   onChange={(e) => setFormData({ ...formData, salesAccess: e.target.checked })}
+                  className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+              </label>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-sky-50/70 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900/60">
+              <label className="flex items-start justify-between gap-3 cursor-pointer select-none">
+                <div className="flex-1">
+                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100">Can see the Customer Portal (Beta)</span>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    Off by default. When enabled, this employee sees the Customer Portal link and the live portal queries. Admins always have it.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={Boolean(formData.customerPortalAccess)}
+                  onChange={(e) => setFormData({ ...formData, customerPortalAccess: e.target.checked })}
                   className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
               </label>

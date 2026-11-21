@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CRM_ENABLED } from './config';
 import { CrmData, CrmBadges, CrmCategory, EMPTY_BADGES, EMPTY_COMPANY, crmCall } from './crmApi';
 
-const EMPTY: CrmData = { customers: [], followups: [], meetings: [], unread: [], inventory: [], inventoryItems: [], sales: [], purchases: [], portalQueries: [], purchaseCustomFields: [], purchaseCustomCategories: [], invoices: [], receipts: [], company: EMPTY_COMPANY, history: [], saleTypes: {}, currencies: [], badges: EMPTY_BADGES };
+const EMPTY: CrmData = { customers: [], followups: [], meetings: [], bookedSlots: [], unread: [], inventory: [], inventoryItems: [], sales: [], purchases: [], portalQueries: [], purchaseCustomFields: [], purchaseCustomCategories: [], invoices: [], receipts: [], company: EMPTY_COMPANY, history: [], saleTypes: {}, currencies: [], badges: EMPTY_BADGES };
 
 export interface CrmState {
   data: CrmData;
@@ -30,7 +30,7 @@ export function useCrm(signedIn: boolean, onCrmPage: boolean): CrmState {
     if (!loaded.current) setLoading(true);
     try {
       const r = await crmCall<CrmData & { ok: boolean }>('list');
-      setData({ customers: r.customers, followups: r.followups, meetings: r.meetings, unread: r.unread, inventory: r.inventory || [], inventoryItems: r.inventoryItems || [], sales: r.sales || [], purchases: r.purchases || [], portalQueries: r.portalQueries || [], purchaseCustomFields: r.purchaseCustomFields || [], purchaseCustomCategories: r.purchaseCustomCategories || [], invoices: r.invoices || [], receipts: r.receipts || [], company: r.company || EMPTY_COMPANY, history: r.history || [], saleTypes: r.saleTypes || {}, currencies: r.currencies || [], badges: r.badges });
+      setData({ customers: r.customers, followups: r.followups, meetings: r.meetings, bookedSlots: r.bookedSlots || [], unread: r.unread, inventory: r.inventory || [], inventoryItems: r.inventoryItems || [], sales: r.sales || [], purchases: r.purchases || [], portalQueries: r.portalQueries || [], purchaseCustomFields: r.purchaseCustomFields || [], purchaseCustomCategories: r.purchaseCustomCategories || [], invoices: r.invoices || [], receipts: r.receipts || [], company: r.company || EMPTY_COMPANY, history: r.history || [], saleTypes: r.saleTypes || {}, currencies: r.currencies || [], badges: r.badges });
       loaded.current = true;
       setError('');
     } catch (e: any) {
@@ -80,6 +80,7 @@ export function useCrm(signedIn: boolean, onCrmPage: boolean): CrmState {
         if (all || category === 'sale') b.salesNew = 0;
         if (all || category === 'invoice') b.invoiceNew = 0;
         if (all || category === 'receipt') b.receiptNew = 0;
+        if (all || category === 'customer') b.customersNew = 0;
         return {
           ...d,
           unread: d.unread.filter((u) => !all && u.category !== category),

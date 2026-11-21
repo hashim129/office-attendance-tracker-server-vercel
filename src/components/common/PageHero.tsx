@@ -31,7 +31,7 @@ function heroFor(tab: ActiveDesktopTab, crm: CrmState, isAdmin: boolean): Hero |
     case 'shifts': return { tone: 'slate', line: 'Set when the day starts, ends and who works when.' };
     case 'reports': return { tone: 'slate', line: 'Attendance, remarks and payroll ready to download.' };
     case 'settings': return { tone: 'slate', line: 'Office, network and security settings.' };
-    case 'crm-customers': return { tone: 'violet', line: 'Every great trip starts with a good conversation.', chips: [plural(data.customers.length, 'customer')] };
+    case 'crm-customers': return { tone: 'violet', line: 'Every great trip starts with a good conversation.', chips: [plural(data.customers.length, 'customer'), ...(badges.customersNew > 0 ? [`${badges.customersNew} new`] : [])] };
     case 'crm-tasks': return {
       tone: 'violet',
       line: badges.tasksOpen > 0 ? `You have ${plural(badges.tasksOpen, 'follow-up')} waiting. One at a time, you've got this!` : 'You are all caught up. Nice work!',
