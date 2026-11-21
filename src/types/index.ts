@@ -45,6 +45,8 @@ export interface AttendanceRecord {
   overtimeMinutes: number;
   status: AttendanceStatus;
   notes?: string;
+  /** Every punch-in / punch-out / extra remark, kept permanently (the `notes` field only shows the latest) */
+  notesLog?: { id: string; at: string; kind: 'punch_in' | 'punch_out' | 'note' | 'admin_note' | 'system'; by: string; text: string }[];
   isManuallyAdjusted?: boolean;
   adjustmentNote?: string;
   adjustedBy?: string;
