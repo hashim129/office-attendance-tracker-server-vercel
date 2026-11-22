@@ -225,14 +225,16 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
                   <div key={n.id} className="py-2 text-xs text-slate-700 dark:text-slate-200">
                     <p className="leading-relaxed">{n.message}</p>
                     {isWorkPrompt(n.id) && (
-                      <button disabled={confirmingWork} onClick={() => void confirmWorking()} className="mt-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 cursor-pointer disabled:opacity-60">
-                        {confirmingWork ? 'Saving confirmation…' : workConfirmFeedback?.type === 'success' ? 'Confirmed' : "Yes, I'm working"}
-                      </button>
-                      {workConfirmFeedback && (
-                        <p role="status" aria-live="polite" className={`mt-1.5 text-[11px] leading-relaxed ${workConfirmFeedback.type === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-400'}`}>
-                          {workConfirmFeedback.message}
-                        </p>
-                      )}
+                      <>
+                        <button disabled={confirmingWork} onClick={() => void confirmWorking()} className="mt-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 cursor-pointer disabled:opacity-60">
+                          {confirmingWork ? 'Saving confirmation…' : workConfirmFeedback?.type === 'success' ? 'Confirmed' : "Yes, I'm working"}
+                        </button>
+                        {workConfirmFeedback && (
+                          <p role="status" aria-live="polite" className={`mt-1.5 text-[11px] leading-relaxed ${workConfirmFeedback.type === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-400'}`}>
+                            {workConfirmFeedback.message}
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 ))}
