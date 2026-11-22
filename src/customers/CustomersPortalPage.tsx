@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { fmtAmount } from '../crm/currencies';
 import PlaneAnimation from './PlaneAnimation';
+import DestinationGlobe from './DestinationGlobe';
 import { Confetti, FloatingScene, PlaneFlight, RotatingWord, useTiltCards } from './PortalFx';
 import {
   CURATED_DESTINATIONS,
@@ -986,6 +987,7 @@ export default function CustomersPortalPage() {
   const foundData = lookupState.kind === 'found' ? lookupState.data : null;
   useTiltCards();
   const [flightKey, setFlightKey] = useState(0);
+  const [surpriseKey, setSurpriseKey] = useState('');
   useEffect(() => {
     if (lookupState.kind === 'loading') setFlightKey((n) => n + 1);
   }, [lookupState.kind]);
@@ -1713,7 +1715,7 @@ export default function CustomersPortalPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
-      <Confetti burstKey={confettiKey} />
+      <Confetti burstKey={confettiKey || surpriseKey} />
       <PlaneFlight flightKey={flightKey} />
       {/* Screen Header */}
       <header className="no-print sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
@@ -2745,6 +2747,9 @@ export default function CustomersPortalPage() {
             </div>
           </section>
         )}
+
+        {/* Interactive 3D globe: spin it, pick a pin, or let us surprise you */}
+        <DestinationGlobe destinations={CURATED_DESTINATIONS} onOpen={(dest) => setActiveDestination(dest)} onSurprise={() => setSurpriseKey(`surprise-${Date.now()}`)} />
 
         {/* Curated Worldwide Destinations Showcase */}
         <section className="no-print space-y-5 pt-2">

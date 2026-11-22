@@ -466,3 +466,28 @@ button:not(:disabled):active { transform: scale(0.97); }
 /* keep the 3D scene to the hero area even when a result or error panel opens under it */
 @media (min-width: 1024px) { .fx-stage { inset: 0 0 auto 0; height: 300px; } }
 @media (max-width: 1023px) { .fx-stage { inset: 0 0 auto 0; height: min(100%, 460px); } }
+
+/* Per-button gradient colours (--g1 / --g2 are set by the sidebar) */
+.nav-scope button > svg:first-child,
+.nav-scope button > div:first-child > svg:first-child,
+.nav-scope button > span:first-child > svg:first-child {
+  background: color-mix(in srgb, var(--g1, #64748b) 16%, transparent);
+  color: var(--g1, inherit);
+}
+.nav-scope button:not(.text-white):hover > svg:first-child,
+.nav-scope button:not(.text-white):hover > div:first-child > svg:first-child,
+.nav-scope button:not(.text-white):hover > span:first-child > svg:first-child {
+  background: linear-gradient(135deg, var(--g1, #2563eb), var(--g2, #4f46e5));
+  color: #fff;
+  box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--g1, #2563eb) 80%, transparent);
+}
+.nav-scope button.text-white > svg:first-child,
+.nav-scope button.text-white > div:first-child > svg:first-child,
+.nav-scope button.text-white > span:first-child > svg:first-child { background: rgba(255, 255, 255, 0.24); color: #fff; }
+.nav-scope button:not(.text-white):hover {
+  background-image: linear-gradient(110deg, color-mix(in srgb, var(--g1, #2563eb) 18%, white), color-mix(in srgb, var(--g2, #4f46e5) 6%, white) 70%, transparent) !important;
+}
+.dark .nav-scope button:not(.text-white):hover {
+  background-image: linear-gradient(110deg, color-mix(in srgb, var(--g1, #2563eb) 28%, #0f172a), color-mix(in srgb, var(--g2, #4f46e5) 10%, #0f172a) 70%, transparent) !important;
+}
+.nav-scope button:not(.text-white)::before { background: linear-gradient(180deg, var(--g1, #38bdf8), var(--g2, #6366f1)); }
