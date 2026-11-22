@@ -520,3 +520,49 @@ button:not(:disabled):active { transform: scale(0.97); }
 .fx-results-pop { transform-origin: top center; animation: fx-pop 0.75s cubic-bezier(0.2, 0.9, 0.3, 1.15) both; }
 @keyframes fx-pop { 0% { opacity: 0; transform: scale(0.72) translateY(40px); filter: blur(8px); } 60% { opacity: 1; transform: scale(1.025); filter: blur(0); } 100% { opacity: 1; transform: none; filter: none; } }
 @media (prefers-reduced-motion: reduce) { .fx-jet-layer { display: none; } .fx-results-pop { animation: none; } }
+
+/* ---- Customer portal: visa stamp, Urdu text, WhatsApp button ---- */
+.visa-stamp {
+  position: absolute;
+  top: 0.45rem;
+  right: 2.6rem;
+  pointer-events: none;
+  transform: rotate(-12deg);
+  animation: visa-stamp-slam 0.7s cubic-bezier(0.2, 1.4, 0.4, 1) 0.35s both;
+}
+.visa-stamp-inner {
+  display: inline-block;
+  border: 2.5px solid #059669;
+  color: #059669;
+  border-radius: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  background: rgba(236, 253, 245, 0.85);
+  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.15) inset;
+}
+@keyframes visa-stamp-slam {
+  0% { opacity: 0; transform: rotate(-12deg) scale(2.6); }
+  60% { opacity: 1; transform: rotate(-12deg) scale(0.92); }
+  100% { opacity: 1; transform: rotate(-12deg) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .visa-stamp { animation: none; }
+}
+
+/* Urdu mode: Urdu-friendly font and text that reads right-to-left (page layout stays the same) */
+.lang-ur body {
+  font-family: 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Noto Naskh Arabic', 'Segoe UI', Tahoma, system-ui, sans-serif;
+}
+.lang-ur :is(p, h1, h2, h3, h4, label, li, dt, dd) {
+  direction: rtl;
+  text-align: start;
+  line-height: 1.9;
+}
+.lang-ur :is(h1, h2, h3) { line-height: 1.7; }
+.lang-ur input::placeholder { direction: rtl; }
+.lang-ur :is(button, a, span) { unicode-bidi: plaintext; }
+@media print {
+  .wa-fab { display: none !important; }
+}

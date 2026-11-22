@@ -667,6 +667,19 @@ export default async function handler(req, res) {
       } catch {
         recentQueries = [];
       }
+      // Public, customer-safe settings the admin controls (currently just the WhatsApp contact)
+      let portalConfig = { whatsappNumber: '', whatsappMessage: '' };
+      try {
+        const cfgRows = await supabaseFetch('/crm_company?id=eq.portal-config&select=data');
+        const cfg = parseJsonObj(cfgRows?.[0]?.data, {});
+        const digits = String(cfg.whatsappNumber || '').replace(/\D+/g, '');
+        portalConfig = {
+          whatsappNumber: digits.length >= 8 && digits.length <= 15 ? `+${digits}` : '',
+          whatsappMessage: String(cfg.whatsappMessage || '').slice(0, 300),
+        };
+      } catch {
+        /* the portal works fine without it */
+      }
       return res.status(200).json({
         ok: true,
         available: true,
@@ -675,6 +688,7 @@ export default async function handler(req, res) {
           logo: '/bahaar-logo.png',
         },
         recentQueries,
+        config: portalConfig,
       });
     }
 
