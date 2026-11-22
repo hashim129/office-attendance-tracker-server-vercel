@@ -26,7 +26,8 @@ import {
 } from 'lucide-react';
 import { fmtAmount } from '../crm/currencies';
 import PlaneAnimation from './PlaneAnimation';
-import DestinationGlobe from './DestinationGlobe';
+import { inSeason } from './season';
+import JourneySteps from './JourneySteps';
 import { Confetti, FloatingScene, PlaneFlight, RotatingWord, useTiltCards } from './PortalFx';
 import {
   CURATED_DESTINATIONS,
@@ -721,6 +722,9 @@ export default function CustomersPortalPage() {
   const [activeStepId, setActiveStepId] = useState<string>('booking');
 
   const [selectedRegion, setSelectedRegion] = useState<'All' | DestinationRegion>('All');
+  const [inSeasonOnly, setInSeasonOnly] = useState(false);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const thisMonth = new Date().getMonth();
   const [activeDestination, setActiveDestination] = useState<Destination | null>(null);
   const [copiedShare, setCopiedShare] = useState(false);
 
@@ -1460,17 +1464,29 @@ export default function CustomersPortalPage() {
 
   const displayedDestinations = useMemo(() => {
     const matchedSet = new Set(matchedDestinationIds);
-    const pool =
+    const byRegion =
       selectedRegion === 'All'
         ? CURATED_DESTINATIONS
         : CURATED_DESTINATIONS.filter((d) => d.region === selectedRegion);
+    const pool = inSeasonOnly ? byRegion.filter((d) => inSeason(d.bestSeason, new Date().getMonth())) : byRegion;
 
     return [...pool].sort((a, b) => {
       const am = matchedSet.has(a.id) ? 0 : 1;
       const bm = matchedSet.has(b.id) ? 0 : 1;
       return am - bm;
     });
-  }, [selectedRegion, matchedDestinationIds]);
+  }, [selectedRegion, inSeasonOnly, matchedDestinationIds]);
+
+  const inSeasonCount = CURATED_DESTINATIONS.filter((d) => inSeason(d.bestSeason, thisMonth)).length;
+  const surpriseMe = () => {
+    const pool = displayedDestinations.length ? displayedDestinations : CURATED_DESTINATIONS;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    setHighlightId(pick.id);
+    setSurpriseKey(`surprise-${Date.now()}`);
+    document.getElementById(`dest-card-${pick.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => setActiveDestination(pick), 1500);
+    window.setTimeout(() => setHighlightId(null), 2600);
+  };
 
   const planeProps = useMemo(() => {
     if (!foundData) {
@@ -2748,8 +2764,8 @@ export default function CustomersPortalPage() {
           </section>
         )}
 
-        {/* Interactive 3D globe: spin it, pick a pin, or let us surprise you */}
-        <DestinationGlobe destinations={CURATED_DESTINATIONS} onOpen={(dest) => setActiveDestination(dest)} onSurprise={() => setSurpriseKey(`surprise-${Date.now()}`)} />
+        {/* How tracking works: the real stages a booking moves through */}
+        <JourneySteps />
 
         {/* Curated Worldwide Destinations Showcase */}
         <section className="no-print space-y-5 pt-2">
@@ -2788,6 +2804,31 @@ export default function CustomersPortalPage() {
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setInSeasonOnly((v) => !v)}
+              aria-pressed={inSeasonOnly}
+              className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                inSeasonOnly ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-slate-200 text-slate-700 hover:border-emerald-300 hover:text-emerald-700'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${inSeasonOnly ? 'bg-white' : 'bg-emerald-500'} animate-pulse`} />
+              In season now ({inSeasonCount})
+            </button>
+            <button
+              type="button"
+              onClick={surpriseMe}
+              className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 hover:bg-sky-100 px-3.5 py-1.5 text-xs font-semibold text-sky-800 transition-colors cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-sky-600" />
+              Surprise me
+            </button>
+            <span className="text-xs text-slate-500">
+              {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}: {inSeasonCount} of {CURATED_DESTINATIONS.length} destinations are in their best season.
+            </span>
+          </div>
+
           {/* Panoramic Featured Destination Photo Slider */}
           <FeaturedDestinationHeroSlider
             destinations={displayedDestinations}
@@ -2812,6 +2853,7 @@ export default function CustomersPortalPage() {
               return (
                 <div
                   key={dest.id}
+                  id={`dest-card-${dest.id}`}
                   data-tilt
                   onClick={() => setActiveDestination(dest)}
                   role="button"
@@ -2823,7 +2865,9 @@ export default function CustomersPortalPage() {
                     }
                   }}
                   className={`group text-left rounded-3xl border bg-white overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col ${
-                    isMatched
+                    highlightId === dest.id
+                      ? 'border-sky-400 ring-4 ring-sky-400/40 scale-[1.02]'
+                      : isMatched
                       ? 'border-emerald-300 ring-2 ring-emerald-500/15'
                       : 'border-slate-200 hover:border-sky-300'
                   }`}
@@ -2850,7 +2894,14 @@ export default function CustomersPortalPage() {
 
                     <div className="space-y-2.5 pt-3 border-t border-slate-100">
                       <div className="flex items-center justify-between gap-2 text-xs">
-                        <span className="font-medium text-slate-500">Best: {dest.bestSeason}</span>
+                        <span className="font-medium text-slate-500">
+                          Best: {dest.bestSeason}
+                          {inSeason(dest.bestSeason, thisMonth) && (
+                            <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> In season now
+                            </span>
+                          )}
+                        </span>
                         <span className="font-semibold text-sky-700 group-hover:translate-x-0.5 transition-transform">
                           View Guide →
                         </span>
