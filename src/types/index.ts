@@ -202,6 +202,7 @@ export interface OfficeSettings {
   autoPunchOutOnInactiveHours?: number; // Auto punch out after N hours of device inactivity (default 2, 0=off)
   disconnectThresholdMinutes?: number; // Minutes without heartbeat before marking "No Internet" (default 3)
   customerPortalBetaEnabled?: boolean; // Beta toggle for public /customers portal & invoice Visa tracking (default false)
+  redesignedUiBetaEnabled?: boolean; // Admin-approved, reversible redesigned workspace rollout (default false)
   settingsUpdatedAt?: string;
 }
 

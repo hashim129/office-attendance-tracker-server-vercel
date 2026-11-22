@@ -257,6 +257,31 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
+        <section className="rounded-2xl border border-indigo-300/70 dark:border-indigo-800 bg-gradient-to-br from-indigo-50/80 to-white dark:from-indigo-950/30 dark:to-slate-900 p-5 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
+                <span>Workspace Redesign</span>
+                <span className="rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300 px-2 py-0.5 text-[10px] font-bold uppercase">Beta</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Preview the refreshed workspace experience. Only an administrator can enable or disable this rollout.</p>
+            </div>
+            <span className={`text-[11px] font-bold ${formData.redesignedUiBetaEnabled ? 'text-emerald-600' : 'text-slate-500'}`}>{formData.redesignedUiBetaEnabled ? 'BETA ACTIVE' : 'ORIGINAL UI'}</span>
+          </div>
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-indigo-200/70 dark:border-indigo-900/60 bg-white/70 dark:bg-slate-950/30 p-3">
+            <div className="min-w-0">
+              <span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">Enable redesigned UI (Beta)</span>
+              <span className="block mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">Turn OFF to immediately return to the original workspace styling. This does not change employee, attendance, shift or CRM data.</span>
+            </div>
+            <Switch tone="blue" label="Enable redesigned UI Beta" checked={formData.redesignedUiBetaEnabled === true} onChange={(v) => {
+              const updated = { ...formData, redesignedUiBetaEnabled: v };
+              setFormData(updated);
+              onUpdateSettings(updated);
+              setSaveSuccess(true);
+              setTimeout(() => setSaveSuccess(false), 3000);
+            }} />
+          </div>
+        </section>
         {/* Customer Portal & Visa Tracking (Beta) — Top of Settings */}
         <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border-2 border-blue-500/40 dark:border-blue-500/30 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">

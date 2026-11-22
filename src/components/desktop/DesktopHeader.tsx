@@ -197,133 +197,61 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             <span>Offline</span>
           </span>
         )}
-        {onOpenCrmNotifications && (
-          <div className="relative">
+        <div className="relative">
           <button
-            onClick={() => { setShowCrmBell((v) => !v); setShowNotifications(false); }}
-            className="p-2.5 rounded-xl text-slate-500 hover:text-blue-700 dark:text-slate-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-800 transition-all relative cursor-pointer"
-            title="Notifications & history"
-            aria-label={`Notifications${crmUnread > 0 ? `, ${crmUnread} unread` : ''}`}
+            type="button"
+            onClick={() => { setShowNotifications((v) => !v); setShowCrmBell(false); }}
+            className="relative rounded-xl p-2.5 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-300"
+            title="Smart notification center"
+            aria-label={`Notifications, ${unreadCount + crmUnread} unread`}
+            aria-expanded={showNotifications}
           >
-            <BellRing className="w-4 h-4" />
-            {crmUnread > 0 && (
-              <span className="absolute top-1 right-1 min-w-4 h-4 px-1 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">
-                {crmUnread > 99 ? '99+' : crmUnread}
-              </span>
-            )}
+            <BellRing className="h-4 w-4" />
+            {(unreadCount + crmUnread) > 0 && <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">{Math.min(unreadCount + crmUnread, 99)}{unreadCount + crmUnread > 99 ? '+' : ''}</span>}
           </button>
-          {showCrmBell && (
-            <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-3 z-50">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider">Notifications</h3>
-                <span className="text-[11px] font-medium text-slate-400">{crmUnread} unread</span>
+          {showNotifications && (
+            <div className="absolute right-0 z-50 mt-2 w-[min(92vw,25rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Notification Center</h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{unreadCount + crmUnread} unread · Updates for your workspace</p>
+                </div>
+                <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">LIVE</span>
               </div>
-              <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                {crmLatest.length === 0 ? (
-                  <p className="py-6 text-center text-xs text-slate-400">You're all caught up.</p>
-                ) : crmLatest.map((n) => (
-                  <div key={n.id} className="py-2 text-xs text-slate-700 dark:text-slate-200">
-                    <p className="leading-relaxed">{n.message}</p>
+              <div className="max-h-[min(65vh,28rem)] overflow-y-auto p-3">
+                {crmLatest.map((n) => (
+                  <div key={`crm-${n.id}`} className="mb-2 rounded-xl border border-slate-100 p-3 text-xs dark:border-slate-800">
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <span className="font-bold text-blue-700 dark:text-blue-300">{n.category || 'Workspace update'}</span>
+                      <span className="text-[10px] text-slate-400">CRM</span>
+                    </div>
+                    <p className="leading-relaxed text-slate-700 dark:text-slate-200">{n.message}</p>
                     {isWorkPrompt(n.id) && (
-                      <>
-                        <button disabled={confirmingWork} onClick={() => void confirmWorking()} className="mt-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-3 py-1.5 cursor-pointer disabled:opacity-60">
+                      <div className="mt-2">
+                        <button disabled={confirmingWork} onClick={() => void confirmWorking()} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-60">
                           {confirmingWork ? 'Saving confirmation…' : workConfirmFeedback?.type === 'success' ? 'Confirmed' : "Yes, I'm working"}
                         </button>
-                        {workConfirmFeedback && (
-                          <p role="status" aria-live="polite" className={`mt-1.5 text-[11px] leading-relaxed ${workConfirmFeedback.type === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-400'}`}>
-                            {workConfirmFeedback.message}
-                          </p>
-                        )}
-                      </>
+                        {workConfirmFeedback && <p role="status" aria-live="polite" className={`mt-1 text-[11px] ${workConfirmFeedback.type === 'success' ? 'text-emerald-600' : 'text-rose-600'}`}>{workConfirmFeedback.message}</p>}
+                      </div>
                     )}
                   </div>
                 ))}
-              </div>
-              <button
-                onClick={() => { setShowCrmBell(false); onOpenCrmNotifications?.(); }}
-                className="mt-2 w-full rounded-lg border border-slate-200 dark:border-slate-700 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-              >
-                View all notifications & history
-              </button>
-            </div>
-          )}
-          </div>
-        )}
-        {/* CEO / Executive Notifications Bell */}
-        <div className="relative">
-          <button
-            onClick={() => { setShowNotifications(!showNotifications); setShowCrmBell(false); }}
-            className="p-2 rounded-lg text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative cursor-pointer"
-            title="Executive Mentions & Directives"
-          >
-            <Bell className="w-4 h-4" />
-            {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center animate-pulse">
-                {unreadCount}
-              </span>
-            )}
-          </button>
-
-          {/* Notifications Dropdown Panel */}
-          {showNotifications && (
-            <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 p-4 z-50">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <Crown className="w-4 h-4 text-amber-500" />
-                  <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider">
-                    Executive Directives & Mentions
-                  </h3>
-                </div>
-                <span className="text-[11px] font-medium text-slate-400">
-                  {unreadCount} unread
-                </span>
-              </div>
-
-              <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 py-1">
-                {myNotifications.length === 0 ? (
-                  <div className="py-8 text-center text-xs text-slate-400">
-                    <MessageSquare className="w-6 h-6 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
-                    No mentions or directives yet.
-                  </div>
-                ) : (
-                  myNotifications.map((c) => (
-                    <div
-                      key={c.id}
-                      className={`p-3 text-xs transition-colors rounded-lg my-1 ${
-                        !c.isRead
-                          ? 'bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-900/60'
-                          : 'bg-transparent text-slate-600 dark:text-slate-400'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1">
-                          <Crown className="w-3 h-3 text-amber-500" />
-                          <span>{c.fromName} ({c.fromRole.toUpperCase()})</span>
-                        </span>
-                        <span className="text-[10px] text-slate-400">
-                          {c.date} · {new Date(c.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                      <p className="text-slate-800 dark:text-slate-200 mt-1 font-medium leading-relaxed">
-                        "{c.message}"
-                      </p>
-                      {!c.isRead && onMarkCeoCommentRead && (
-                        <button
-                          onClick={() => onMarkCeoCommentRead(c.id)}
-                          className="mt-2 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
-                        >
-                          <Check className="w-3 h-3" />
-                          <span>Mark as Read / Acknowledged</span>
-                        </button>
-                      )}
+                {myNotifications.map((c) => (
+                  <div key={`directive-${c.id}`} className={`mb-2 rounded-xl border p-3 text-xs ${!c.isRead ? 'border-amber-200 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-950/30' : 'border-slate-100 dark:border-slate-800'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-amber-700 dark:text-amber-400">{c.fromName} · {c.fromRole.toUpperCase()}</span>
+                      <span className="text-[10px] text-slate-400">{c.date}</span>
                     </div>
-                  ))
-                )}
+                    <p className="mt-1 leading-relaxed text-slate-800 dark:text-slate-200">{c.message}</p>
+                    {!c.isRead && onMarkCeoCommentRead && <button onClick={() => onMarkCeoCommentRead(c.id)} className="mt-2 inline-flex items-center gap-1 font-semibold text-emerald-700 hover:underline dark:text-emerald-400"><Check className="h-3 w-3" /> Mark as read</button>}
+                  </div>
+                ))}
+                {crmLatest.length === 0 && myNotifications.length === 0 && <div className="py-10 text-center"><Bell className="mx-auto mb-2 h-6 w-6 text-slate-300" /><p className="text-xs font-semibold text-slate-600 dark:text-slate-300">You're all caught up</p><p className="mt-1 text-[11px] text-slate-400">New reminders and updates will appear here.</p></div>}
               </div>
+              {onOpenCrmNotifications && <button onClick={() => { setShowNotifications(false); onOpenCrmNotifications(); }} className="w-full border-t border-slate-100 px-4 py-3 text-left text-xs font-bold text-blue-700 hover:bg-slate-50 dark:border-slate-800 dark:text-blue-300 dark:hover:bg-slate-800">Open notification history <span aria-hidden="true">→</span></button>}
             </div>
           )}
         </div>
-
         {currentUser.role === 'admin' && (
           <button
             onClick={onSwitchToKiosk}

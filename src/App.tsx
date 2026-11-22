@@ -1035,8 +1035,6 @@ export default function App() {
     >
       {/* Windows 11 Title Bar */}
       <WindowsTitleBar
-        appMode={appMode}
-        onToggleMode={handleToggleMode}
         isDark={isDark}
         onToggleTheme={handleToggleTheme}
         serverHost={settings.serverHostName}
@@ -1074,7 +1072,7 @@ export default function App() {
           isSyncing={isInitialCloudSyncing}
         />
       ) : (
-        <div className="app-reveal flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] min-w-0 w-full overflow-x-clip">
+        <div className={`app-reveal flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] min-w-0 w-full overflow-x-clip ${settings.redesignedUiBetaEnabled ? 'workforce-redesign-beta' : ''}`}>
           {/* Header */}
           <DesktopHeader
             currentUser={currentUser}
