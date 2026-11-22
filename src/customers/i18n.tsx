@@ -112,6 +112,11 @@ const UR: Record<string, string> = {
   // extras
   'Chat on WhatsApp': 'واٹس ایپ پر بات کریں',
   'Send to family on WhatsApp': 'واٹس ایپ پر گھر والوں کو بھیجیں',
+  'Current offers': 'موجودہ آفرز',
+  'Until': 'تک',
+  'Ask about this offer': 'اس آفر کے بارے میں پوچھیں',
+  'Message from our team': 'ہماری ٹیم کی طرف سے پیغام',
+  'Amounts for this booking are not shown online. Please contact our team for payment details.': 'اس بکنگ کی رقم آن لائن نہیں دکھائی جاتی۔ ادائیگی کی تفصیلات کے لیے ہماری ٹیم سے رابطہ کریں۔',
   'Install app': 'ایپ انسٹال کریں',
   'Add to Home Screen': 'ہوم اسکرین پر شامل کریں',
   'Tap Share, then "Add to Home Screen".': 'شیئر دبائیں، پھر "Add to Home Screen" منتخب کریں۔',

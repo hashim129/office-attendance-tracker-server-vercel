@@ -20,7 +20,7 @@ export function waLink(number: string, text: string) {
 }
 
 /** Floating "Chat on WhatsApp" button. Shows only when the admin has saved a number. */
-export function WhatsAppFab({ number, message }: { number: string; message: string }) {
+export function WhatsAppFab({ number, message, onTap }: { number: string; message: string; onTap?: () => void }) {
   const { t } = useLang();
   if (!waDigits(number)) return null;
   return (
@@ -28,6 +28,7 @@ export function WhatsAppFab({ number, message }: { number: string; message: stri
       href={waLink(number, message)}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={onTap}
       aria-label={t('Chat on WhatsApp')}
       className="no-print wa-fab fixed right-4 z-40 flex items-center gap-2 rounded-full bg-[#25D366] text-white shadow-lg shadow-emerald-700/30 pl-3.5 pr-3.5 sm:pr-4 h-12 hover:brightness-105 active:scale-95 transition"
       style={{ bottom: 'max(1rem, env(safe-area-inset-bottom))' }}

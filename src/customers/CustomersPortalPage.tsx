@@ -95,6 +95,9 @@ interface PublicInvoiceSection {
 
 interface PublicInvoiceDTO {
   id: string;
+  amountsHidden?: boolean;
+  portalNote?: string | null;
+  portalNoteAt?: string | null;
   invoiceNo: string;
   crmId: string;
   queryCode: string;
@@ -164,6 +167,7 @@ interface PublicLookupSuccessResponse {
   receiptsSummary: PublicReceiptSummary[];
   visaStats: PublicVisaStats;
   portalQueries?: PublicPortalQueryDTO[];
+  amountsHidden?: boolean;
 }
 
 interface PublicApiErrorResponse {
@@ -761,10 +765,49 @@ function DestinationModalPhotoSlider({
   );
 }
 
+interface PortalPublicConfig {
+  whatsappNumber: string;
+  whatsappMessage: string;
+  effects: { jet: boolean; confetti: boolean; scene3d: boolean; planeMap: boolean };
+  announcement: { text: string; tone: 'info' | 'success' | 'warning' } | null;
+  offers: { id: string; title: string; text: string; expiresAt: string }[];
+  destinations: { order: string[]; hidden: string[]; overrides: Record<string, { tagline?: string; bestSeason?: string; fromPrice?: string; photos?: string[] }> };
+}
+
+const DEFAULT_PORTAL_CONFIG: PortalPublicConfig = {
+  whatsappNumber: '',
+  whatsappMessage: '',
+  effects: { jet: true, confetti: true, scene3d: true, planeMap: true },
+  announcement: null,
+  offers: [],
+  destinations: { order: [], hidden: [], overrides: {} },
+};
+
+/** Fire-and-forget visit counter for the admin's statistics page. */
+function sendPortalEvent(type: 'dest_view' | 'wa_click', id?: string) {
+  try {
+    void fetch('/api/public-customers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'event', type, id }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    /* never block the customer */
+  }
+}
+
+const ANNOUNCE_TONES: Record<string, string> = {
+  info: 'bg-sky-600 text-white',
+  success: 'bg-emerald-600 text-white',
+  warning: 'bg-amber-500 text-slate-900',
+};
+
 function PortalInner() {
   const { t, lang } = useLang();
   usePortalManifest();
-  const [portalConfig, setPortalConfig] = useState<{ whatsappNumber: string; whatsappMessage: string }>({ whatsappNumber: '', whatsappMessage: '' });
+  const [portalConfig, setPortalConfig] = useState<PortalPublicConfig>(DEFAULT_PORTAL_CONFIG);
+  const [bannerHidden, setBannerHidden] = useState(false);
   const prefersReducedMotion = useReducedMotion();
 
   const [gateStatus, setGateStatus] = useState<GateStatus>('checking');
@@ -781,6 +824,9 @@ function PortalInner() {
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const thisMonth = new Date().getMonth();
   const [activeDestination, setActiveDestination] = useState<Destination | null>(null);
+  useEffect(() => {
+    if (activeDestination) sendPortalEvent('dest_view', activeDestination.id);
+  }, [activeDestination]);
   const [copiedShare, setCopiedShare] = useState(false);
 
   // Live Customers Portal Generated Queries Bar & "Get a quote" modal state
@@ -856,13 +902,13 @@ function PortalInner() {
           cache: 'no-store',
           signal: controller.signal,
         });
-        let data: { ok?: boolean; available?: boolean; recentQueries?: PublicPortalQueryDTO[]; config?: { whatsappNumber?: string; whatsappMessage?: string } } | null = null;
+        let data: { ok?: boolean; available?: boolean; recentQueries?: PublicPortalQueryDTO[]; config?: Partial<PortalPublicConfig> } | null = null;
         try {
           data = (await res.json()) as {
             ok?: boolean;
             available?: boolean;
             recentQueries?: PublicPortalQueryDTO[];
-            config?: { whatsappNumber?: string; whatsappMessage?: string };
+            config?: Partial<PortalPublicConfig>;
           };
         } catch {
           data = null;
@@ -874,7 +920,15 @@ function PortalInner() {
             setRecentPortalQueries(data.recentQueries);
           }
           if (data.config) {
-            setPortalConfig({ whatsappNumber: data.config.whatsappNumber || '', whatsappMessage: data.config.whatsappMessage || '' });
+            const cfg = data.config;
+            setPortalConfig({
+              whatsappNumber: cfg.whatsappNumber || '',
+              whatsappMessage: cfg.whatsappMessage || '',
+              effects: { ...DEFAULT_PORTAL_CONFIG.effects, ...(cfg.effects || {}) },
+              announcement: cfg.announcement && cfg.announcement.text ? cfg.announcement : null,
+              offers: Array.isArray(cfg.offers) ? cfg.offers : [],
+              destinations: { ...DEFAULT_PORTAL_CONFIG.destinations, ...(cfg.destinations || {}) },
+            });
           }
           setGateStatus('ready');
         } else {
@@ -1057,7 +1111,7 @@ function PortalInner() {
   const resultsRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     if (lookupState.kind === 'found') {
-      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || !portalConfig.effects.jet) return;
       setHoldResults(true);
       setJetKey((n) => n + 1);
     } else {
@@ -1200,10 +1254,10 @@ function PortalInner() {
         dateLabel: isCancelled
           ? 'Cancelled'
           : isPaid
-            ? `${inv.currency} ${fmtAmount(inv.total)} paid`
+            ? inv.amountsHidden ? 'Paid' : `${inv.currency} ${fmtAmount(inv.total)} paid`
             : employeePayApproved
               ? payApprovedDate || 'Approved'
-              : `${inv.currency} ${fmtAmount(inv.balance)} balance`,
+              : inv.amountsHidden ? 'Payment pending' : `${inv.currency} ${fmtAmount(inv.balance)} balance`,
         state: isCancelled
           ? 'cancelled'
           : isPaymentApproved
@@ -1212,14 +1266,18 @@ function PortalInner() {
         detail: isCancelled
           ? 'This booking invoice is marked as cancelled.'
           : isPaid
-            ? `Payment approved — full invoice amount of ${inv.currency} ${fmtAmount(inv.total)} is settled${
+            ? inv.amountsHidden ? 'Payment approved — this booking is fully settled.' : `Payment approved — full invoice amount of ${inv.currency} ${fmtAmount(inv.total)} is settled${
                 receiptsCount > 0 ? ` (${receiptsCount} payment receipt${receiptsCount === 1 ? '' : 's'} on file)` : ''
               }. Downstream visa, hotel, and travel steps are unlocked.`
+            : inv.amountsHidden && (hasPartialPayment || receiptsCount > 0)
+              ? 'Payment approved with advance received. Downstream processing steps are active.'
             : hasPartialPayment || receiptsCount > 0
               ? `Payment approved with advance received (${inv.currency} ${fmtAmount(inv.advancePaid)}). Remaining balance: ${inv.currency} ${fmtAmount(inv.balance)}. Downstream processing steps are active.`
               : employeePayApproved
                 ? `Payment approval confirmed by our team${payApprovedDate ? ` on ${payApprovedDate}` : ''}. Downstream visa, hotel, and travel requirements are unlocked.`
-                : `Awaiting payment approval (${inv.currency} ${fmtAmount(inv.balance)} balance due). Subsequent steps unlock one after another once payment is approved.`,
+                : inv.amountsHidden
+                  ? 'Awaiting payment approval. Subsequent steps unlock one after another once payment is approved.'
+                  : `Awaiting payment approval (${inv.currency} ${fmtAmount(inv.balance)} balance due). Subsequent steps unlock one after another once payment is approved.`,
       },
     ];
 
@@ -1541,12 +1599,40 @@ function PortalInner() {
     return matchDestinationsForInvoices(foundData.invoices);
   }, [foundData]);
 
+  const allDestinations = useMemo<Destination[]>(() => {
+    const cfg = portalConfig.destinations;
+    const hiddenSet = new Set(cfg.hidden);
+    const rank = (id: string) => {
+      const i = cfg.order.indexOf(id);
+      return i < 0 ? 9999 : i;
+    };
+    return CURATED_DESTINATIONS.filter((d) => !hiddenSet.has(d.id))
+      .map((d) => {
+        const o = cfg.overrides[d.id];
+        if (!o) return d;
+        const photos = o.photos && o.photos.length ? o.photos : null;
+        return {
+          ...d,
+          tagline: o.tagline || d.tagline,
+          bestSeason: o.bestSeason || d.bestSeason,
+          fromPrice: o.fromPrice || undefined,
+          ...(photos
+            ? {
+                photos: photos as unknown as Destination['photos'],
+                photoCaptions: photos.map((_, i) => d.photoCaptions[i] || d.name) as unknown as Destination['photoCaptions'],
+              }
+            : {}),
+        };
+      })
+      .sort((a, b) => rank(a.id) - rank(b.id));
+  }, [portalConfig.destinations]);
+
   const displayedDestinations = useMemo(() => {
     const matchedSet = new Set(matchedDestinationIds);
     const byRegion =
       selectedRegion === 'All'
-        ? CURATED_DESTINATIONS
-        : CURATED_DESTINATIONS.filter((d) => d.region === selectedRegion);
+        ? allDestinations
+        : allDestinations.filter((d) => d.region === selectedRegion);
     const pool = inSeasonOnly ? byRegion.filter((d) => inSeason(d.bestSeason, new Date().getMonth())) : byRegion;
 
     return [...pool].sort((a, b) => {
@@ -1554,11 +1640,11 @@ function PortalInner() {
       const bm = matchedSet.has(b.id) ? 0 : 1;
       return am - bm;
     });
-  }, [selectedRegion, inSeasonOnly, matchedDestinationIds]);
+  }, [selectedRegion, inSeasonOnly, matchedDestinationIds, allDestinations]);
 
-  const inSeasonCount = CURATED_DESTINATIONS.filter((d) => inSeason(d.bestSeason, thisMonth)).length;
+  const inSeasonCount = allDestinations.filter((d) => inSeason(d.bestSeason, thisMonth)).length;
   const surpriseMe = () => {
-    const pool = displayedDestinations.length ? displayedDestinations : CURATED_DESTINATIONS;
+    const pool = displayedDestinations.length ? displayedDestinations : allDestinations;
     const pick = pool[Math.floor(Math.random() * pool.length)];
     setHighlightId(pick.id);
     setSurpriseKey(`surprise-${Date.now()}`);
@@ -1576,7 +1662,7 @@ function PortalInner() {
         isVisaActive: false,
       };
     }
-    const matchedDest = CURATED_DESTINATIONS.find((d) => matchedDestinationIds.includes(d.id));
+    const matchedDest = allDestinations.find((d) => matchedDestinationIds.includes(d.id));
     const focusInv = timelineInvoice || foundData.invoices[0];
     const vp = focusInv?.visaProgress || null;
     return {
@@ -1640,7 +1726,7 @@ function PortalInner() {
     const initialCountries = dest
       ? [`${dest.name} (${dest.country})`]
       : matchedDestinationIds.length > 0
-        ? CURATED_DESTINATIONS.filter((d) => matchedDestinationIds.includes(d.id)).map(
+        ? allDestinations.filter((d) => matchedDestinationIds.includes(d.id)).map(
             (d) => `${d.name} (${d.country})`
           )
         : [];
@@ -1814,13 +1900,20 @@ function PortalInner() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
-      <Confetti burstKey={blastKey || confettiKey || surpriseKey} />
-      <JetShowcase showKey={jetKey} name={foundData?.customerName || ''} onBlast={handleBlast} />
+      {portalConfig.effects.confetti && <Confetti burstKey={blastKey || confettiKey || surpriseKey} />}
+      {portalConfig.effects.jet && <JetShowcase showKey={jetKey} name={foundData?.customerName || ''} onBlast={handleBlast} />}
       <WhatsAppFab
+        onTap={() => sendPortalEvent('wa_click')}
         number={portalConfig.whatsappNumber}
         message={`${portalConfig.whatsappMessage || 'Hello Bahaar Journeys, I need help with my booking.'}${foundData ? ` (Ref: ${foundData.query})` : ''}`}
       />
       {/* Screen Header */}
+      {portalConfig.announcement && !bannerHidden && (
+        <div role="status" className={`no-print relative z-40 px-4 py-2.5 text-center text-xs sm:text-sm font-semibold ${ANNOUNCE_TONES[portalConfig.announcement.tone] || ANNOUNCE_TONES.info}`}>
+          <span className="pr-6">{portalConfig.announcement.text}</span>
+          <button type="button" onClick={() => setBannerHidden(true)} aria-label="Close" className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full hover:bg-black/10 text-lg leading-none cursor-pointer">×</button>
+        </div>
+      )}
       <header className="no-print relative sm:sticky sm:top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
         <div className="max-w-[1480px] mx-auto px-4 sm:px-8 lg:px-10 py-3.5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -1875,7 +1968,7 @@ function PortalInner() {
       <main className="flex-1 w-full max-w-[1480px] mx-auto px-4 sm:px-8 lg:px-10 py-6 sm:py-10 space-y-8">
         {/* Hero + Lookup + Live Plane Animation */}
         <section className="no-print relative space-y-5">
-          <FloatingScene />
+          {portalConfig.effects.scene3d && <FloatingScene />}
           <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
             <div className="lg:col-span-5 space-y-4">
 
@@ -1952,14 +2045,16 @@ function PortalInner() {
               </form>
             </div>
 
-            <div className="lg:col-span-7">
-              <PlaneAnimation
-                statusLabel={planeProps.statusLabel}
-                destinationHint={planeProps.destinationHint}
-                visaStatus={planeProps.visaStatus}
-                isVisaActive={planeProps.isVisaActive}
-              />
-            </div>
+            {portalConfig.effects.planeMap && (
+              <div className="lg:col-span-7">
+                <PlaneAnimation
+                  statusLabel={planeProps.statusLabel}
+                  destinationHint={planeProps.destinationHint}
+                  visaStatus={planeProps.visaStatus}
+                  isVisaActive={planeProps.isVisaActive}
+                />
+              </div>
+            )}
           </div>
 
           {/* Search Feedback Banners */}
@@ -2059,7 +2154,7 @@ function PortalInner() {
 
         {/* Interactive Booking Results & Print Container */}
         {foundData && (
-          <section ref={resultsRef} className={`print-container scroll-mt-24 space-y-6 print:space-y-3 ${holdResults ? 'fx-results-hold' : jetKey ? 'fx-results-pop' : ''}`}>
+          <section ref={resultsRef} className={`print-container scroll-mt-24 space-y-6 print:space-y-3 ${foundData?.amountsHidden ? 'amounts-hidden' : ''} ${holdResults ? 'fx-results-hold' : jetKey ? 'fx-results-pop' : ''}`}>
             {/* Print-Only Branded Header */}
             <div className="hidden print-only border-b border-slate-300 pb-3 mb-2">
               <div className="flex items-center justify-between gap-4">
@@ -2167,8 +2262,13 @@ function PortalInner() {
 
             {/* Interactive Stats Explorer */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 print:grid-cols-4 gap-4 print:gap-2.5 print-break-inside-avoid">
+              {foundData.amountsHidden && (
+                <div className="sm:col-span-2 lg:col-span-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs flex items-center text-sm font-semibold text-slate-600">
+                  {t('Amounts for this booking are not shown online. Please contact our team for payment details.')}
+                </div>
+              )}
               {/* Total Billed */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+              <div className="money-card rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
                   <span>{t('Total Billed')}</span>
                   <FileText className="w-4 h-4 text-sky-600" />
@@ -2193,7 +2293,7 @@ function PortalInner() {
               </div>
 
               {/* Paid & Receipts */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+              <div className="money-card rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
                   <span>{t('Paid / Advance')}</span>
                   <CreditCard className="w-4 h-4 text-emerald-600" />
@@ -2227,7 +2327,7 @@ function PortalInner() {
               </div>
 
               {/* Outstanding Balance */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+              <div className="money-card rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
                   <span>{t('Outstanding Balance')}</span>
                   <CheckCircle2 className="w-4 h-4 text-amber-600" />
@@ -2529,7 +2629,7 @@ function PortalInner() {
 
                 {/* Matched Destination Trip Journey Details & Worldwide HD Photo Showcase (Shown right after Progress Display on Screen & in Print Plan) */}
                 {(() => {
-                  const matchedList = CURATED_DESTINATIONS.filter((d) => matchedDestinationIds.includes(d.id));
+                  const matchedList = allDestinations.filter((d) => matchedDestinationIds.includes(d.id));
                   const hasHotelInInv =
                     Boolean(timelineInvoice.isHotel) ||
                     Boolean(timelineInvoice.visaProgress?.hotelEnabled) ||
@@ -2543,7 +2643,7 @@ function PortalInner() {
                       ].join(' ')
                     );
                   const showcaseDestinations =
-                    matchedList.length > 0 ? matchedList : CURATED_DESTINATIONS.slice(0, 3);
+                    matchedList.length > 0 ? matchedList : allDestinations.slice(0, 3);
                   const galleryPhotos = showcaseDestinations
                     .flatMap((dest) =>
                       dest.photos.map((url, pIdx) => ({
@@ -2644,7 +2744,7 @@ function PortalInner() {
                 return (
                   <article
                     key={inv.id}
-                    className="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-xs"
+                    className={`rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-xs ${inv.amountsHidden ? 'inv-hidden' : ''}`}
                   >
                     <div className="p-5 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-start justify-between gap-4 bg-slate-50/50">
                       <div className="space-y-1.5">
@@ -2677,10 +2777,10 @@ function PortalInner() {
                       </div>
 
                       <div className="sm:text-right space-y-1">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 inv-money">
                           {t('Invoice Total')}
                         </p>
-                        <p className="text-2xl font-extrabold text-slate-900 tabular-nums">
+                        <p className="text-2xl font-extrabold text-slate-900 tabular-nums inv-money">
                           {inv.currency} {fmtAmount(inv.total)}
                         </p>
                         {inv.isVisa && inv.visaProgress && (
@@ -2705,8 +2805,17 @@ function PortalInner() {
                       </div>
                     </div>
 
+                    {inv.portalNote && (
+                      <div className="px-5 sm:px-6 pt-4">
+                        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-sky-700">{t('Message from our team')}</p>
+                          <p className="mt-0.5 font-medium">{inv.portalNote}</p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Invoice Sections & Lines */}
-                    <div className="p-5 sm:p-6 overflow-x-auto">
+                    <div className="p-5 sm:p-6 overflow-x-auto inv-money">
                       <table className="w-full text-sm border-collapse min-w-[540px]">
                         <thead>
                           <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -2848,7 +2957,7 @@ function PortalInner() {
                         <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between text-sm">
                           <span className="text-xs font-medium text-slate-500">{t('Amount Received')}</span>
                           <span className="font-bold text-emerald-700 tabular-nums">
-                            {rcp.currency} {fmtAmount(rcp.amountReceived)}
+                            {foundData.amountsHidden ? '—' : `${rcp.currency} ${fmtAmount(rcp.amountReceived)}`}
                           </span>
                         </div>
                       </div>
@@ -2870,6 +2979,32 @@ function PortalInner() {
 
         {/* How tracking works: the real stages a booking moves through */}
         <JourneySteps />
+
+        {/* Offers the office has switched on */}
+        {portalConfig.offers.length > 0 && (
+          <section className="no-print space-y-3 pt-2">
+            <h2 className="text-lg sm:text-xl font-extrabold text-slate-900">{t('Current offers')}</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {portalConfig.offers.map((o) => (
+                <div key={o.id} className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-4 sm:p-5 flex flex-col gap-2 shadow-xs">
+                  <p className="text-base font-extrabold text-slate-900">{o.title}</p>
+                  {o.text && <p className="text-sm text-slate-700">{o.text}</p>}
+                  {o.expiresAt && <p className="text-xs font-semibold text-amber-800">{t('Until')} {niceDate(o.expiresAt) || o.expiresAt}</p>}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openQuoteModalForDestination(null);
+                      setQuotePackageTitle(o.title);
+                    }}
+                    className="mt-auto self-start rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-2 text-xs sm:text-sm font-bold text-slate-900 transition-colors cursor-pointer"
+                  >
+                    {t('Ask about this offer')}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Curated Worldwide Destinations Showcase */}
         <section className="no-print space-y-5 pt-2">
@@ -2928,7 +3063,7 @@ function PortalInner() {
               {t('Surprise me')}
             </button>
             <span className="text-xs text-slate-500">
-              {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}: {inSeasonCount} of {CURATED_DESTINATIONS.length} destinations are in their best season.
+              {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}: {inSeasonCount} of {allDestinations.length} destinations are in their best season.
             </span>
           </div>
 
@@ -2985,6 +3120,9 @@ function PortalInner() {
                   <div className="p-4 sm:p-5 flex-1 flex flex-col justify-between gap-4">
                     <div className="space-y-2.5">
                       <p className="text-sm text-slate-600 leading-relaxed">{dest.tagline}</p>
+                      {dest.fromPrice && (
+                        <p className="inline-block rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-bold text-emerald-800">{dest.fromPrice}</p>
+                      )}
                       <ul className="space-y-1 text-xs text-slate-600">
                         {dest.highlights.slice(0, 2).map((hl) => (
                           <li key={hl} className="flex items-start gap-1.5">
@@ -3318,7 +3456,7 @@ function PortalInner() {
 
                     {/* Quick Pick Country Pills */}
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {CURATED_DESTINATIONS.map((d) => {
+                      {allDestinations.map((d) => {
                         const label = `${d.name} (${d.country})`;
                         const active = quoteCountries.some(
                           (c) => c.toLowerCase() === label.toLowerCase() || c.toLowerCase() === d.country.toLowerCase()

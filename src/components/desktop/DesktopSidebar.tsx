@@ -17,6 +17,7 @@ import {
   Package,
   Receipt,
   ReceiptText,
+  SlidersHorizontal,
   ShoppingBag,
   FileText,
   BellRing,
@@ -266,8 +267,9 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 { tab: 'crm-purchases' as const, label: 'Purchases', Icon: ShoppingBag, badge: 0 },
                 { tab: 'crm-receipts' as const, label: 'Receipts', Icon: ReceiptText, badge: crmBadges?.receiptNew || 0 },
                 { tab: 'crm-invoices' as const, label: 'Invoices', Icon: FileText, badge: crmBadges?.invoiceNew || 0 },
+                { tab: 'crm-portal' as const, label: 'Portal Control', Icon: SlidersHorizontal, badge: 0 },
                 { tab: 'crm-notifications' as const, label: 'Notifications', Icon: BellRing, badge: crmBadges?.unreadTotal || 0 },
-              ]).filter((i) => i.tab !== 'crm-sales' || ['admin', 'accounts', 'ceo'].includes(currentUser.role) || Boolean(currentUser.salesAccess)).map(({ tab, label, Icon, badge }) => (
+              ]).filter((i) => i.tab !== 'crm-sales' || ['admin', 'accounts', 'ceo'].includes(currentUser.role) || Boolean(currentUser.salesAccess)).filter((i) => i.tab !== 'crm-portal' || (['admin', 'ceo'].includes(currentUser.role) && settings.customerPortalBetaEnabled !== false)).map(({ tab, label, Icon, badge }) => (
                 <button
                   key={tab}
                   onClick={() => onSelectTab(tab)}

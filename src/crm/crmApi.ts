@@ -389,10 +389,18 @@ export interface CrmPortalQuery {
   trackingQuery: string;
   crmId: string;
   isExistingCustomer: boolean;
-  status: 'new' | 'contacted' | 'quoted' | 'closed';
+  status: 'new' | 'contacted' | 'quoted' | 'won' | 'lost' | 'closed';
   assignedTo?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PortalInvoiceSettings {
+  hideAmounts?: boolean;
+  disabled?: boolean;
+  expiresAt?: string;
+  note?: string;
+  noteAt?: string;
 }
 
 export interface CrmData {
@@ -407,6 +415,8 @@ export interface CrmData {
   sales: CrmSale[];
   purchases?: CrmPurchase[];
   portalQueries?: CrmPortalQuery[];
+  /** Admin limits per invoice for the public portal, keyed by invoice id */
+  portalInvoices?: Record<string, PortalInvoiceSettings>;
   purchaseCustomFields?: PurchaseCustomField[];
   purchaseCustomCategories?: PurchaseCustomCategory[];
   invoices: CrmInvoice[];

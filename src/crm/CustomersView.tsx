@@ -166,6 +166,8 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
             <Pill tone="amber">New: {portalQueries.filter((x) => x.status === 'new').length}</Pill>
             <Pill tone="blue">Contacted: {portalQueries.filter((x) => x.status === 'contacted').length}</Pill>
             <Pill tone="green">Quoted: {portalQueries.filter((x) => x.status === 'quoted').length}</Pill>
+            <Pill tone="green">Won: {portalQueries.filter((x) => x.status === 'won').length}</Pill>
+            <Pill tone="red">Lost: {portalQueries.filter((x) => x.status === 'lost').length}</Pill>
             <Pill tone="slate">Total: {portalQueries.length}</Pill>
           </div>
         </div>
@@ -206,8 +208,10 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
                     </div>
                     <Pill
                       tone={
-                        pq.status === 'quoted'
+                        pq.status === 'quoted' || pq.status === 'won'
                           ? 'green'
+                          : pq.status === 'lost'
+                            ? 'red'
                           : pq.status === 'contacted'
                             ? 'blue'
                             : pq.status === 'closed'
@@ -221,7 +225,11 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
                           ? 'Contacted'
                           : pq.status === 'quoted'
                             ? 'Quote Sent'
-                            : 'Closed'}
+                            : pq.status === 'won'
+                              ? 'Won'
+                              : pq.status === 'lost'
+                                ? 'Lost'
+                                : 'Closed'}
                     </Pill>
                   </div>
 
@@ -272,6 +280,8 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
                       <option value="new">New Inquiry</option>
                       <option value="contacted">Representative Contacted</option>
                       <option value="quoted">Quote Sent</option>
+                      <option value="won">Won (booked)</option>
+                      <option value="lost">Lost</option>
                       <option value="closed">Closed</option>
                     </select>
                     {seesAll && (

@@ -291,6 +291,63 @@ function extractSmartHotelName(sections, reference = '') {
   return '';
 }
 
+function todayPkt() {
+  return new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+/** Only the customer-safe, still-valid parts of the admin's portal settings. */
+function publicPortalConfig(cfg) {
+  const today = todayPkt();
+  const digits = String(cfg.whatsappNumber || '').replace(/\D+/g, '');
+  const a = cfg.announcement && typeof cfg.announcement === 'object' ? cfg.announcement : {};
+  const announcementOn = a.enabled === true && String(a.text || '').trim() && (!a.expiresAt || String(a.expiresAt) >= today);
+  const e = cfg.effects && typeof cfg.effects === 'object' ? cfg.effects : {};
+  const d = cfg.destinations && typeof cfg.destinations === 'object' ? cfg.destinations : {};
+  return {
+    whatsappNumber: digits.length >= 8 && digits.length <= 15 ? `+${digits}` : '',
+    whatsappMessage: String(cfg.whatsappMessage || '').slice(0, 300),
+    effects: { jet: e.jet !== false, confetti: e.confetti !== false, scene3d: e.scene3d !== false, planeMap: e.planeMap !== false },
+    announcement: announcementOn
+      ? { text: String(a.text).slice(0, 300), tone: ['info', 'success', 'warning'].includes(a.tone) ? a.tone : 'info' }
+      : null,
+    offers: (Array.isArray(cfg.offers) ? cfg.offers : [])
+      .filter((o) => o && o.active !== false && String(o.title || '').trim() && (!o.expiresAt || String(o.expiresAt) >= today))
+      .slice(0, 6)
+      .map((o) => ({ id: String(o.id || ''), title: String(o.title).slice(0, 80), text: String(o.text || '').slice(0, 240), expiresAt: o.expiresAt || '' })),
+    destinations: {
+      order: Array.isArray(d.order) ? d.order.slice(0, 60) : [],
+      hidden: Array.isArray(d.hidden) ? d.hidden.slice(0, 60) : [],
+      overrides: d.overrides && typeof d.overrides === 'object' ? d.overrides : {},
+    },
+  };
+}
+
+/** Simple visit counters for the admin's Portal Control page (approximate by design). */
+async function recordPortalStat(mutate) {
+  try {
+    const rows = await supabaseFetch('/crm_company?id=eq.portal-stats&select=data');
+    const data = parseJsonObj(rows?.[0]?.data, {});
+    const days = data.days && typeof data.days === 'object' ? data.days : {};
+    const dest = data.dest && typeof data.dest === 'object' ? data.dest : {};
+    const today = todayPkt();
+    days[today] = { searches: 0, found: 0, notFound: 0, phone: 0, desktop: 0, quotes: 0, waClicks: 0, ...(days[today] || {}) };
+    mutate({ day: days[today], dest });
+    const keep = Object.keys(days).sort().slice(-60);
+    const pruned = {};
+    for (const k of keep) pruned[k] = days[k];
+    const nowIso = new Date().toISOString();
+    await supabaseFetch('/crm_company?on_conflict=id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates' },
+      body: JSON.stringify([{ id: 'portal-stats', data: { days: pruned, dest }, updated_at: nowIso }]),
+    });
+  } catch {
+    /* statistics must never break the portal */
+  }
+}
+
+const isPhoneUa = (req) => /Mobi|Android|iPhone|iPad|iPod/i.test(String(req.headers?.['user-agent'] || ''));
+
 function sanitizePortalQueryDto(row) {
   const d = parseJsonObj(row?.data, {});
   if (!d || !d.queryRef) return null;
@@ -390,6 +447,16 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST') {
       const body = typeof req.body === 'string' ? parseJsonObj(req.body, {}) : parseJsonObj(req.body, {});
+      if (body.action === 'event') {
+        const type = String(body.type || '');
+        const destId = String(body.id || '');
+        if (type === 'dest_view' && /^[a-z0-9-]{1,40}$/.test(destId)) {
+          await recordPortalStat(({ dest }) => { dest[destId] = (Number(dest[destId]) || 0) + 1; });
+        } else if (type === 'wa_click') {
+          await recordPortalStat(({ day }) => { day.waClicks += 1; });
+        }
+        return res.status(200).json({ ok: true });
+      }
       if (body.action !== 'quote_request') {
         return res.status(400).json({
           ok: false,
@@ -639,6 +706,7 @@ export default async function handler(req, res) {
         console.warn('Non-fatal CRM customer sync warning for portal quote:', syncErr);
       }
 
+      await recordPortalStat(({ day }) => { day.quotes += 1; });
       return res.status(200).json({
         ok: true,
         available: true,
@@ -667,16 +735,11 @@ export default async function handler(req, res) {
       } catch {
         recentQueries = [];
       }
-      // Public, customer-safe settings the admin controls (currently just the WhatsApp contact)
-      let portalConfig = { whatsappNumber: '', whatsappMessage: '' };
+      // Public, customer-safe settings the admin controls (WhatsApp contact, effects, announcement, offers, destinations)
+      let portalConfig = publicPortalConfig({});
       try {
         const cfgRows = await supabaseFetch('/crm_company?id=eq.portal-config&select=data');
-        const cfg = parseJsonObj(cfgRows?.[0]?.data, {});
-        const digits = String(cfg.whatsappNumber || '').replace(/\D+/g, '');
-        portalConfig = {
-          whatsappNumber: digits.length >= 8 && digits.length <= 15 ? `+${digits}` : '',
-          whatsappMessage: String(cfg.whatsappMessage || '').slice(0, 300),
-        };
+        portalConfig = publicPortalConfig(parseJsonObj(cfgRows?.[0]?.data, {}));
       } catch {
         /* the portal works fine without it */
       }
@@ -848,6 +911,7 @@ export default async function handler(req, res) {
     });
 
     if (primaryMatched.length === 0) {
+      await recordPortalStat(({ day }) => { day.searches += 1; day.notFound += 1; if (isPhoneUa(req)) day.phone += 1; else day.desktop += 1; });
       return res.status(404).json({
         ok: false,
         available: true,
@@ -937,6 +1001,34 @@ export default async function handler(req, res) {
       if (dateCmp !== 0) return dateCmp;
       return String(b.created_at || '').localeCompare(String(a.created_at || ''));
     });
+
+    // Admin-set limits per booking: tracking turned off / expired, hidden amounts, a note for the customer
+    const portalInvMap = new Map();
+    try {
+      const pinvIds = matchedInvoices.map((inv) => String(inv.id || '')).filter((id) => SAFE_ID_RE.test(id));
+      if (pinvIds.length > 0) {
+        const pinvRows = await fetchChunkedRows(pinvIds.map((id) => pgQuote(`pinv-${id}`)), (batch) => `/crm_company?id=in.(${encodeURIComponent(batch.join(','))})&select=id,data`);
+        for (const row of pinvRows) {
+          if (typeof row?.id === 'string' && row.id.startsWith('pinv-')) portalInvMap.set(row.id.slice(5), parseJsonObj(row.data, {}));
+        }
+      }
+    } catch {
+      /* settings are optional */
+    }
+    const todayStr = todayPkt();
+    const visibleInvoices = matchedInvoices.filter((inv) => {
+      const pi = portalInvMap.get(inv.id);
+      if (!pi) return true;
+      if (pi.disabled === true) return false;
+      if (pi.expiresAt && String(pi.expiresAt) < todayStr) return false;
+      return true;
+    });
+    if (visibleInvoices.length === 0) {
+      await recordPortalStat(({ day }) => { day.searches += 1; day.notFound += 1; if (isPhoneUa(req)) day.phone += 1; else day.desktop += 1; });
+      return res.status(404).json({ ok: false, available: true, found: false });
+    }
+    matchedInvoices.length = 0;
+    matchedInvoices.push(...visibleInvoices);
 
     // Step 4: Fetch crm_company visa-* rows
     const safeIds = Array.from(
@@ -1038,8 +1130,14 @@ export default async function handler(req, res) {
         }
       }
 
+      const pinv = portalInvMap.get(r.id) || null;
+      const amountsHidden = Boolean(pinv?.hideAmounts);
+      const money = (v) => (amountsHidden ? 0 : num(v));
       return {
         id: r.id,
+        amountsHidden,
+        portalNote: pinv?.note ? String(pinv.note).slice(0, 400) : null,
+        portalNoteAt: pinv?.note ? pinv.noteAt || null : null,
         invoiceNo: r.invoice_no,
         crmId: r.crm_id || '',
         queryCode: r.query_code || '',
@@ -1048,15 +1146,17 @@ export default async function handler(req, res) {
         invoiceDate: r.invoice_date,
         dueDate: r.due_date || null,
         currency: r.currency || 'PKR',
-        sections: sanitizeSections(r.sections),
+        sections: amountsHidden
+          ? sanitizeSections(r.sections).map((sec) => ({ ...sec, lines: (sec.lines || []).map((ln) => ({ ...ln, unitPrice: 0, amount: 0, rate: null })) }))
+          : sanitizeSections(r.sections),
         taxLabel: r.tax_label || 'Tax',
-        taxRate: num(r.tax_rate),
-        discount: num(r.discount),
-        advancePaid: num(r.advance_paid),
-        subtotal: num(r.subtotal),
-        taxAmount: num(r.tax_amount),
-        total: num(r.total),
-        balance: num(r.balance),
+        taxRate: money(r.tax_rate),
+        discount: money(r.discount),
+        advancePaid: money(r.advance_paid),
+        subtotal: money(r.subtotal),
+        taxAmount: money(r.tax_amount),
+        total: money(r.total),
+        balance: money(r.balance),
         status: r.status || 'unpaid',
         isVisa,
         isHotel,
@@ -1134,6 +1234,11 @@ export default async function handler(req, res) {
       }
     }
 
+    const anyAmountsHidden = publicInvoices.some((inv) => inv.amountsHidden);
+    if (anyAmountsHidden) {
+      receiptsSummary = receiptsSummary.map((r) => ({ ...r, totalAmount: 0, amountReceived: 0 }));
+    }
+
     const customerName =
       publicInvoices.find((inv) => String(inv.customerName || '').trim())?.customerName || '';
 
@@ -1166,10 +1271,13 @@ export default async function handler(req, res) {
       portalQueries = [];
     }
 
+    await recordPortalStat(({ day }) => { day.searches += 1; day.found += 1; if (isPhoneUa(req)) day.phone += 1; else day.desktop += 1; });
+
     return res.status(200).json({
       ok: true,
       available: true,
       found: true,
+      amountsHidden: anyAmountsHidden,
       query: q,
       customerName,
       invoices: publicInvoices,
