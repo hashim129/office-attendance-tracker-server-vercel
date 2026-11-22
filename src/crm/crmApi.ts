@@ -217,6 +217,7 @@ export interface CrmInvoice {
   showNtn: boolean;
   invoiceDate: string;
   dueDate: string | null;
+  travelDate?: string | null;
   currency: string;
   sections: InvoiceSection[];
   taxLabel: string;

@@ -7,7 +7,7 @@ export function waDigits(raw: string | undefined | null): string {
   return String(raw || '').replace(/\D+/g, '');
 }
 
-function WhatsAppGlyph({ className = 'w-6 h-6' }: { className?: string }) {
+export function WhatsAppGlyph({ className = 'w-6 h-6' }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" className={className} fill="currentColor" aria-hidden="true">
       <path d="M16.02 3C9.4 3 4.04 8.36 4.04 14.97c0 2.36.69 4.55 1.88 6.41L4 29l7.8-1.87a11.9 11.9 0 0 0 4.22 .77c6.62 0 11.98-5.36 11.98-11.97C28 8.36 22.64 3 16.02 3Zm0 21.85c-1.35 0-2.64-.29-3.8-.82l-.7-.32-4.62 1.1 1.14-4.5-.37-.7a9.8 9.8 0 0 1-1.26-4.8c0-5.45 4.43-9.88 9.9-9.88 5.45 0 9.88 4.43 9.88 9.88 0 5.46-4.43 9.04-9.88 9.04Zm5.42-7.4c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.14-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.48 0 1.46 1.07 2.88 1.22 3.08.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.7.63.71.23 1.36.2 1.88.12.57-.08 1.76-.72 2.01-1.41.25-.7.25-1.29.17-1.41-.07-.13-.27-.2-.57-.35Z" />
@@ -30,7 +30,7 @@ export function WhatsAppFab({ number, message, onTap }: { number: string; messag
       rel="noopener noreferrer"
       onClick={onTap}
       aria-label={t('Chat on WhatsApp')}
-      className="no-print wa-fab fixed right-4 z-40 flex items-center gap-2 rounded-full bg-[#25D366] text-white shadow-lg shadow-emerald-700/30 pl-3.5 pr-3.5 sm:pr-4 h-12 hover:brightness-105 active:scale-95 transition"
+      className="no-print wa-fab fixed right-4 z-40 hidden sm:flex items-center gap-2 rounded-full bg-[#25D366] text-white shadow-lg shadow-emerald-700/30 pl-3.5 pr-3.5 sm:pr-4 h-12 hover:brightness-105 active:scale-95 transition"
       style={{ bottom: 'max(1rem, env(safe-area-inset-bottom))' }}
     >
       <WhatsAppGlyph />

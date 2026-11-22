@@ -32,7 +32,7 @@ interface FormState {
   customerName: string; customerPhone: string; reference: string;
   ntn: string; showNtn: boolean;
   vendors: FormVendor[];
-  invoiceDate: string; dueDate: string; currency: string;
+  invoiceDate: string; dueDate: string; travelDate: string; currency: string;
   sections: FormSection[];
   taxLabel: string; taxRate: string; discount: string; advancePaid: string; notes: string;
   paymentApproved: boolean;
@@ -167,7 +167,7 @@ const blankLine = (currency: string, taxable = false): FormLine => ({ descriptio
 const newSection = (title: string, currency: string): FormSection => ({ title, key: uid(), locked: false, lines: [blankLine(currency, isServiceTitle(title))] });
 const blankVendor = (currency: string): FormVendor => ({ name: '', description: '', unitPrice: '', units: '', amount: '', currency, bank: '' });
 const blankForm = (kind: 'customer' | 'vendor' = 'customer', companyNtn = ''): FormState => ({
-  kind, crmId: '', customerName: '', customerPhone: '', reference: '', ntn: companyNtn, showNtn: true, vendors: kind === 'customer' ? [blankVendor('PKR')] : [], invoiceDate: today(), dueDate: '', currency: 'PKR',
+  kind, crmId: '', customerName: '', customerPhone: '', reference: '', ntn: companyNtn, showNtn: true, vendors: kind === 'customer' ? [blankVendor('PKR')] : [], invoiceDate: today(), dueDate: '', travelDate: '', currency: 'PKR',
   sections: [{ title: '', key: uid(), locked: false, lines: [blankLine('PKR')] }], taxLabel: 'Tax', taxRate: kind === 'vendor' ? '' : '6', discount: '', advancePaid: '', notes: '',
   paymentApproved: false, paymentApprovedDate: '',
   visaEnabled: false, visaStatus: 'not_started', visaInProgressDate: '', visaIssuedDate: '',
@@ -216,7 +216,7 @@ function toForm(inv: CrmInvoice, companyNtn = ''): FormState {
       currency: v.currency || inv.currency,
       bank: v.bank || '',
     })) : [blankVendor(inv.currency)]) : [],
-    reference: inv.reference, invoiceDate: inv.invoiceDate, dueDate: inv.dueDate || '', currency: inv.currency,
+    reference: inv.reference, invoiceDate: inv.invoiceDate, dueDate: inv.dueDate || '', travelDate: inv.travelDate || '', currency: inv.currency,
     sections: inv.sections.map((s) => ({
       title: s.title, key: s.key || uid(), locked: Boolean(s.locked),
       lines: s.lines.map((l) => ({ key: l.key || uid(), locked: Boolean(l.locked),
@@ -465,7 +465,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
     id: form.id || 'draft', kind: form.kind, crmId: form.crmId, queryCode: '', vendors: [], ntn: form.ntn.trim(), showNtn: form.showNtn,
     invoiceNo: form.invoiceNo || (form.kind === 'vendor' ? 'PAY-(auto)' : 'INV-(auto)'), createdBy: currentUser.id,
     customerName: form.customerName, customerPhone: form.customerPhone, customerAddress: '', customerNtn: '',
-    reference: form.reference, invoiceDate: form.invoiceDate, dueDate: form.dueDate || null, currency: form.currency,
+    reference: form.reference, invoiceDate: form.invoiceDate, dueDate: form.dueDate || null, travelDate: form.kind === 'customer' ? form.travelDate || null : null, currency: form.currency,
     sections: form.sections.map((s, si) => ({
       title: s.title,
       lines: s.lines.map((l, li) => (l.note
@@ -1060,7 +1060,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                           {i.reference && <Pill tone="slate">Ref {i.reference}</Pill>}
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {niceDate(i.invoiceDate)}{i.dueDate ? ` · due ${niceDate(i.dueDate)}` : ''} · created by <b className="text-slate-700 dark:text-slate-200">{by(i) || 'Former employee'}</b>
+                          {niceDate(i.invoiceDate)}{i.dueDate ? ` · due ${niceDate(i.dueDate)}` : ''}{i.travelDate ? ` · travels ${niceDate(i.travelDate)}` : ''} · created by <b className="text-slate-700 dark:text-slate-200">{by(i) || 'Former employee'}</b>
                         </p>
                       </div>
                       <div className={`sm:text-right shrink-0 rounded-lg px-2.5 py-1.5 border ${i.status === 'paid' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60' : 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-100 dark:border-blue-900/50'}`}>
@@ -2089,6 +2089,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                 </div>
               )}
               <Field label="Due date (optional)"><input className={inputCls} type="date" value={form.dueDate} onChange={(e) => patch({ dueDate: e.target.value })} /></Field>
+              {form.kind === 'customer' && <Field label="Travel date (optional)" hint="Customers see a countdown to this date on the portal"><input className={inputCls} type="date" value={form.travelDate} onChange={(e) => patch({ travelDate: e.target.value })} /></Field>}
             </div>
 
             <div className="space-y-3">
