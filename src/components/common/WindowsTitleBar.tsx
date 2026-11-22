@@ -1,8 +1,6 @@
 import React from 'react';
 import {
   Clock,
-  Layers,
-  Monitor,
   Moon,
   Sun,
   Minus,
@@ -10,11 +8,8 @@ import {
   X,
   Server,
 } from 'lucide-react';
-import { AppMode } from '../../types';
 
 interface WindowsTitleBarProps {
-  appMode: AppMode;
-  onToggleMode: (mode: AppMode) => void;
   isDark: boolean;
   onToggleTheme: () => void;
   serverHost: string;
@@ -22,8 +17,6 @@ interface WindowsTitleBarProps {
 }
 
 export const WindowsTitleBar: React.FC<WindowsTitleBarProps> = ({
-  appMode,
-  onToggleMode,
   isDark,
   onToggleTheme,
   serverHost,
@@ -61,35 +54,6 @@ export const WindowsTitleBar: React.FC<WindowsTitleBarProps> = ({
           <Server className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
           <span>{serverHost}:{serverPort}</span>
         </div>
-      </div>
-
-      {/* Center: Mode Switcher */}
-      <div className="flex items-center gap-1 p-1 bg-slate-200/80 dark:bg-slate-800/80 rounded-xl border border-slate-300/70 dark:border-slate-700/70 shadow-inner">
-        <button
-          onClick={() => onToggleMode('desktop')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            appMode === 'desktop'
-              ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-sm ring-1 ring-slate-200/80 dark:ring-slate-600/70'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-          }`}
-          title="Switch to Desktop Office Management Workspace"
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Desktop App</span>
-        </button>
-
-        <button
-          onClick={() => onToggleMode('kiosk')}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-            appMode === 'kiosk'
-              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-          }`}
-          title="Switch to Fullscreen Lobby Punch-Clock Terminal"
-        >
-          <Monitor className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Lobby Kiosk</span>
-        </button>
       </div>
 
       {/* Right: Theme Toggle & Windows Window Controls */}
