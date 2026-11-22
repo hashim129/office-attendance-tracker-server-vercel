@@ -232,6 +232,9 @@ export interface CrmInvoice {
   /** Paid state of the vendor side (what we owe the vendors listed on this invoice), separate from the customer side */
   vendorStatus?: 'unpaid' | 'paid';
   vendorPaidAt?: string | null;
+  cancelRemarks?: string;
+  cancelledBy?: string | null;
+  cancelledAt?: string | null;
   vendorPaidBy?: string | null;
   visaProgress?: VisaProgress | null;
   createdAt: string;

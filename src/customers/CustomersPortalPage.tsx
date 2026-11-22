@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { fmtAmount } from '../crm/currencies';
 import PlaneAnimation from './PlaneAnimation';
-import { Confetti, FloatingScene, RotatingWord, useTiltCards } from './PortalFx';
+import { Confetti, FloatingScene, PlaneFlight, RotatingWord, useTiltCards } from './PortalFx';
 import {
   CURATED_DESTINATIONS,
   DESTINATION_REGIONS,
@@ -617,7 +617,7 @@ function DestinationModalPhotoSlider({
 
   return (
     <div className="space-y-2.5 bg-slate-950">
-      <div className="relative h-64 sm:h-72 p-5 flex flex-col justify-between overflow-hidden">
+      <div className="relative h-40 sm:h-52 md:h-64 p-5 flex flex-col justify-between overflow-hidden">
         <AnimatePresence mode="wait">
           <motion.img
             key={`${dest.id}-modal-${photoIdx}`}
@@ -985,6 +985,10 @@ export default function CustomersPortalPage() {
 
   const foundData = lookupState.kind === 'found' ? lookupState.data : null;
   useTiltCards();
+  const [flightKey, setFlightKey] = useState(0);
+  useEffect(() => {
+    if (lookupState.kind === 'loading') setFlightKey((n) => n + 1);
+  }, [lookupState.kind]);
   // A little celebration when a visa has been issued for the booking being tracked.
   const confettiKey = foundData && foundData.invoices.some((inv) => inv.visaProgress?.status === 'issued') ? `${foundData.query}-issued` : '';
 
@@ -1676,7 +1680,7 @@ export default function CustomersPortalPage() {
         <img
           src="/bahaar-logo.png"
           alt="Bahaar Journeys"
-          className="h-10 w-auto object-contain"
+          className="h-14 w-auto object-contain"
         />
         <div
           role="status"
@@ -1710,14 +1714,15 @@ export default function CustomersPortalPage() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
       <Confetti burstKey={confettiKey} />
+      <PlaneFlight flightKey={flightKey} />
       {/* Screen Header */}
       <header className="no-print sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
+        <div className="max-w-[1480px] mx-auto px-4 sm:px-8 lg:px-10 py-3.5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <img
               src="/bahaar-logo.png"
               alt="Bahaar Journeys"
-              className="h-9 sm:h-11 w-auto object-contain shrink-0"
+              className="h-11 sm:h-14 w-auto object-contain shrink-0"
             />
             <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-sky-50 border border-sky-200 px-3 py-1 text-xs font-semibold text-sky-800">
               <Globe2 className="w-3.5 h-3.5 text-sky-600" />
@@ -1757,21 +1762,17 @@ export default function CustomersPortalPage() {
         </div>
       </header>
 
-      <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-8">
+      <main className="flex-1 w-full max-w-[1480px] mx-auto px-4 sm:px-8 lg:px-10 py-6 sm:py-10 space-y-8">
         {/* Hero + Lookup + Live Plane Animation */}
         <section className="no-print relative space-y-5">
           <FloatingScene />
           <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
             <div className="lg:col-span-5 space-y-4">
-              <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 border border-amber-200/90 px-3 py-1 text-xs font-semibold text-amber-800">
-                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                <span>Instant Booking &amp; Visa Status Lookup</span>
-              </div>
 
               <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 leading-tight">
                 Track your journey to{' '}
-                <RotatingWord words={['Dubai', 'Istanbul', 'Bangkok', 'Singapore', 'London', 'Paris', 'Maldives', 'Kuala Lumpur']} />
-                , invoices &amp; visa progress.
+                <span className="whitespace-nowrap"><RotatingWord words={['Dubai', 'Istanbul', 'Bangkok', 'Singapore', 'London', 'Paris', 'Maldives', 'Kuala Lumpur']} />,</span>{' '}
+                invoices &amp; visa progress.
               </h1>
 
               <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
@@ -1956,7 +1957,7 @@ export default function CustomersPortalPage() {
                 <img
                   src="/bahaar-logo.png"
                   alt="Bahaar Journeys"
-                  className="h-10 w-auto object-contain"
+                  className="h-14 w-auto object-contain"
                 />
                 <div className="text-right text-xs text-slate-600">
                   <p className="font-bold text-slate-900 text-sm">Customer Trip Journey, Booking &amp; Visa Summary</p>
@@ -2745,100 +2746,6 @@ export default function CustomersPortalPage() {
           </section>
         )}
 
-        {/* Live Customers Portal Generated Queries Bar */}
-        <section className="no-print">
-          <div className="rounded-3xl border border-sky-200 bg-gradient-to-r from-sky-50/90 via-white to-indigo-50/70 p-4 sm:p-5 shadow-xs space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-start sm:items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-sm sm:text-base font-extrabold text-slate-900">
-                      Customers Portal Generated Queries Bar
-                    </h2>
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 text-[11px] font-bold text-emerald-900">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      LIVE
-                    </span>
-                    {foundData && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 border border-sky-300 px-2.5 py-0.5 text-[11px] font-bold text-sky-900">
-                        Linked to Tracking / CRM ID: {foundData.query}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-600 mt-0.5">
-                    {foundData
-                      ? `Welcome back, ${foundData.customerName || 'Valued Guest'}! Click "Get a quote and let our representative contact you" on any package and your active tracking reference (${foundData.query}) will be linked automatically.`
-                      : 'Looking for a tailored package? Click "Get a quote and let our representative contact you" on any destination below to generate a live portal query.'}
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => openQuoteModalForDestination(null)}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white px-4 py-2.5 text-xs sm:text-sm font-bold shadow-xs transition-all cursor-pointer shrink-0"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Get a Quote &amp; Let Our Representative Contact You</span>
-              </button>
-            </div>
-
-            {(() => {
-              const queriesToShow =
-                foundData?.portalQueries && foundData.portalQueries.length > 0
-                  ? foundData.portalQueries
-                  : recentPortalQueries;
-              if (queriesToShow.length === 0) return null;
-              return (
-                <div className="pt-2.5 border-t border-sky-200/60 flex items-center gap-2 overflow-x-auto pb-1">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-sky-800 shrink-0">
-                    {foundData?.portalQueries && foundData.portalQueries.length > 0
-                      ? 'Your Generated Portal Queries:'
-                      : 'Recent Live Portal Queries:'}
-                  </span>
-                  {queriesToShow.slice(0, 6).map((pq) => (
-                    <div
-                      key={pq.queryRef}
-                      className="inline-flex items-center gap-2 rounded-full bg-white border border-sky-200 px-3 py-1 text-xs shadow-2xs shrink-0"
-                    >
-                      <span className="font-mono font-bold text-sky-700">{pq.queryRef}</span>
-                      <span className="font-semibold text-slate-800">
-                        {pq.desiredCountries.slice(0, 2).join(', ')}
-                      </span>
-                      {pq.desiredDays && (
-                        <span className="text-slate-500 text-[11px]">· {pq.desiredDays}</span>
-                      )}
-                      {pq.crmId && (
-                        <span className="rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.2 text-[10px] font-bold">
-                          CRM: {pq.crmId}
-                        </span>
-                      )}
-                      <span
-                        className={`rounded-full px-2 py-0.2 text-[10px] font-bold ${
-                          pq.status === 'quoted'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : pq.status === 'contacted'
-                              ? 'bg-sky-100 text-sky-800'
-                              : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {pq.status === 'quoted'
-                          ? 'Quote Sent'
-                          : pq.status === 'contacted'
-                            ? 'Representative Contacted'
-                            : 'Live Inquiry'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-          </div>
-        </section>
-
         {/* Curated Worldwide Destinations Showcase */}
         <section className="no-print space-y-5 pt-2">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -2966,12 +2873,12 @@ export default function CustomersPortalPage() {
 
       {/* Footer */}
       <footer className="no-print border-t border-slate-200 bg-white mt-12">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="max-w-[1480px] mx-auto px-4 sm:px-8 lg:px-10 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <img
               src="/bahaar-logo.png"
               alt="Bahaar Journeys"
-              className="h-8 w-auto object-contain"
+              className="h-12 w-auto object-contain"
             />
           </div>
           <p className="text-xs text-slate-500 text-center sm:text-right">
@@ -2998,15 +2905,17 @@ export default function CustomersPortalPage() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={prefersReducedMotion ? undefined : { opacity: 0, scale: 0.96, y: 8 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-lg rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden"
+              className="w-full max-w-lg md:max-w-4xl max-h-[92dvh] flex flex-col md:flex-row rounded-3xl bg-white border border-slate-200 shadow-2xl overflow-hidden"
             >
+              <div className="md:w-[46%] shrink-0 md:overflow-y-auto bg-slate-950">
               <DestinationModalPhotoSlider
                 dest={activeDestination}
                 prefersReducedMotion={prefersReducedMotion}
                 onClose={() => setActiveDestination(null)}
               />
+              </div>
 
-              <div className="p-5 sm:p-6 space-y-4">
+              <div className="p-5 sm:p-6 space-y-4 flex-1 min-w-0 overflow-y-auto">
                 <p className="text-sm text-slate-700 leading-relaxed">{activeDestination.tagline}</p>
 
                 <div className="space-y-2">

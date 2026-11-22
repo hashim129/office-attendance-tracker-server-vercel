@@ -130,7 +130,7 @@ export const PageHero: React.FC<Props> = ({ tab, name, isAdmin, crm, todayRecord
       {/* Slim bar that stays on screen while scrolling: page name, new alerts and the live punch-in time */}
       <div className="sticky top-0 z-30 h-0" aria-hidden={!stuck}>
         <div
-          className={`absolute inset-x-0 top-0 flex items-center justify-between gap-3 rounded-xl px-3 sm:px-4 py-2 bg-gradient-to-r ${grad} text-white shadow-lg shadow-slate-900/20 transition-all duration-300 ease-out ${stuck ? 'translate-y-0 opacity-100' : '-translate-y-6 opacity-0 pointer-events-none'}`}
+          className={`hero-bar absolute inset-x-0 top-0 flex items-center justify-between gap-3 rounded-xl px-3 sm:px-4 py-2 bg-gradient-to-r ${grad} text-white shadow-lg shadow-slate-900/20 transition-all duration-300 ease-out ${stuck ? 'translate-y-0 opacity-100' : '-translate-y-6 opacity-0 pointer-events-none'}`}
         >
           <div className="min-w-0 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-white/90 animate-pulse shrink-0" />
