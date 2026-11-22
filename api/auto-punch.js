@@ -128,7 +128,7 @@ export default async function handler(req, res) {
           scope: 'attendance',
           actorRole: emp.role,
           changedRecord: refreshed,
-        }, DEFAULT_DB);
+        }, DEFAULT_DB, { actor: authRow });
 
         return res.status(200).json(alreadyResult);
       }
@@ -204,7 +204,7 @@ export default async function handler(req, res) {
         scope: 'attendance',
         actorRole: emp.role,
         changedRecord: newRecord,
-      }, DEFAULT_DB);
+      }, DEFAULT_DB, { actor: authRow });
 
       return res.status(200).json({
         ok: true,
