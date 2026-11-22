@@ -1055,6 +1055,11 @@ export default function App() {
           onTimeOut={handleGatedTimeOut}
           onStartBreak={handleGatedStartBreak}
           onEndBreak={handleGatedEndBreak}
+          onKioskAuthenticated={() => {
+            void syncDatabaseFromServer(true).then((updated) => {
+              if (updated && refreshFromLocalRef.current) refreshFromLocalRef.current(true);
+            });
+          }}
           onExitKiosk={() => handleToggleMode('desktop')}
           currentClientIp={currentClientIp}
           currentClientIsp={currentClientIsp}
