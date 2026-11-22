@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   AlertCircle,
@@ -30,6 +30,7 @@ import { inSeason } from './season';
 import JourneySteps from './JourneySteps';
 import { Confetti, FloatingScene, RotatingWord, useTiltCards } from './PortalFx';
 import JetShowcase from './JetShowcase';
+import { photoSrcSet, prefetchPhoto } from './imageUtil';
 import {
   CURATED_DESTINATIONS,
   DESTINATION_REGIONS,
@@ -297,6 +298,19 @@ function invoiceStatusLabel(status: PublicInvoiceStatus): string {
   return 'Unpaid';
 }
 
+/** True while the element is (nearly) on screen; used to pause sliders that nobody can see. */
+function useOnScreen(ref: RefObject<HTMLElement | null>): boolean {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(([e]) => setOn(e.isIntersecting), { rootMargin: '200px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref]);
+  return on;
+}
+
 function FeaturedDestinationHeroSlider({
   destinations,
   prefersReducedMotion,
@@ -315,19 +329,30 @@ function FeaturedDestinationHeroSlider({
   const safeIdx = count > 0 ? slideIdx % count : 0;
   const current = destinations[safeIdx];
 
+  const heroRef = useRef<HTMLDivElement>(null);
+  const heroVisible = useOnScreen(heroRef);
+
   useEffect(() => {
-    if (prefersReducedMotion || isPaused || count <= 1) return;
+    if (prefersReducedMotion || isPaused || count <= 1 || !heroVisible) return;
     const timer = window.setInterval(() => {
       setSlideIdx((prev) => (prev + 1) % count);
     }, 4500);
     return () => window.clearInterval(timer);
-  }, [prefersReducedMotion, isPaused, count]);
+  }, [prefersReducedMotion, isPaused, count, heroVisible]);
+
+  // Download the next two slides ahead of time so the change is instant, even on a slow phone connection.
+  useEffect(() => {
+    if (count <= 1 || !heroVisible) return;
+    prefetchPhoto(destinations[(safeIdx + 1) % count]?.photos[0], 1000);
+    prefetchPhoto(destinations[(safeIdx + 2) % count]?.photos[0], 1000);
+  }, [safeIdx, count, heroVisible, destinations]);
 
   if (!current) return null;
 
   return (
     <div
-      className="relative rounded-3xl overflow-hidden border border-slate-200 shadow-lg bg-slate-900 h-72 sm:h-88 md:h-96 group"
+      ref={heroRef}
+      className="relative rounded-3xl overflow-hidden border border-slate-200 shadow-lg bg-slate-900 h-[27rem] sm:h-88 md:h-96 group"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
@@ -342,7 +367,11 @@ function FeaturedDestinationHeroSlider({
         >
           <img
             src={current.photos[0]}
+            srcSet={photoSrcSet(current.photos[0])}
+            sizes="(max-width: 1024px) 100vw, 1100px"
             alt={`${current.name}, ${current.country}`}
+            decoding="async"
+            fetchPriority="high"
             className="w-full h-full object-cover object-center"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/35 to-slate-950/20" />
@@ -379,9 +408,9 @@ function FeaturedDestinationHeroSlider({
           </div>
         </div>
 
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
           <div className="max-w-2xl space-y-1.5">
-            <p className="text-xs sm:text-sm font-semibold text-sky-300 flex items-center gap-1.5">
+            <p className="text-xs sm:text-sm font-semibold text-sky-300 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
               <MapPin className="w-4 h-4" />
               <span>{current.country}</span>
               <span className="text-white/40">•</span>
@@ -424,7 +453,7 @@ function FeaturedDestinationHeroSlider({
             type="button"
             onClick={() => setSlideIdx(i)}
             aria-label={`Slide to ${d.name}`}
-            className={`h-1.5 rounded-full transition-all cursor-pointer ${
+            className={`relative after:absolute after:-inset-y-2.5 after:inset-x-0 after:content-[''] h-1.5 rounded-full transition-all cursor-pointer ${
               i === safeIdx ? 'w-6 bg-sky-400' : 'w-1.5 bg-white/55 hover:bg-white'
             }`}
           />
@@ -450,20 +479,26 @@ function DestinationCardPhotoSlider({
   const [photoIdx, setPhotoIdx] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
 
+  const cardRef = useRef<HTMLDivElement>(null);
+  const cardVisible = useOnScreen(cardRef);
+
+  // Only cards that are on screen rotate (and download) photos; the next photo is fetched before it is shown.
   useEffect(() => {
-    if (prefersReducedMotion || isHovered || photos.length <= 1) return;
+    if (prefersReducedMotion || isHovered || photos.length <= 1 || !cardVisible) return;
     const intervalMs = 3400 + (cardIndex % 4) * 450;
+    prefetchPhoto(photos[(photoIdx + 1) % photos.length], 640);
     const timer = window.setInterval(() => {
       setPhotoIdx((prev) => (prev + 1) % photos.length);
     }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [prefersReducedMotion, isHovered, photos.length, cardIndex]);
+  }, [prefersReducedMotion, isHovered, photos, cardIndex, cardVisible, photoIdx]);
 
   const currentPhoto = photos[photoIdx] || photos[0];
   const currentCaption = captions[photoIdx] || dest.name;
 
   return (
     <div
+      ref={cardRef}
       className="relative h-52 w-full overflow-hidden bg-slate-900 p-4 flex flex-col justify-between"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -473,8 +508,11 @@ function DestinationCardPhotoSlider({
         <motion.img
           key={`${dest.id}-photo-${photoIdx}`}
           src={currentPhoto}
+          srcSet={photoSrcSet(currentPhoto)}
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 400px"
           alt={`${dest.name} — ${currentCaption}`}
           loading="lazy"
+          decoding="async"
           initial={prefersReducedMotion ? false : { opacity: 0, x: 24, scale: 1.04 }}
           animate={{ opacity: 1, x: 0, scale: 1 }}
           exit={prefersReducedMotion ? undefined : { opacity: 0, x: -24 }}
@@ -520,7 +558,7 @@ function DestinationCardPhotoSlider({
                     }
                   }}
                   aria-label={`View photo ${idx + 1} of ${dest.name}`}
-                  className={`block h-1.5 rounded-full transition-all cursor-pointer ${
+                  className={`relative after:absolute after:-inset-y-2.5 after:-inset-x-0.5 after:content-[''] block h-1.5 rounded-full transition-all cursor-pointer ${
                     idx === photoIdx ? 'w-4 bg-sky-400' : 'w-1.5 bg-white/60 hover:bg-white'
                   }`}
                 />
@@ -605,7 +643,9 @@ function DestinationModalPhotoSlider({
 
   useEffect(() => {
     setPhotoIdx(0);
-  }, [dest.id]);
+    // Only three photos: fetch them all right away so switching is instant.
+    (dest.photos || []).slice(1).forEach((u) => prefetchPhoto(u, 700));
+  }, [dest.id, dest.photos]);
 
   useEffect(() => {
     if (prefersReducedMotion || photos.length <= 1) return;
@@ -625,6 +665,9 @@ function DestinationModalPhotoSlider({
           <motion.img
             key={`${dest.id}-modal-${photoIdx}`}
             src={currentPhoto}
+            srcSet={photoSrcSet(currentPhoto)}
+            sizes="(max-width: 768px) 100vw, 520px"
+            decoding="async"
             alt={`${dest.name} — ${currentCaption}`}
             initial={prefersReducedMotion ? false : { opacity: 0, x: 30 }}
             animate={{ opacity: 1, x: 0 }}
@@ -699,7 +742,11 @@ function DestinationModalPhotoSlider({
             >
               <img
                 src={url}
+                srcSet={photoSrcSet(url)}
+                sizes="140px"
                 alt={captions[idx] || `${dest.name} photo ${idx + 1}`}
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-cover"
               />
             </button>
@@ -1837,14 +1884,14 @@ export default function CustomersPortalPage() {
                       placeholder="e.g. Q-1042, CRM-208, or INV-0091"
                       aria-label="Query Code, CRM ID, or Invoice Number"
                       maxLength={80}
-                      className="w-full rounded-xl border border-slate-300 bg-white pl-10 pr-9 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 shadow-2xs"
+                      className="w-full rounded-xl border border-slate-300 bg-white pl-10 pr-9 py-3 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 shadow-2xs"
                     />
                     {searchInput && (
                       <button
                         type="button"
                         onClick={handleClearSearch}
                         aria-label="Clear search"
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                        className="absolute right-1 sm:right-2.5 top-1/2 -translate-y-1/2 p-2.5 sm:p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -2228,7 +2275,7 @@ export default function CustomersPortalPage() {
                           setTimelineInvoiceId(e.target.value);
                           setActiveStepId('booking');
                         }}
-                        className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-base sm:text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
                       >
                         {foundData.invoices.map((inv) => (
                           <option key={inv.id} value={inv.id}>
@@ -2534,6 +2581,10 @@ export default function CustomersPortalPage() {
                           >
                             <img
                               src={ph.url}
+                              srcSet={photoSrcSet(ph.url)}
+                              sizes="(max-width: 640px) 50vw, 300px"
+                              loading="lazy"
+                              decoding="async"
                               alt={`${ph.destName} — ${ph.caption}`}
                               className="w-full h-28 sm:h-32 print:h-24 object-cover object-center"
                             />
@@ -3186,7 +3237,7 @@ export default function CustomersPortalPage() {
                         placeholder="e.g. Muhammad Hashir"
                         maxLength={120}
                         required={!quoteTrackingRef.trim()}
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-base sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
                       />
                     </div>
                     <div>
@@ -3200,7 +3251,7 @@ export default function CustomersPortalPage() {
                         placeholder="e.g. +92 300 1234567"
                         maxLength={60}
                         required
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-base sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
                       />
                     </div>
                   </div>
@@ -3223,7 +3274,7 @@ export default function CustomersPortalPage() {
                         }}
                         placeholder="Type country or city (e.g. Saudi Arabia, Baku, Dubai) and press Add..."
                         maxLength={100}
-                        className="flex-1 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                        className="flex-1 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-base sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
                       />
                       <button
                         type="button"
@@ -3305,7 +3356,7 @@ export default function CustomersPortalPage() {
                         onChange={(e) => setQuoteDays(e.target.value)}
                         placeholder="e.g. 7 Days / 6 Nights"
                         maxLength={60}
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-base sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
                       />
                     </div>
                     <div>
@@ -3318,7 +3369,7 @@ export default function CustomersPortalPage() {
                         onChange={(e) => setQuoteTrackingRef(e.target.value)}
                         placeholder="Auto-filled if checking in with CRM ID"
                         maxLength={80}
-                        className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2 text-xs sm:text-sm font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                        className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2 text-base sm:text-sm font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
                       />
                     </div>
                   </div>
@@ -3361,7 +3412,7 @@ export default function CustomersPortalPage() {
                       onChange={(e) => setQuoteNotes(e.target.value)}
                       placeholder="e.g. Number of adults/children, preferred hotel star rating, travel dates..."
                       maxLength={600}
-                      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-base sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
                     />
                   </div>
 
