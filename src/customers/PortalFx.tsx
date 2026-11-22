@@ -130,3 +130,26 @@ export function useTiltCards() {
     return () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerleave', reset); reset(); };
   }, []);
 }
+
+/** A small plane that crosses the screen each time a booking is looked up, with a short caption. */
+export function PlaneFlight({ flightKey }: { flightKey: number }) {
+  const [alive, setAlive] = useState(false);
+  useEffect(() => {
+    if (!flightKey || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    setAlive(true);
+    const t = window.setTimeout(() => setAlive(false), 2300);
+    return () => window.clearTimeout(t);
+  }, [flightKey]);
+  if (!alive) return null;
+  return (
+    <div className="fx-flight no-print" aria-hidden="true" key={flightKey}>
+      <div className="fx-flight-x">
+        <div className="fx-flight-y">
+          <span className="fx-flight-trail" />
+          <Plane className="fx-flight-plane" />
+        </div>
+      </div>
+      <div className="fx-flight-label">Locating your booking…</div>
+    </div>
+  );
+}

@@ -381,6 +381,7 @@ const mapInvoice = (r, visaProgress = null) => ({
   subtotal: num(r.subtotal), taxAmount: num(r.tax_amount), total: num(r.total), balance: num(r.balance), notes: r.notes || '',
   vendors: asArray(r.vendors), ntn: r.ntn === null || r.ntn === undefined ? null : String(r.ntn), showNtn: r.show_ntn !== false,
   status: r.status, vendorStatus: r.vendor_status === 'paid' ? 'paid' : 'unpaid', vendorPaidAt: r.vendor_paid_at || null, vendorPaidBy: r.vendor_paid_by || null,
+  cancelRemarks: r.cancel_remarks || '', cancelledBy: r.cancelled_by || null, cancelledAt: r.cancelled_at || null,
   visaProgress: r.kind === 'vendor' ? null : (visaProgress || null), createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const RECEIPT_ITEMS = ['Package', 'Visa Charges', 'Air Tickets', 'Hotel', 'Transfers', 'Insurance', 'Service Charges'];
@@ -499,6 +500,18 @@ async function notify(employeeIds, category, refId, message, exceptId) {
   const at = nowIso();
   await upsert('crm_notifications', ids.map((e) => ({ id: id('ntf'), employee_id: e, category, ref_id: refId, message, created_at: at, read_at: null })));
 }
+
+// Plain-language list of what changed in an edit, used in the "edited" notifications (kept short).
+const changedBits = (pairs) => {
+  const bits = [];
+  for (const [label, a, b] of pairs) {
+    const x = a === null || a === undefined ? '' : String(a);
+    const y = b === null || b === undefined ? '' : String(b);
+    if (x !== y) bits.push(`${label}: ${x || '-'} -> ${y || '-'}`);
+  }
+  const out = bits.join('; ');
+  return out.length > 260 ? `${out.slice(0, 257)}...` : out;
+};
 const salesStaffIds = async () => (await activeEmployees()).filter((e) => e.role === 'admin' || e.role === 'accounts' || e.role === 'ceo').map((e) => e.id);
 const accountsIds = async () => (await activeEmployees()).filter((e) => e.role === 'accounts').map((e) => e.id);
 const adminIds = async () => (await activeEmployees()).filter((e) => e.role === 'admin' || e.role === 'ceo').map((e) => e.id);
@@ -1354,7 +1367,12 @@ export default async function handler(req, res) {
         } else if (visaOp === 'upsert' && visaObj) {
           await upsert('crm_company', { id: `visa-${row.id}`, data: visaObj, updated_at: visaObj.updatedAt });
         }
-        await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'Someone'} updated ${vendorBill ? 'vendor payable' : 'invoice'} ${row.invoice_no} (${currency} ${total}).`, me.id);
+        const what = changedBits([
+          [vendorBill ? 'vendor' : 'customer', existing.customer_name, base.customer_name], ['currency', existing.currency, base.currency], ['total', num(existing.total), num(base.total)],
+          ['discount', num(existing.discount), num(base.discount)], ['advance', num(existing.advance_paid), num(base.advance_paid)], ['due', existing.due_date, base.due_date],
+          ['query code', existing.query_code, base.query_code], ['notes', existing.notes, base.notes],
+        ]);
+        await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'Someone'} edited ${vendorBill ? 'vendor payable' : 'invoice'} ${row.invoice_no}${what ? ` (${what})` : ' (details updated)'}.`, me.id);
         return res.status(200).json({ ok: true, invoice: mapInvoice(row, visaObj) });
       }
       const invoiceNo = await supabaseFetch(vendorBill ? '/rpc/crm_next_payable_no' : '/rpc/crm_next_invoice_no', { method: 'POST', body: '{}' });
@@ -1491,9 +1509,18 @@ export default async function handler(req, res) {
       if (!['unpaid', 'paid', 'cancelled'].includes(status)) throw bad('Choose Unpaid, Paid or Cancelled.');
       const staff = isAdmin || me.role === 'accounts';
       if (!staff && !(existing.created_by === me.id && status === 'cancelled' && existing.status === 'unpaid')) throw forbidden('Only Accounts or Admin can change the invoice status.');
-      const row = { ...existing, status, updated_at: nowIso() };
+      const at = nowIso();
+      const row = { ...existing, status, updated_at: at };
+      if (status === 'cancelled') {
+        const remarks = str(body.remarks, 600, { required: true, name: 'Cancellation remarks' });
+        row.cancel_remarks = remarks; row.cancelled_by = me.id; row.cancelled_at = at;
+      }
       await upsert('crm_invoices', row);
-      if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Your invoice ${existing.invoice_no} was marked ${status.toUpperCase()}.`, me.id);
+      if (status === 'cancelled') {
+        const label = existing.kind === 'vendor' ? 'vendor payable' : 'invoice';
+        const targets = [...new Set([...(await salesStaffIds()), existing.created_by])];
+        await notify(targets, 'invoice', row.id, `${me.name || 'Someone'} cancelled ${label} ${existing.invoice_no}. Remarks: ${row.cancel_remarks}`, me.id);
+      } else if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Your invoice ${existing.invoice_no} was marked ${status.toUpperCase()}.`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
 
@@ -1790,6 +1817,12 @@ export default async function handler(req, res) {
           updatedAt: at,
         };
         await upsert('crm_company', { id: existing.id, data: updatedPurchase, updated_at: at });
+        const what = changedBits([
+          ['customer', existing.customerName, customerName], ['query code', existing.crmId, crmId], ['currency', existing.currency, currency],
+          ['payable', existing.totalPayable, totalPayable], ['receivable', existing.totalReceivable, totalReceivable], ['items', asArray(existing.items).length, items.length],
+          ['date', existing.purchaseDate, purchaseDate], ['notes', existing.notes, notes],
+        ]);
+        await notify(await salesStaffIds(), 'invoice', existing.id, `${me.name || 'Someone'} edited vendor purchase ${existing.purchaseNo}${what ? ` (${what})` : ' (details updated)'}.`, me.id);
         return res.status(200).json({ ok: true, purchase: updatedPurchase });
       }
 

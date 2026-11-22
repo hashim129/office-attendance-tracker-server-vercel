@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, FileDown, Share2, Eye, Pencil, Building2, FileText, X, Lock, Info } from 'lucide-react';
+import { Plus, Trash2, FileDown, Share2, Eye, Pencil, Building2, FileText, X, Lock, Info, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CompanyProfile, CrmInvoice, InvoiceSection, VisaProgressStatus, crmCall, updateInvoiceVisaProgress } from './crmApi';
@@ -351,6 +351,9 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
   const currencies = useMemo(() => allCurrencies(), []);
 
   const [form, setForm] = useState<FormState | null>(null);
+  // Cards start folded so the page stays short; people open the ones they need.
+  const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
+  const toggleOpen = (id: string) => setOpenIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [view, setView] = useState<CrmInvoice | null>(null);
   const [companyForm, setCompanyForm] = useState<CompanyProfile | null>(null);
   const [busy, setBusy] = useState(false);
@@ -819,6 +822,12 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
     }
   };
 
+  const cancelWithRemarks = async (i: CrmInvoice) => {
+    const remarks = (window.prompt(`Why is ${i.invoiceNo} being cancelled? Remarks are required.`) || '').trim();
+    if (!remarks) { setError('Cancelling needs remarks, so nothing was cancelled.'); return; }
+    await act('invoice_status', { id: i.id, status: 'cancelled', remarks });
+  };
+
   const filters: ['all' | 'unpaid' | 'paid' | 'cancelled', string][] = [['all', 'All'], ['unpaid', 'Unpaid'], ['paid', 'Paid'], ['cancelled', 'Cancelled']];
 
   return (
@@ -829,6 +838,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{vendorSide ? 'Vendor side: what we owe vendors for tickets, hotels and other services. Digital only — never printed on a customer invoice.' : 'Create an invoice, download it as a PDF and send it to the customer.'}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button className={btnGhost} onClick={() => setOpenIds((prev) => (prev.size ? new Set() : new Set(shown.map((x) => x.id))))}><ChevronsUpDown className="w-3.5 h-3.5" /> {openIds.size ? 'Collapse all' : 'Expand all'}</button>
           {isStaff && <button className={btnGhost} onClick={() => { setCompanyForm({ ...company }); setError(''); }}><Building2 className="w-3.5 h-3.5" /> Company details</button>}
           <button className={btnPrimary} onClick={() => { setForm(blankForm(side, company.ntn || '')); setError(''); setNotice(''); }}><Plus className="w-3.5 h-3.5" /> {vendorSide ? 'New vendor payable' : 'New invoice'}</button>
         </div>
@@ -1021,7 +1031,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
             });
 
             return (
-              <div key={i.id} className={`${cardCls} p-4 ${fullyPaid(i) ? '!bg-emerald-100/80 !border-emerald-300 dark:!bg-emerald-950/40 dark:!border-emerald-800/70' : ''}`}>
+              <div key={i.id} className={`${cardCls} p-4 inv-card ${openIds.has(i.id) ? '' : 'inv-collapsed'} ${fullyPaid(i) ? '!bg-emerald-100/80 !border-emerald-300 dark:!bg-emerald-950/40 dark:!border-emerald-800/70' : ''}`}>
                 <div className={`grid grid-cols-1 ${!vendorSide ? 'lg:grid-cols-2' : ''} gap-4`}>
                   {/* LEFT HALF (50%): Customer Receivable Side */}
                   <div className={`min-w-0 flex flex-col justify-between space-y-3 ${i.status === 'paid' && !vendorSide ? 'rounded-lg p-2.5 -m-2.5 bg-emerald-100/90 dark:bg-emerald-950/50' : ''}`}>
@@ -1896,7 +1906,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                           value={i.status}
                           onChange={(e) => {
                             const next = e.target.value as CrmInvoice['status'];
-                            if (next === 'cancelled' && !window.confirm(`Cancel invoice ${i.invoiceNo}?`)) return;
+                            if (next === 'cancelled') { void cancelWithRemarks(i); return; }
                             void act('invoice_status', { id: i.id, status: next });
                           }}
                         >
@@ -1907,7 +1917,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                       )}
                       {isStaff && i.status !== 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'paid' })}>Mark paid</button>}
                       {isStaff && i.status === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Mark unpaid</button>}
-                      {(isStaff || i.createdBy === currentUser.id) && i.status === 'unpaid' && <button className={btnGhost} onClick={() => { if (window.confirm(`Cancel invoice ${i.invoiceNo}?`)) void act('invoice_status', { id: i.id, status: 'cancelled' }); }}>Cancel invoice</button>}
+                      {(isStaff || i.createdBy === currentUser.id) && i.status === 'unpaid' && <button className={btnGhost} onClick={() => void cancelWithRemarks(i)}>Cancel invoice</button>}
                       {isStaff && i.status === 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Reopen</button>}
                       {isAdmin && <button className={btnDanger} aria-label="Delete invoice" onClick={() => { if (window.confirm(`Delete invoice ${i.invoiceNo} permanently?`)) void act('invoice_delete', { id: i.id }); }}><Trash2 className="w-3.5 h-3.5" /></button>}
                     </div>
@@ -1989,6 +1999,14 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                     </div>
                   )}
                 </div>
+                {i.status === 'cancelled' && i.cancelRemarks && (
+                  <p className="mt-3 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100/80 dark:bg-slate-800/60 px-2.5 py-1.5 text-slate-700 dark:text-slate-300"><b>Cancelled</b>{i.cancelledBy ? ` by ${(empName.get(i.cancelledBy) || "a team member")}` : ''}: {i.cancelRemarks}</p>
+                )}
+                <button type="button" onClick={() => toggleOpen(i.id)} aria-expanded={openIds.has(i.id)}
+                  className="mt-3 w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/50 hover:bg-white dark:hover:bg-slate-800 py-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer transition-colors">
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-300 ${openIds.has(i.id) ? 'rotate-180' : ''}`} />
+                  {openIds.has(i.id) ? 'Hide details' : 'Show details, vendors & actions'}
+                </button>
               </div>
             );
           })}
