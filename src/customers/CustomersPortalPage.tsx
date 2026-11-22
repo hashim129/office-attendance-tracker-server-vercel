@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   AlertCircle,
@@ -28,7 +28,8 @@ import { fmtAmount } from '../crm/currencies';
 import PlaneAnimation from './PlaneAnimation';
 import { inSeason } from './season';
 import JourneySteps from './JourneySteps';
-import { Confetti, FloatingScene, PlaneFlight, RotatingWord, useTiltCards } from './PortalFx';
+import { Confetti, FloatingScene, RotatingWord, useTiltCards } from './PortalFx';
+import JetShowcase from './JetShowcase';
 import {
   CURATED_DESTINATIONS,
   DESTINATION_REGIONS,
@@ -990,11 +991,31 @@ export default function CustomersPortalPage() {
 
   const foundData = lookupState.kind === 'found' ? lookupState.data : null;
   useTiltCards();
-  const [flightKey, setFlightKey] = useState(0);
   const [surpriseKey, setSurpriseKey] = useState('');
+  // Jet flyover: the booking details stay hidden until the dropped box bursts open.
+  const [jetKey, setJetKey] = useState(0);
+  const [holdResults, setHoldResults] = useState(false);
+  const [blastKey, setBlastKey] = useState('');
+  const resultsRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    if (lookupState.kind === 'found') {
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+      setHoldResults(true);
+      setJetKey((n) => n + 1);
+    } else {
+      setHoldResults(false);
+    }
+  }, [lookupState]);
   useEffect(() => {
-    if (lookupState.kind === 'loading') setFlightKey((n) => n + 1);
-  }, [lookupState.kind]);
+    if (!holdResults) return;
+    const t = window.setTimeout(() => setHoldResults(false), 7000); // safety net
+    return () => window.clearTimeout(t);
+  }, [holdResults]);
+  const handleBlast = () => {
+    setHoldResults(false);
+    setBlastKey(`blast-${Date.now()}`);
+    window.setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+  };
   // A little celebration when a visa has been issued for the booking being tracked.
   const confettiKey = foundData && foundData.invoices.some((inv) => inv.visaProgress?.status === 'issued') ? `${foundData.query}-issued` : '';
 
@@ -1731,8 +1752,8 @@ export default function CustomersPortalPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
-      <Confetti burstKey={confettiKey || surpriseKey} />
-      <PlaneFlight flightKey={flightKey} />
+      <Confetti burstKey={blastKey || confettiKey || surpriseKey} />
+      <JetShowcase showKey={jetKey} name={foundData?.customerName || ''} onBlast={handleBlast} />
       {/* Screen Header */}
       <header className="no-print sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
         <div className="max-w-[1480px] mx-auto px-4 sm:px-8 lg:px-10 py-3.5 flex flex-wrap items-center justify-between gap-3">
@@ -1968,7 +1989,7 @@ export default function CustomersPortalPage() {
 
         {/* Interactive Booking Results & Print Container */}
         {foundData && (
-          <section className="print-container space-y-6 print:space-y-3">
+          <section ref={resultsRef} className={`print-container scroll-mt-24 space-y-6 print:space-y-3 ${holdResults ? 'fx-results-hold' : jetKey ? 'fx-results-pop' : ''}`}>
             {/* Print-Only Branded Header */}
             <div className="hidden print-only border-b border-slate-300 pb-3 mb-2">
               <div className="flex items-center justify-between gap-4">
