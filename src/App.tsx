@@ -424,6 +424,11 @@ export default function App() {
   const handleLogin = (employee: Employee, keepLoggedIn: boolean) => {
     setCurrentUser(employee);
     saveSession(employee.id, keepLoggedIn, takePendingToken(employee.id));
+    // The pre-login endpoint returns only a safe directory projection. Fetch the full
+    // authorized database snapshot immediately after the server has issued the session.
+    void syncDatabaseFromServer(true).then((updated) => {
+      if (updated && refreshFromLocalRef.current) refreshFromLocalRef.current(true);
+    });
   };
 
   const handleLogout = () => {
@@ -1050,6 +1055,11 @@ export default function App() {
           onTimeOut={handleGatedTimeOut}
           onStartBreak={handleGatedStartBreak}
           onEndBreak={handleGatedEndBreak}
+          onKioskAuthenticated={() => {
+            void syncDatabaseFromServer(true).then((updated) => {
+              if (updated && refreshFromLocalRef.current) refreshFromLocalRef.current(true);
+            });
+          }}
           onExitKiosk={() => handleToggleMode('desktop')}
           currentClientIp={currentClientIp}
           currentClientIsp={currentClientIsp}

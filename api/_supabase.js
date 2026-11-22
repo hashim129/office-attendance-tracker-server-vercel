@@ -361,12 +361,21 @@ function mapDbShift(r) {
   const isNoRestriction =
     r.id === 'shift-freelance' ||
     (r.start_time === '00:00' && r.end_time === '23:59');
+  // Older saves stored the JSON array as a JSON string inside jsonb. Parse both
+  // representations so a weekday-only schedule never silently becomes 7 days.
+  let parsedWorkDays = r.work_days;
+  if (typeof parsedWorkDays === 'string') {
+    try { parsedWorkDays = JSON.parse(parsedWorkDays); } catch { parsedWorkDays = null; }
+  }
+  const workDays = Array.isArray(parsedWorkDays)
+    ? [...new Set(parsedWorkDays.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))]
+    : [];
   return {
     id: r.id,
     name: r.name,
     startTime: r.start_time,
     endTime: r.end_time,
-    workDays: Array.isArray(r.work_days) ? r.work_days : [0, 1, 2, 3, 4, 5, 6],
+    workDays: isNoRestriction ? [0, 1, 2, 3, 4, 5, 6] : (workDays.length ? workDays : [1, 2, 3, 4, 5]),
     graceMinutes: Number(r.grace_minutes) || 15,
     expectedHours: Number(r.expected_hours) || 8,
     color: r.color || 'blue',
@@ -381,7 +390,7 @@ function mapAppShiftToDb(s) {
     name: s.name,
     start_time: s.startTime,
     end_time: s.endTime,
-    work_days: JSON.stringify(s.workDays || [1, 2, 3, 4, 5]),
+    work_days: Array.isArray(s.workDays) ? [...new Set(s.workDays.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))] : [1, 2, 3, 4, 5],
     grace_minutes: Number(s.graceMinutes) || 15,
     expected_hours: Number(s.expectedHours) || 8,
     color: s.color || 'blue',
@@ -969,13 +978,28 @@ function authorizeExternalMutation(incoming, ctx) {
   incoming.actorRole = actor?.role || 'employee';
 
   if (scope === 'attendance') {
-    // Every attendance record is stamped with the server-known role (the browser's "lastEditedByRole" is ignored),
-    // and only administrators, accounts and CEO accounts can write verification marks or lock a record.
-    const role = incoming.actorRole;
+    // Attendance writes always require a verified server session (or the separately
+    // verified Windows auto-punch token). Never trust a role supplied by the browser.
+    if (!actor) throw needSignIn();
+    const role = actor.role;
     const isVerifier = role === 'admin' || role === 'accounts' || role === 'ceo';
     const list = incoming.changedRecords || (incoming.changedRecord ? [incoming.changedRecord] : incoming.attendance || []);
+    const employeeActions = new Set(['time_in', 'time_out', 'start_break', 'end_break', 'update_note', 'heartbeat']);
+
     for (const rec of list) {
       if (!rec || typeof rec !== 'object') continue;
+
+      if (role !== 'admin') {
+        if (rec.actorAction === 'verify') {
+          if (!isVerifier) throw forbidden();
+        } else {
+          if (rec.employeeId !== actor.id) {
+            throw denied(403, 'OWN_ATTENDANCE_ONLY', 'You can only update your own attendance record.');
+          }
+          if (!employeeActions.has(rec.actorAction)) throw forbidden();
+        }
+      }
+
       rec.lastEditedByRole = role;
       if (!isVerifier) {
         delete rec.adminVerification;
@@ -987,8 +1011,11 @@ function authorizeExternalMutation(incoming, ctx) {
 }
 
 export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
-  if (Array.isArray(ctx.clientIps)) authorizeExternalMutation(incoming, ctx);
   const scope = incoming.scope || 'legacy_bulk';
+  // The one-time Gist migration is an internal server operation, not a browser mutation.
+  if (!(ctx.internalMigration === true && scope === 'full_restore')) {
+    authorizeExternalMutation(incoming, ctx);
+  }
 
   if (scope === 'attendance') {
     const records = incoming.changedRecords || (incoming.changedRecord ? [incoming.changedRecord] : incoming.attendance || []);

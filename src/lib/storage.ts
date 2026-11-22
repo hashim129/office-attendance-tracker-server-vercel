@@ -1,4 +1,4 @@
-import { onSessionToken } from './pinAuth';
+import { getKioskSessionToken, onSessionToken } from './pinAuth';
 import {
   AttendanceRecord,
   CeoComment,
@@ -804,7 +804,7 @@ export async function syncDatabaseFromServer(forceAccept = false): Promise<boole
     return false;
   }
   try {
-    const res = await fetch(`/api/db?t=${Date.now()}`, { cache: 'no-store' });
+    const res = await fetch(`/api/db?t=${Date.now()}`, { cache: 'no-store', headers: getSessionToken() ? { 'x-session-token': getSessionToken()! } : {} });
     if (!res.ok) return false;
 
     // Abort applying poll result if any local write entered the outbox while GET was in-flight
@@ -813,6 +813,12 @@ export async function syncDatabaseFromServer(forceAccept = false): Promise<boole
     }
 
     const data = await res.json();
+    if (data?.authRequired === true && Array.isArray(data.employees)) {
+      // Login directory only: update employee identity fields without replacing any cached
+      // attendance, shifts, leave, settings, payroll, or CRM records.
+      localStorage.setItem(STORAGE_KEY_EMPLOYEES, JSON.stringify(data.employees));
+      return true;
+    }
     if (data && Array.isArray(data.employees) && Array.isArray(data.attendance)) {
       const localUpdatedAt = localStorage.getItem(STORAGE_KEY_UPDATED_AT);
       const localMs = localUpdatedAt ? Date.parse(localUpdatedAt) : 0;
@@ -1131,7 +1137,7 @@ export interface UserSession {
 
 /** Token of the signed-in person, or undefined (e.g. kiosk, or the older local server). */
 export function getSessionToken(): string | undefined {
-  return loadSession()?.token;
+  return loadSession()?.token || getKioskSessionToken() || undefined;
 }
 
 export function loadSession(): UserSession | null {

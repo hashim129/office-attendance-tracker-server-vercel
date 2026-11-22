@@ -24,6 +24,12 @@ export function rememberSession(employeeId: string | null, pin?: string): void {
 
 // Sign-in token handed out by the server after a correct PIN. Held here until the app saves it with the login.
 let pendingToken: { employeeId: string; token: string } | null = null;
+let kioskSessionToken: string | null = null;
+
+/** Short-lived in-memory token used only while the shared kiosk is open. */
+export function getKioskSessionToken(): string | null {
+  return kioskSessionToken;
+}
 const tokenSavers: Array<(employeeId: string, token: string) => void> = [];
 
 /** Lets storage.ts save a fresh token (e.g. after the person changes their own PIN). */
@@ -95,6 +101,7 @@ export async function identifyByPin(pin: string, employees: Employee[]): Promise
   const r = await post('kiosk', { pin });
   if (r.status === 200) {
     const emp = employees.find((e) => e.id === r.json.employeeId);
+    if (emp && typeof r.json.session === 'string') kioskSessionToken = r.json.session;
     return emp ? { ok: true, employee: emp } : { ok: false, error: 'PIN code not recognized.' };
   }
   return fail(r, 'PIN code not recognized.');

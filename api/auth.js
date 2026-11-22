@@ -48,7 +48,7 @@ export default async function handler(req, res) {
         return res.status(401).json({ error: 'PIN code not recognized.' });
       }
       if (prev) await clearFailures(key);
-      return res.status(200).json({ ok: true, employeeId: hit.id });
+      return res.status(200).json({ ok: true, employeeId: hit.id, session: issueSession(hit.id) });
     }
 
     // Any administrator PIN (kiosk exit, kiosk launch)

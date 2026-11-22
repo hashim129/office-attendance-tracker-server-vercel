@@ -786,13 +786,26 @@ export default async function handler(req, res) {
       const open = await supabaseFetch(`/attendance?employee_id=eq.${encodeURIComponent(me.id)}&time_out=is.null&time_in=not.is.null&date=gte.${since}&select=id&order=date.desc&limit=1`);
       if (!Array.isArray(open) || !open[0]) throw bad('You are not punched in right now.');
       const at = nowIso();
-      await supabaseFetch(`/attendance?id=eq.${encodeURIComponent(open[0].id)}&time_out=is.null`, {
-        method: 'PATCH',
-        body: JSON.stringify({ work_confirmed_at: at, record_updated_at: at }),
-      });
-      const asks = (await myNotifications(me.id)).filter((n) => !n.read_at && n.category === 'reminder' && /-(end|ask-\d+-\d+)$/.test(String(n.id)));
-      if (asks.length) await upsert('crm_notifications', asks.map((n) => ({ ...n, read_at: at })));
-      return res.status(200).json({ ok: true, confirmedAt: at });
+      const updated = await supabaseFetch(
+        `/attendance?id=eq.${encodeURIComponent(open[0].id)}&time_out=is.null&select=id,work_confirmed_at`,
+        {
+          method: 'PATCH',
+          headers: { Prefer: 'return=representation' },
+          body: JSON.stringify({ work_confirmed_at: at, record_updated_at: at }),
+        }
+      );
+      if (!Array.isArray(updated) || !updated[0]?.work_confirmed_at) {
+        throw new HttpError(409, 'Your attendance record changed before confirmation. Refresh your attendance and try again.', 'WORK_CONFIRM_NOT_SAVED');
+      }
+      // Saving the confirmation is the critical operation. Clearing reminder badges is
+      // secondary and must not turn a successful confirmation into a reported failure.
+      try {
+        const asks = (await myNotifications(me.id)).filter((n) => !n.read_at && n.category === 'reminder' && /-(end|ask-\d+-\d+)$/.test(String(n.id)));
+        if (asks.length) await upsert('crm_notifications', asks.map((n) => ({ ...n, read_at: at })));
+      } catch (notificationError) {
+        console.warn('Overtime confirmed, but reminder notifications could not be marked read:', notificationError?.message);
+      }
+      return res.status(200).json({ ok: true, confirmedAt: updated[0].work_confirmed_at });
     }
 
     // ---------------------------------------------------------------- customers
