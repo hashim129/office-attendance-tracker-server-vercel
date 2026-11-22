@@ -671,6 +671,15 @@ export default async function handler(req, res) {
     }
   }
 
+  // The Vercel-hosted production API must never fall back to a public Gist-backed
+  // database endpoint if its privileged Supabase server credentials are missing.
+  if (process.env.VERCEL && !isSupabaseConfigured()) {
+    return res.status(503).json({
+      error: 'Secure database service is not configured. Please contact the administrator.',
+      code: 'SECURE_DATABASE_UNAVAILABLE',
+    });
+  }
+
   // 2. Fallback to hardened GitHub Gist storage
   const token = getCloudToken();
 
