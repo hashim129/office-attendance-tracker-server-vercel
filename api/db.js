@@ -1,4 +1,3 @@
-import { migratePlaintextPins } from './_auth.js';
 import { getSessionEmployee } from './_session.js';
 import {
   evaluateAttendancePresenceAndAutoClose,
@@ -574,7 +573,8 @@ export default async function handler(req, res) {
   if (isSupabaseConfigured()) {
     try {
       if (req.method === 'GET') {
-        await migratePlaintextPins().catch((e) => console.error('PIN migration failed:', e));
+        const sessionToken = String(req.headers['x-session-token'] || '').trim();
+        const sessionEmployee = sessionToken ? await getSessionEmployee(sessionToken) : null;
         let currentSupaDb = await readSupabaseDb(DEFAULT_DB);
 
         // If Supabase was just initialized (only 1 default admin employee), auto-migrate all 17 employees and attendance from Gist
@@ -592,13 +592,38 @@ export default async function handler(req, res) {
                   leaves: gistRes.data.leaves || [],
                   shifts: gistRes.data.shifts || [],
                   settings: gistRes.data.settings || DEFAULT_DB.settings,
-                }, DEFAULT_DB);
+                }, DEFAULT_DB, { internalMigration: true });
                 currentSupaDb = mutRes.db;
               }
             } catch (migErr) {
               console.warn('Gist auto-migration to Supabase skipped:', migErr);
             }
           }
+        }
+
+        // Before sign-in, expose only the minimum employee directory needed by the login screen.
+        // Never send attendance, pay rates, contact details, settings, leaves, face or CRM data.
+        if (!sessionEmployee) {
+          return res.status(200).json({
+            authRequired: true,
+            updatedAt: currentSupaDb.updatedAt,
+            employees: (currentSupaDb.employees || [])
+              .filter((e) => e && e.isActive !== false)
+              .map((e) => ({
+                id: e.id,
+                employeeCode: e.employeeCode,
+                name: e.name,
+                email: e.email || '',
+                role: e.role || 'employee',
+                department: e.department || '',
+                designation: e.designation || '',
+                shiftId: e.shiftId || 'shift-std',
+                isActive: true,
+                hasPin: Boolean(e.hasPin),
+                pinLength: e.pinLength,
+                avatarSeed: e.avatarSeed || '',
+              })),
+          });
         }
 
         if (Array.isArray(currentSupaDb.attendance)) {
