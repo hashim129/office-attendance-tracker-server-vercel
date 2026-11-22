@@ -981,17 +981,13 @@ function authorizeExternalMutation(incoming, ctx) {
       if (!rec || typeof rec !== 'object') continue;
 
       if (role !== 'admin') {
-        if (role === 'accounts' || role === 'ceo') {
-          if (rec.actorAction !== 'verify') {
-            throw forbidden();
-          }
+        if (rec.actorAction === 'verify') {
+          if (!isVerifier) throw forbidden();
         } else {
           if (rec.employeeId !== actor.id) {
             throw denied(403, 'OWN_ATTENDANCE_ONLY', 'You can only update your own attendance record.');
           }
-          if (!employeeActions.has(rec.actorAction)) {
-            throw forbidden();
-          }
+          if (!employeeActions.has(rec.actorAction)) throw forbidden();
         }
       }
 
