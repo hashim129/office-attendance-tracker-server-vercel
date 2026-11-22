@@ -4,6 +4,7 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CompanyProfile, CrmInvoice, InvoiceSection, VisaProgressStatus, crmCall, updateInvoiceVisaProgress } from './crmApi';
 import { crmQueryOf, ntnShown } from './invoiceHelpers';
+import { PortalInvoiceModal } from './PortalInvoiceModal';
 // The PDF maker is large, so it is only loaded when someone actually downloads or shares an invoice.
 const downloadInvoicePdf = async (...a: Parameters<typeof import('./invoicePdf').downloadInvoicePdf>) => (await import('./invoicePdf')).downloadInvoicePdf(...a);
 const downloadVendorPayablesPdf = async (...a: Parameters<typeof import('./invoicePdf').downloadVendorPayablesPdf>) => (await import('./invoicePdf')).downloadVendorPayablesPdf(...a);
@@ -355,6 +356,8 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
   const toggleOpen = (id: string) => setOpenIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [view, setView] = useState<CrmInvoice | null>(null);
+  const [portalFor, setPortalFor] = useState<CrmInvoice | null>(null);
+  const canPortalCtl = currentUser.role === 'admin' || currentUser.role === 'ceo' || Boolean(currentUser.customerPortalAccess);
   const [companyForm, setCompanyForm] = useState<CompanyProfile | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -1074,6 +1077,16 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                             <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-200">
                               Customer Portal Process Steps &amp; Package Requirements
                             </span>
+                            {canPortalCtl && (
+                              <span className="inline-flex flex-wrap items-center gap-1.5">
+                                {crm.data.portalInvoices?.[i.id]?.hideAmounts && <Pill tone="amber">Amounts hidden</Pill>}
+                                {crm.data.portalInvoices?.[i.id]?.disabled && <Pill tone="red">Tracking off</Pill>}
+                                {crm.data.portalInvoices?.[i.id]?.note && <Pill tone="blue">Message set</Pill>}
+                                <button type="button" onClick={() => setPortalFor(i)} className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-indigo-300 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 cursor-pointer">
+                                  Portal controls
+                                </button>
+                              </span>
+                            )}
                             <span
                               className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                                 isPaymentApproved
@@ -2012,6 +2025,8 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
           })}
         </div>
       )}
+
+      <PortalInvoiceModal invoice={portalFor} settings={portalFor ? crm.data.portalInvoices?.[portalFor.id] : undefined} onClose={() => setPortalFor(null)} onSaved={() => void crm.refresh()} />
 
       {/* ---------- preview */}
       <Modal isOpen={Boolean(view)} onClose={() => setView(null)} title={view ? `${view.kind === 'vendor' ? 'Vendor payable' : 'Invoice'} ${view.invoiceNo}` : ''} subtitle={view?.kind === 'vendor' ? 'Digital copy for our records — not for the customer' : 'Preview — the PDF has the same layout'} maxWidth="4xl">

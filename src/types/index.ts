@@ -225,4 +225,5 @@ export type ActiveDesktopTab =
   | 'crm-purchases'
   | 'crm-invoices'
   | 'crm-receipts'
+  | 'crm-portal'
   | 'crm-notifications';

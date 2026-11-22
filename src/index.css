@@ -566,3 +566,7 @@ button:not(:disabled):active { transform: scale(0.97); }
 @media print {
   .wa-fab { display: none !important; }
 }
+
+/* Admin chose to hide amounts for a booking on the public portal */
+.amounts-hidden .money-card,
+.inv-hidden .inv-money { display: none !important; }

@@ -38,6 +38,8 @@ export interface Destination {
   artwork: DestinationArtwork;
   photos: [string, string, string];
   photoCaptions: [string, string, string];
+  /** Set by the admin in Portal Control, e.g. "From PKR 185,000 per person" */
+  fromPrice?: string;
   keywords: string[];
 }
 

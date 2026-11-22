@@ -27,7 +27,67 @@ const INVENTORY_STATUSES = ['approved', 'rejected', 'delivered'];
 const SALE_TYPES = { visa: 'Visa', ticket: 'Ticket', hotel: 'Hotel', transfers: 'Transfers', insurance: 'Insurance', others: 'Others' };
 const CURRENCIES = ['PKR', 'USD', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'KWD', 'OMR', 'BHD', 'TRY', 'INR', 'BDT', 'LKR', 'NPR', 'AFN', 'CAD', 'AUD', 'NZD', 'CNY', 'JPY', 'KRW', 'HKD', 'SGD', 'MYR', 'THB', 'IDR', 'PHP', 'VND', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'RUB', 'UAH', 'GEL', 'AZN', 'AMD', 'KZT', 'UZS', 'EGP', 'JOD', 'LBP', 'IQD', 'IRR', 'MAD', 'TND', 'DZD', 'ZAR', 'KES', 'NGN', 'GHS', 'ETB', 'TZS', 'MXN', 'BRL', 'ARS'];
 // Settings the admin controls for the public Customer Portal (stored as one row in crm_company)
-const DEFAULT_PORTAL_CONFIG = { whatsappNumber: '', whatsappMessage: 'Hello Bahaar Journeys, I need help with my booking.' };
+const DEFAULT_PORTAL_CONFIG = {
+  whatsappNumber: '',
+  whatsappMessage: 'Hello Bahaar Journeys, I need help with my booking.',
+  effects: { jet: true, confetti: true, scene3d: true, planeMap: true },
+  announcement: { enabled: false, text: '', tone: 'info', expiresAt: '' },
+  offers: [],
+  destinations: { order: [], hidden: [], overrides: {} },
+};
+const PORTAL_TONES = ['info', 'success', 'warning'];
+const cleanText = (v, max) => String(v ?? '').replace(/[<>]/g, '').trim().slice(0, max);
+const cleanDate = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : '');
+const cleanHttps = (v) => { const u = String(v || '').trim(); return /^https:\/\/[^\s"'<>]{4,480}$/.test(u) ? u : ''; };
+const DEST_ID_RE = /^[a-z0-9-]{1,40}$/;
+// Returns the portal settings with only the sections the admin sent replaced (everything else is kept as it was).
+function mergePortalConfig(prev, c) {
+  const out = { ...DEFAULT_PORTAL_CONFIG, ...prev };
+  out.effects = { ...DEFAULT_PORTAL_CONFIG.effects, ...(prev.effects || {}) };
+  out.announcement = { ...DEFAULT_PORTAL_CONFIG.announcement, ...(prev.announcement || {}) };
+  out.destinations = { order: [], hidden: [], overrides: {}, ...(prev.destinations || {}) };
+  const changed = [];
+  if (c.effects && typeof c.effects === 'object') {
+    for (const k of Object.keys(DEFAULT_PORTAL_CONFIG.effects)) if (c.effects[k] !== undefined) out.effects[k] = c.effects[k] !== false;
+    changed.push('effects');
+  }
+  if (c.announcement && typeof c.announcement === 'object') {
+    const a = c.announcement;
+    out.announcement = { enabled: a.enabled === true, text: cleanText(a.text, 300), tone: PORTAL_TONES.includes(a.tone) ? a.tone : 'info', expiresAt: cleanDate(a.expiresAt) };
+    changed.push('announcement');
+  }
+  if (Array.isArray(c.offers)) {
+    out.offers = c.offers.slice(0, 6).map((o) => ({
+      id: /^[A-Za-z0-9-]{1,50}$/.test(String(o?.id || '')) ? String(o.id) : id('offer'),
+      title: cleanText(o?.title, 80), text: cleanText(o?.text, 240), expiresAt: cleanDate(o?.expiresAt), active: o?.active !== false,
+    })).filter((o) => o.title);
+    changed.push('offers');
+  }
+  if (c.destinations && typeof c.destinations === 'object') {
+    const d = c.destinations;
+    const ids = (a) => asArray(a).map((x) => String(x)).filter((x) => DEST_ID_RE.test(x)).slice(0, 60);
+    const overrides = {};
+    for (const [k, v] of Object.entries(d.overrides && typeof d.overrides === 'object' ? d.overrides : {})) {
+      if (!DEST_ID_RE.test(k) || !v || typeof v !== 'object') continue;
+      const o = {
+        tagline: cleanText(v.tagline, 200), bestSeason: cleanText(v.bestSeason, 80), fromPrice: cleanText(v.fromPrice, 80),
+        photos: asArray(v.photos).map(cleanHttps).filter(Boolean).slice(0, 6),
+      };
+      if (o.tagline || o.bestSeason || o.fromPrice || o.photos.length) overrides[k] = o;
+    }
+    out.destinations = { order: ids(d.order), hidden: ids(d.hidden), overrides };
+    changed.push('destinations');
+  }
+  return { config: out, changed };
+}
+async function logPortalActivity(me, text) {
+  try {
+    const row = await getOne('crm_company', 'portal-activity');
+    const items = asArray(parseJsonObj(row?.data, {}).items);
+    items.unshift({ at: nowIso(), by: me.id, byName: me.name || '', text: cleanText(text, 240) });
+    await upsert('crm_company', { id: 'portal-activity', data: { items: items.slice(0, 100) }, updated_at: nowIso() });
+  } catch (e) { console.error('portal activity log failed:', e?.message); }
+}
 const OUTCOMES = ['completed', 'not_completed', 'rescheduled'];
 const OPEN = ['pending', 'rescheduled'];
 const LIMIT = 5000;
@@ -649,6 +709,7 @@ export default async function handler(req, res) {
       let receipts = [];
       let purchases = [];
       let portalQueries = [];
+      let portalInvoices = {};
       let purchaseCustomFields = [];
       let purchaseCustomCategories = [];
       let company = DEFAULT_COMPANY;
@@ -683,6 +744,12 @@ export default async function handler(req, res) {
           .map((r) => mapInvoice(r, betaEnabled && r.kind !== 'vendor' ? (visaByInvId.get(r.id) || null) : null));
         purchases = (allPurchases || []).filter((x) => salesViewer || x.createdBy === me.id);
         portalQueries = betaEnabled && hasPortalAccess(me) ? (allPortalQueries || []) : [];
+        if (betaEnabled && (isAdmin || hasPortalAccess(me))) {
+          const pinvRows = (await supabaseFetch(`/crm_company?id=like.pinv-*&select=id,data&limit=${LIMIT}`).catch(() => [])) || [];
+          for (const pr of pinvRows) {
+            if (typeof pr?.id === 'string' && pr.id.startsWith('pinv-')) portalInvoices[pr.id.slice(5)] = parseJsonObj(pr.data, {});
+          }
+        }
         purchaseCustomFields = purchaseSchema?.customFields || [];
         purchaseCustomCategories = purchaseSchema?.customCategories || [];
         company = { ...DEFAULT_COMPANY, ...parseJsonObj(companyRow?.data, {}) };
@@ -701,7 +768,7 @@ export default async function handler(req, res) {
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales, portalAccess: hasPortalAccess(me) }, customers, followups: visibleFollowups, meetings: visibleMeetings, bookedSlots, inventory: visibleInventory, inventoryItems, sales, purchases, portalQueries, purchaseCustomFields, purchaseCustomCategories, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
+        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales, portalAccess: hasPortalAccess(me) }, customers, followups: visibleFollowups, meetings: visibleMeetings, bookedSlots, inventory: visibleInventory, inventoryItems, sales, purchases, portalQueries, portalInvoices, purchaseCustomFields, purchaseCustomCategories, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
     }
@@ -1140,27 +1207,68 @@ export default async function handler(req, res) {
     if (action === 'portal_config_get') {
       if (!isAdmin) throw forbidden('Only Admin or the CEO can open the Customer Portal settings.');
       const row = await getOne('crm_company', 'portal-config');
-      return res.status(200).json({ ok: true, config: { ...DEFAULT_PORTAL_CONFIG, ...parseJsonObj(row?.data, {}) } });
+      return res.status(200).json({ ok: true, config: mergePortalConfig(parseJsonObj(row?.data, {}), {}).config });
     }
 
     if (action === 'portal_config_save') {
       if (!isAdmin) throw forbidden('Only Admin or the CEO can change the Customer Portal settings.');
       const c = body.config || {};
       const row = await getOne('crm_company', 'portal-config');
-      const prev = { ...DEFAULT_PORTAL_CONFIG, ...parseJsonObj(row?.data, {}) };
-      const rawNumber = str(c.whatsappNumber, 30, { name: 'WhatsApp number' });
-      let digits = rawNumber.replace(/\D+/g, '');
-      if (/^0[1-9]/.test(digits)) digits = `92${digits.slice(1)}`; // a local Pakistani number like 0300… becomes +92 300…
-      if (digits && (digits.length < 8 || digits.length > 15)) throw bad('Enter the WhatsApp number with country code, e.g. +92 300 1234567.');
+      const prev = parseJsonObj(row?.data, {});
+      const { config: next, changed } = mergePortalConfig(prev, c);
+      if (c.whatsappNumber !== undefined || c.whatsappMessage !== undefined) {
+        const rawNumber = str(c.whatsappNumber ?? prev.whatsappNumber ?? '', 30, { name: 'WhatsApp number' });
+        let digits = rawNumber.replace(/\D+/g, '');
+        if (/^0[1-9]/.test(digits)) digits = `92${digits.slice(1)}`; // a local Pakistani number like 0300… becomes +92 300…
+        if (digits && (digits.length < 8 || digits.length > 15)) throw bad('Enter the WhatsApp number with country code, e.g. +92 300 1234567.');
+        next.whatsappNumber = digits ? `+${digits}` : '';
+        next.whatsappMessage = str(c.whatsappMessage ?? prev.whatsappMessage ?? '', 300, { name: 'WhatsApp message' }) || DEFAULT_PORTAL_CONFIG.whatsappMessage;
+        changed.push('WhatsApp contact');
+      }
+      next.updatedAt = nowIso();
+      next.updatedBy = me.id;
+      await upsert('crm_company', { id: 'portal-config', data: next, updated_at: next.updatedAt });
+      if (changed.length) await logPortalActivity(me, `Changed portal settings: ${changed.join(', ')}`);
+      return res.status(200).json({ ok: true, config: next });
+    }
+
+    if (action === 'portal_overview') {
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can open the Customer Portal statistics.');
+      const [statsRow, actRow] = await Promise.all([getOne('crm_company', 'portal-stats'), getOne('crm_company', 'portal-activity')]);
+      return res.status(200).json({ ok: true, stats: parseJsonObj(statsRow?.data, {}), activity: asArray(parseJsonObj(actRow?.data, {}).items) });
+    }
+
+    if (action === 'portal_invoice_save') {
+      if (!isAdmin && !hasPortalAccess(me)) throw forbidden('Customer Portal access is only for Admin or employees an admin has allowed.');
+      const invId = str(body.invoiceId, 100, { required: true, name: 'Invoice' });
+      const inv = await getOne('crm_invoices', invId);
+      if (!inv) throw notFound('Invoice not found.');
+      const rowId = `pinv-${invId}`;
+      const prevRow = await getOne('crm_company', rowId);
+      const prev = parseJsonObj(prevRow?.data, {});
+      const note = cleanText(body.note, 400);
       const data = {
-        ...prev,
-        whatsappNumber: digits ? `+${digits}` : '',
-        whatsappMessage: str(c.whatsappMessage, 300, { name: 'WhatsApp message' }) || DEFAULT_PORTAL_CONFIG.whatsappMessage,
-        updatedAt: nowIso(),
+        hideAmounts: body.hideAmounts === true,
+        disabled: body.disabled === true,
+        expiresAt: cleanDate(body.expiresAt),
+        note,
+        noteAt: note ? (note !== (prev.note || '') ? nowIso() : prev.noteAt || nowIso()) : '',
         updatedBy: me.id,
+        updatedAt: nowIso(),
       };
-      await upsert('crm_company', { id: 'portal-config', data, updated_at: data.updatedAt });
-      return res.status(200).json({ ok: true, config: data });
+      const isDefault = !data.hideAmounts && !data.disabled && !data.expiresAt && !data.note;
+      if (isDefault) {
+        if (prevRow) await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(rowId)}`, { method: 'DELETE' });
+      } else {
+        await upsert('crm_company', { id: rowId, data, updated_at: data.updatedAt });
+      }
+      const bits = [];
+      if (data.hideAmounts !== Boolean(prev.hideAmounts)) bits.push(data.hideAmounts ? 'amounts hidden' : 'amounts shown');
+      if (data.disabled !== Boolean(prev.disabled)) bits.push(data.disabled ? 'tracking turned off' : 'tracking turned on');
+      if (data.expiresAt !== (prev.expiresAt || '')) bits.push(data.expiresAt ? `tracking expires ${data.expiresAt}` : 'expiry removed');
+      if (note !== (prev.note || '')) bits.push(note ? 'message to customer updated' : 'message to customer removed');
+      if (bits.length) await logPortalActivity(me, `Invoice ${inv.invoice_no || invId}: ${bits.join(', ')}`);
+      return res.status(200).json({ ok: true, portalInvoice: isDefault ? null : data });
     }
 
     if (action === 'invoice_save') {
@@ -1905,7 +2013,7 @@ export default async function handler(req, res) {
       const existingRow = await getOne('crm_company', targetId);
       const existingData = parseJsonObj(existingRow?.data, null);
       if (!existingData) throw notFound('Portal query not found.');
-      const nextStatus = ['new', 'contacted', 'quoted', 'closed'].includes(body.status)
+      const nextStatus = ['new', 'contacted', 'quoted', 'won', 'lost', 'closed'].includes(body.status)
         ? body.status
         : existingData.status || 'new';
       const nextAssigned = body.assignedTo !== undefined ? (body.assignedTo ? String(body.assignedTo) : null) : (existingData.assignedTo || null);

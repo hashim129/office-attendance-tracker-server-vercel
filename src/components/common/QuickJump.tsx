@@ -42,6 +42,7 @@ export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, o
         { tab: 'crm-receipts', label: 'Receipts', hint: 'Payment receipts' },
         { tab: 'crm-invoices', label: 'Invoices', hint: 'Customer invoices and vendor payables' },
         { tab: 'crm-notifications', label: 'Notifications', hint: 'Your alerts' },
+        ...(['admin', 'ceo'].includes(currentUser.role) ? [{ tab: 'crm-portal' as const, label: 'Portal Control', hint: 'Customer portal settings' }] : []),
         { tab: 'crm-inventory', label: 'Inventory', hint: 'Office stock and requests' },
       );
     }
