@@ -28,6 +28,8 @@ import { fmtAmount } from '../crm/currencies';
 import PlaneAnimation from './PlaneAnimation';
 import { inSeason } from './season';
 import JourneySteps from './JourneySteps';
+import { LangProvider, useLang } from './i18n';
+import { InstallButton, LangToggle, PaymentRing, VisaStamp, WhatsAppFab, WhatsAppShare, usePortalManifest } from './PortalExtras';
 import { Confetti, FloatingScene, RotatingWord, useTiltCards } from './PortalFx';
 import JetShowcase from './JetShowcase';
 import { photoSrcSet, prefetchPhoto } from './imageUtil';
@@ -322,6 +324,7 @@ function FeaturedDestinationHeroSlider({
   onSelectDestination: (dest: Destination) => void;
   onRequestQuote: (dest: Destination) => void;
 }) {
+  const { t, lang } = useLang();
   const [slideIdx, setSlideIdx] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
 
@@ -414,7 +417,7 @@ function FeaturedDestinationHeroSlider({
               <MapPin className="w-4 h-4" />
               <span>{current.country}</span>
               <span className="text-white/40">•</span>
-              <span className="text-white/80">Best Season: {current.bestSeason}</span>
+              <span className="text-white/80">{t('Best Season')}: {current.bestSeason}</span>
             </p>
             <h3 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight drop-shadow-xs">
               {current.name}
@@ -431,14 +434,14 @@ function FeaturedDestinationHeroSlider({
               className="inline-flex items-center justify-center gap-1.5 rounded-full bg-sky-500 hover:bg-sky-400 text-white px-4 py-2.5 text-xs sm:text-sm font-bold shadow-md transition-all cursor-pointer"
             >
               <Sparkles className="w-4 h-4 shrink-0" />
-              <span>Get a quote &amp; let our representative contact you</span>
+              <span>{t('Get a quote & let our representative contact you')}</span>
             </button>
             <button
               type="button"
               onClick={() => onSelectDestination(current)}
               className="inline-flex items-center justify-center gap-2 rounded-full bg-white text-slate-950 hover:bg-sky-50 px-5 py-2.5 text-xs sm:text-sm font-bold shadow-md transition-all cursor-pointer"
             >
-              <span>Explore {current.name} Gallery</span>
+              <span>{lang === 'ur' ? `${current.name} ${t('Gallery')} ${t('Explore')}` : `Explore ${current.name} Gallery`}</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
@@ -474,6 +477,7 @@ function DestinationCardPhotoSlider({
   isMatched: boolean;
   prefersReducedMotion: boolean | null;
 }) {
+  const { t } = useLang();
   const photos = dest.photos || [];
   const captions = dest.photoCaptions || [];
   const [photoIdx, setPhotoIdx] = useState(0);
@@ -534,7 +538,7 @@ function DestinationCardPhotoSlider({
           {isMatched && (
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500 text-white px-2.5 py-0.5 text-[11px] font-bold shadow-xs">
               <Sparkles className="w-3 h-3" />
-              Matched to Your Trip
+              {t('Matched to Your Trip')}
             </span>
           )}
           {photos.length > 1 && (
@@ -757,7 +761,10 @@ function DestinationModalPhotoSlider({
   );
 }
 
-export default function CustomersPortalPage() {
+function PortalInner() {
+  const { t, lang } = useLang();
+  usePortalManifest();
+  const [portalConfig, setPortalConfig] = useState<{ whatsappNumber: string; whatsappMessage: string }>({ whatsappNumber: '', whatsappMessage: '' });
   const prefersReducedMotion = useReducedMotion();
 
   const [gateStatus, setGateStatus] = useState<GateStatus>('checking');
@@ -849,12 +856,13 @@ export default function CustomersPortalPage() {
           cache: 'no-store',
           signal: controller.signal,
         });
-        let data: { ok?: boolean; available?: boolean; recentQueries?: PublicPortalQueryDTO[] } | null = null;
+        let data: { ok?: boolean; available?: boolean; recentQueries?: PublicPortalQueryDTO[]; config?: { whatsappNumber?: string; whatsappMessage?: string } } | null = null;
         try {
           data = (await res.json()) as {
             ok?: boolean;
             available?: boolean;
             recentQueries?: PublicPortalQueryDTO[];
+            config?: { whatsappNumber?: string; whatsappMessage?: string };
           };
         } catch {
           data = null;
@@ -864,6 +872,9 @@ export default function CustomersPortalPage() {
         if (res.ok && data?.available === true) {
           if (Array.isArray(data.recentQueries)) {
             setRecentPortalQueries(data.recentQueries);
+          }
+          if (data.config) {
+            setPortalConfig({ whatsappNumber: data.config.whatsappNumber || '', whatsappMessage: data.config.whatsappMessage || '' });
           }
           setGateStatus('ready');
         } else {
@@ -1580,6 +1591,10 @@ export default function CustomersPortalPage() {
     };
   }, [foundData, matchedDestinationIds, timelineInvoice]);
 
+  const shareUrl = foundData
+    ? `${window.location.origin}${window.location.pathname.replace(/\/+$/, '') || '/customers'}?q=${encodeURIComponent(foundData.query)}`
+    : '';
+
   const handleShareLink = async () => {
     if (!foundData) return;
     const basePath = window.location.pathname.replace(/\/+$/, '') || '/customers';
@@ -1801,8 +1816,12 @@ export default function CustomersPortalPage() {
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
       <Confetti burstKey={blastKey || confettiKey || surpriseKey} />
       <JetShowcase showKey={jetKey} name={foundData?.customerName || ''} onBlast={handleBlast} />
+      <WhatsAppFab
+        number={portalConfig.whatsappNumber}
+        message={`${portalConfig.whatsappMessage || 'Hello Bahaar Journeys, I need help with my booking.'}${foundData ? ` (Ref: ${foundData.query})` : ''}`}
+      />
       {/* Screen Header */}
-      <header className="no-print sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
+      <header className="no-print relative sm:sticky sm:top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
         <div className="max-w-[1480px] mx-auto px-4 sm:px-8 lg:px-10 py-3.5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <img
@@ -1812,12 +1831,16 @@ export default function CustomersPortalPage() {
             />
             <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-sky-50 border border-sky-200 px-3 py-1 text-xs font-semibold text-sky-800">
               <Globe2 className="w-3.5 h-3.5 text-sky-600" />
-              <span>Customer Trip &amp; Visa Portal</span>
+              <span>{t('Customer Trip & Visa Portal')}</span>
             </span>
           </div>
 
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <InstallButton />
+            <LangToggle />
           {foundData && (
-            <div className="flex items-center gap-2">
+            <>
+              <WhatsAppShare url={shareUrl} text="Bahaar Journeys booking tracker:" />
               <button
                 type="button"
                 onClick={handleShareLink}
@@ -1826,12 +1849,12 @@ export default function CustomersPortalPage() {
                 {copiedShare ? (
                   <>
                     <Check className="w-4 h-4 text-emerald-600" />
-                    <span className="text-emerald-700">Copied!</span>
+                    <span className="text-emerald-700 max-sm:sr-only">{t('Copied!')}</span>
                   </>
                 ) : (
                   <>
                     <Copy className="w-4 h-4 text-slate-500" />
-                    <span>Share Link</span>
+                    <span className="max-sm:sr-only">{t('Share Link')}</span>
                   </>
                 )}
               </button>
@@ -1841,10 +1864,11 @@ export default function CustomersPortalPage() {
                 className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 px-3.5 py-2 text-xs sm:text-sm font-semibold text-white transition-colors cursor-pointer shadow-xs"
               >
                 <Printer className="w-4 h-4" />
-                <span>Print Summary</span>
+                <span className="max-sm:sr-only">{t('Print Summary')}</span>
               </button>
-            </div>
+            </>
           )}
+          </div>
         </div>
       </header>
 
@@ -1856,15 +1880,15 @@ export default function CustomersPortalPage() {
             <div className="lg:col-span-5 space-y-4">
 
               <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 leading-tight">
-                Track your journey to{' '}
+                {t('Track your journey to')}{' '}
                 <span className="whitespace-nowrap"><RotatingWord words={['Dubai', 'Istanbul', 'Bangkok', 'Singapore', 'London', 'Paris', 'Maldives', 'Kuala Lumpur']} />,</span>{' '}
-                invoices &amp; visa progress.
+                {t('invoices & visa progress.')}
               </h1>
 
               <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
-                Enter your <strong>Query Code</strong>, <strong>CRM ID</strong>, or{' '}
-                <strong>Invoice Number</strong> to view live invoice details, payment receipts, and
-                visa milestones with Bahaar Journeys.
+                {t('Enter your')} <strong>{t('Query Code')}</strong>, <strong>{t('CRM ID')}</strong>, {t('or')}{' '}
+                <strong>{t('Invoice Number')}</strong>{' '}
+                {t('to view live invoice details, payment receipts, and visa milestones with Bahaar Journeys.')}
               </p>
 
               <form
@@ -1881,7 +1905,7 @@ export default function CustomersPortalPage() {
                       type="text"
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
-                      placeholder="e.g. Q-1042, CRM-208, or INV-0091"
+                      placeholder={t('e.g. Q-1042, CRM-208, or INV-0091')}
                       aria-label="Query Code, CRM ID, or Invoice Number"
                       maxLength={80}
                       className="w-full rounded-xl border border-slate-300 bg-white pl-10 pr-9 py-3 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500 shadow-2xs"
@@ -1906,25 +1930,24 @@ export default function CustomersPortalPage() {
                     {lookupState.kind === 'loading' ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Searching...</span>
+                        <span>{t('Searching...')}</span>
                       </>
                     ) : cooldownSec > 0 ? (
                       <>
                         <Clock className="w-4 h-4" />
-                        <span>Wait {cooldownSec}s</span>
+                        <span>{t('Wait')} {cooldownSec}s</span>
                       </>
                     ) : (
                       <>
                         <Search className="w-4 h-4" />
-                        <span>Track Booking</span>
+                        <span>{t('Track Booking')}</span>
                       </>
                     )}
                   </button>
                 </div>
 
                 <p className="text-xs text-slate-500">
-                  Only customer-safe summary fields are shown. Need help? Reference any code printed on
-                  your Bahaar Journeys invoice.
+                  {t('Only customer-safe summary fields are shown. Need help? Reference any code printed on your Bahaar Journeys invoice.')}
                 </p>
               </form>
             </div>
@@ -1951,7 +1974,7 @@ export default function CustomersPortalPage() {
               >
                 <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold">Check your reference format</p>
+                  <p className="font-semibold">{t('Check your reference format')}</p>
                   <p className="text-amber-800 mt-0.5">{lookupState.message}</p>
                 </div>
               </motion.div>
@@ -1986,7 +2009,7 @@ export default function CustomersPortalPage() {
                 <div className="flex items-start gap-3">
                   <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-semibold">Unable to complete lookup</p>
+                    <p className="font-semibold">{t('Unable to complete lookup')}</p>
                     <p className="text-rose-800 mt-0.5">{lookupState.message}</p>
                   </div>
                 </div>
@@ -1995,7 +2018,7 @@ export default function CustomersPortalPage() {
                   onClick={() => void executeLookup(searchInput, false)}
                   className="shrink-0 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 cursor-pointer"
                 >
-                  Retry
+                  {t('Retry')}
                 </button>
               </motion.div>
             )}
@@ -2027,7 +2050,7 @@ export default function CustomersPortalPage() {
                   onClick={handleClearSearch}
                   className="self-start sm:self-center rounded-xl border border-slate-200 px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer shrink-0"
                 >
-                  Clear Search
+                  {t('Clear Search')}
                 </button>
               </motion.div>
             )}
@@ -2046,7 +2069,7 @@ export default function CustomersPortalPage() {
                   className="h-14 w-auto object-contain"
                 />
                 <div className="text-right text-xs text-slate-600">
-                  <p className="font-bold text-slate-900 text-sm">Customer Trip Journey, Booking &amp; Visa Summary</p>
+                  <p className="font-bold text-slate-900 text-sm">{t('Customer Trip Journey, Booking & Visa Summary')}</p>
                   <p>Reference: {foundData.query}</p>
                   <p>Printed: {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
                 </div>
@@ -2058,7 +2081,7 @@ export default function CustomersPortalPage() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">
-                    Verified Customer File
+                    {t('Verified Customer File')}
                   </p>
                   <h2 className="text-2xl font-bold text-slate-900 mt-0.5">
                     {foundData.customerName || 'Valued Guest'}
@@ -2082,7 +2105,7 @@ export default function CustomersPortalPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800">
                       <ShieldCheck className="w-4 h-4" />
-                      Visa Issued: {foundData.visaStats.issued}/{foundData.visaStats.total}
+                      {t('Visa Issued')}: {foundData.visaStats.issued}/{foundData.visaStats.total}
                     </span>
                     {foundData.visaStats.inProgress > 0 && (
                       <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800">
@@ -2097,7 +2120,7 @@ export default function CustomersPortalPage() {
               {/* Multi-invoice Interactive Filter Pills */}
               {foundData.invoices.length > 1 && (
                 <div className="no-print mt-5 pt-4 border-t border-slate-100 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-500 mr-1">Filter Booking:</span>
+                  <span className="text-xs font-semibold text-slate-500 mr-1">{t('Filter Booking:')}</span>
                   <button
                     type="button"
                     onClick={() => setSelectedInvoiceFilter('all')}
@@ -2132,7 +2155,7 @@ export default function CustomersPortalPage() {
                               active ? 'bg-white/20 text-white' : 'bg-sky-100 text-sky-800'
                             }`}
                           >
-                            Visa
+                            {t('Visa')}
                           </span>
                         )}
                       </button>
@@ -2147,7 +2170,7 @@ export default function CustomersPortalPage() {
               {/* Total Billed */}
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                  <span>Total Billed</span>
+                  <span>{t('Total Billed')}</span>
                   <FileText className="w-4 h-4 text-sky-600" />
                 </div>
                 <div className="mt-2 space-y-1">
@@ -2158,7 +2181,7 @@ export default function CustomersPortalPage() {
                       </p>
                     ))
                   ) : (
-                    <p className="text-lg font-bold text-slate-400">Cancelled</p>
+                    <p className="text-lg font-bold text-slate-400">{t('Cancelled')}</p>
                   )}
                 </div>
                 {activeCurrencyTotals.cancelledCount > 0 && (
@@ -2172,16 +2195,24 @@ export default function CustomersPortalPage() {
               {/* Paid & Receipts */}
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                  <span>Paid / Advance</span>
+                  <span>{t('Paid / Advance')}</span>
                   <CreditCard className="w-4 h-4 text-emerald-600" />
                 </div>
                 <div className="mt-2 space-y-1">
                   {activeCurrencyTotals.paidOnInvoices.length > 0 ? (
-                    activeCurrencyTotals.paidOnInvoices.map((entry) => (
-                      <p key={entry.currency} className="text-xl font-bold text-emerald-700 tabular-nums">
-                        {entry.currency} {fmtAmount(entry.amount)}
-                      </p>
-                    ))
+                    activeCurrencyTotals.paidOnInvoices.map((entry) => {
+                      const billedAmt = activeCurrencyTotals.billed.find((b) => b.currency === entry.currency)?.amount || 0;
+                      const owed = activeCurrencyTotals.outstanding.find((o) => o.currency === entry.currency)?.amount ?? billedAmt - entry.amount;
+                      const paidPct = billedAmt > 0 ? ((billedAmt - Math.max(0, owed)) / billedAmt) * 100 : 0;
+                      return (
+                        <div key={entry.currency} className="flex items-center justify-between gap-3">
+                          <p className="text-xl font-bold text-emerald-700 tabular-nums">
+                            {entry.currency} {fmtAmount(entry.amount)}
+                          </p>
+                          {billedAmt > 0 && <PaymentRing percent={paidPct} size={46} />}
+                        </div>
+                      );
+                    })
                   ) : (
                     <p className="text-lg font-bold text-slate-400">—</p>
                   )}
@@ -2198,14 +2229,14 @@ export default function CustomersPortalPage() {
               {/* Outstanding Balance */}
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                  <span>Outstanding Balance</span>
+                  <span>{t('Outstanding Balance')}</span>
                   <CheckCircle2 className="w-4 h-4 text-amber-600" />
                 </div>
                 <div className="mt-2 space-y-1">
                   {activeCurrencyTotals.outstanding.length === 0 ? (
                     <p className="text-lg font-bold text-slate-400">—</p>
                   ) : activeCurrencyTotals.outstanding.every((e) => e.amount <= 0.005) ? (
-                    <p className="text-xl font-bold text-emerald-700">Settled</p>
+                    <p className="text-xl font-bold text-emerald-700">{t('Settled')}</p>
                   ) : (
                     activeCurrencyTotals.outstanding.map((entry) => (
                       <p
@@ -2219,20 +2250,21 @@ export default function CustomersPortalPage() {
                     ))
                   )}
                 </div>
-                <p className="mt-1.5 text-xs text-slate-500">Active customer balance due</p>
+                <p className="mt-1.5 text-xs text-slate-500">{t('Active customer balance due')}</p>
               </div>
 
               {/* Visa Status */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+              <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+                {computedVisaStats.issued > 0 && <VisaStamp label={t('VISA ISSUED')} />}
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                  <span>Visa Progress</span>
+                  <span>{t('Visa Progress')}</span>
                   <ShieldCheck className="w-4 h-4 text-indigo-600" />
                 </div>
                 {computedVisaStats.total > 0 ? (
                   <>
                     <p className="mt-2 text-xl font-bold text-slate-900 tabular-nums">
                       {computedVisaStats.issued} / {computedVisaStats.total}{' '}
-                      <span className="text-sm font-semibold text-slate-500">Issued</span>
+                      <span className="text-sm font-semibold text-slate-500">{t('Issued')}</span>
                     </p>
                     <p className="mt-1.5 text-xs text-slate-600">
                       {computedVisaStats.inProgress} in progress · {computedVisaStats.notStarted} not started
@@ -2240,8 +2272,8 @@ export default function CustomersPortalPage() {
                   </>
                 ) : (
                   <>
-                    <p className="mt-2 text-lg font-bold text-slate-700">Non-Visa Booking</p>
-                    <p className="mt-1.5 text-xs text-slate-500">No visa items in selection</p>
+                    <p className="mt-2 text-lg font-bold text-slate-700">{t('Non-Visa Booking')}</p>
+                    <p className="mt-1.5 text-xs text-slate-500">{t('No visa items in selection')}</p>
                   </>
                 )}
               </div>
@@ -2254,7 +2286,7 @@ export default function CustomersPortalPage() {
                   <div>
                     <h3 className="text-lg print:text-sm font-bold text-slate-900 flex items-center gap-2">
                       <Plane className="w-5 h-5 print:w-4 print:h-4 text-sky-600" />
-                      <span>Customer Trip Journey &amp; Visa Progress Timeline</span>
+                      <span>{t('Customer Trip Journey & Visa Progress Timeline')}</span>
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
                       Trip &amp; visa milestones for{' '}
@@ -2266,7 +2298,7 @@ export default function CustomersPortalPage() {
                   {selectedInvoiceFilter === 'all' && foundData.invoices.length > 1 && (
                     <div className="no-print flex items-center gap-2">
                       <label htmlFor="timeline-invoice-select" className="text-xs font-semibold text-slate-500">
-                        Invoice:
+                        {t('Invoice:')}
                       </label>
                       <select
                         id="timeline-invoice-select"
@@ -2361,7 +2393,7 @@ export default function CustomersPortalPage() {
                   <div className="mt-3 rounded-2xl border border-indigo-200/80 bg-indigo-50/50 p-3 print:p-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold text-indigo-950 uppercase tracking-wider text-[11px]">
-                        Visa Progress:
+                        {t('Visa Progress:')}
                       </span>
                       <span
                         className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 font-bold ${
@@ -2386,7 +2418,7 @@ export default function CustomersPortalPage() {
                           : timelineInvoice.visaProgress.status === 'issued'
                             ? '✓ '
                             : ''}
-                        Visa Started (In Progress)
+                        {t('Visa Started (In Progress)')}
                         {niceDate(timelineInvoice.visaProgress.inProgressDate)
                           ? ` · ${niceDate(timelineInvoice.visaProgress.inProgressDate)}`
                           : ''}
@@ -2399,7 +2431,7 @@ export default function CustomersPortalPage() {
                         }`}
                       >
                         {timelineInvoice.visaProgress.status === 'issued' ? '✓ ' : ''}
-                        Visa Issued
+                        {t('Visa Issued')}
                         {niceDate(timelineInvoice.visaProgress.issuedDate)
                           ? ` · ${niceDate(timelineInvoice.visaProgress.issuedDate)}`
                           : ''}
@@ -2420,7 +2452,7 @@ export default function CustomersPortalPage() {
                     <div className="mt-2.5 rounded-2xl border border-emerald-200/80 bg-emerald-50/45 p-3 print:p-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-bold text-emerald-950 uppercase tracking-wider text-[11px]">
-                          Hotel Booking:
+                          {t('Hotel Booking:')}
                         </span>
                         {hName && (
                           <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-white px-2.5 py-0.5 font-bold text-emerald-950">
@@ -2646,7 +2678,7 @@ export default function CustomersPortalPage() {
 
                       <div className="sm:text-right space-y-1">
                         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                          Invoice Total
+                          {t('Invoice Total')}
                         </p>
                         <p className="text-2xl font-extrabold text-slate-900 tabular-nums">
                           {inv.currency} {fmtAmount(inv.total)}
@@ -2678,9 +2710,9 @@ export default function CustomersPortalPage() {
                       <table className="w-full text-sm border-collapse min-w-[540px]">
                         <thead>
                           <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                            <th className="py-2 pr-3">Description</th>
-                            <th className="py-2 px-3 text-right">Qty</th>
-                            <th className="py-2 px-3 text-right">Unit Price</th>
+                            <th className="py-2 pr-3">{t('Description')}</th>
+                            <th className="py-2 px-3 text-right">{t('Qty')}</th>
+                            <th className="py-2 px-3 text-right">{t('Unit Price')}</th>
                             <th className="py-2 pl-3 text-right">Amount ({inv.currency})</th>
                           </tr>
                         </thead>
@@ -2706,7 +2738,7 @@ export default function CustomersPortalPage() {
                       <div className="mt-5 pt-4 border-t border-slate-200 flex justify-end">
                         <dl className="w-full sm:w-72 space-y-1.5 text-sm">
                           <div className="flex justify-between text-slate-600">
-                            <dt>Subtotal</dt>
+                            <dt>{t('Subtotal')}</dt>
                             <dd className="font-medium tabular-nums">
                               {inv.currency} {fmtAmount(inv.subtotal)}
                             </dd>
@@ -2723,7 +2755,7 @@ export default function CustomersPortalPage() {
                           )}
                           {inv.discount > 0 && (
                             <div className="flex justify-between text-emerald-700">
-                              <dt>Discount</dt>
+                              <dt>{t('Discount')}</dt>
                               <dd className="font-medium tabular-nums">
                                 -{inv.currency} {fmtAmount(inv.discount)}
                               </dd>
@@ -2731,20 +2763,20 @@ export default function CustomersPortalPage() {
                           )}
                           {inv.advancePaid > 0 && (
                             <div className="flex justify-between text-emerald-700">
-                              <dt>Advance Paid</dt>
+                              <dt>{t('Advance Paid')}</dt>
                               <dd className="font-medium tabular-nums">
                                 -{inv.currency} {fmtAmount(inv.advancePaid)}
                               </dd>
                             </div>
                           )}
                           <div className="flex justify-between font-bold text-slate-900 pt-1.5 border-t border-slate-200">
-                            <dt>Total</dt>
+                            <dt>{t('Total')}</dt>
                             <dd className="tabular-nums">
                               {inv.currency} {fmtAmount(inv.total)}
                             </dd>
                           </div>
                           <div className="flex justify-between font-bold">
-                            <dt className="text-slate-700">Balance Due</dt>
+                            <dt className="text-slate-700">{t('Balance Due')}</dt>
                             <dd
                               className={`tabular-nums ${
                                 inv.status === 'cancelled'
@@ -2771,7 +2803,7 @@ export default function CustomersPortalPage() {
                 <div className="flex items-center justify-between gap-2 pb-4 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <Receipt className="w-5 h-5 text-emerald-600" />
-                    <h3 className="text-lg font-bold text-slate-900">Payment Receipts</h3>
+                    <h3 className="text-lg font-bold text-slate-900">{t('Payment Receipts')}</h3>
                   </div>
                   <span className="text-xs font-semibold text-slate-500">
                     {foundData.receiptsSummary.length} record
@@ -2814,7 +2846,7 @@ export default function CustomersPortalPage() {
                         )}
 
                         <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between text-sm">
-                          <span className="text-xs font-medium text-slate-500">Amount Received</span>
+                          <span className="text-xs font-medium text-slate-500">{t('Amount Received')}</span>
                           <span className="font-bold text-emerald-700 tabular-nums">
                             {rcp.currency} {fmtAmount(rcp.amountReceived)}
                           </span>
@@ -2844,14 +2876,13 @@ export default function CustomersPortalPage() {
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
               <span className="text-xs font-semibold uppercase tracking-wider text-sky-700">
-                Curated Global Portfolio
+                {t('Curated Global Portfolio')}
               </span>
               <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 mt-1">
-                Explore Worldwide Destinations
+                {t('Explore Worldwide Destinations')}
               </h2>
               <p className="text-sm text-slate-600 mt-1">
-                Handpicked religious, cultural, alpine, and island journeys crafted with Bahaar Journeys
-                visa and concierge care.
+                {t('Handpicked religious, cultural, alpine, and island journeys crafted with Bahaar Journeys visa and concierge care.')}
               </p>
             </div>
 
@@ -2869,7 +2900,7 @@ export default function CustomersPortalPage() {
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    {region}
+                    {t(region)}
                   </button>
                 );
               })}
@@ -2886,7 +2917,7 @@ export default function CustomersPortalPage() {
               }`}
             >
               <span className={`w-2 h-2 rounded-full ${inSeasonOnly ? 'bg-white' : 'bg-emerald-500'} animate-pulse`} />
-              In season now ({inSeasonCount})
+              {t('In season now')} ({inSeasonCount})
             </button>
             <button
               type="button"
@@ -2894,7 +2925,7 @@ export default function CustomersPortalPage() {
               className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 hover:bg-sky-100 px-3.5 py-1.5 text-xs font-semibold text-sky-800 transition-colors cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5 text-sky-600" />
-              Surprise me
+              {t('Surprise me')}
             </button>
             <span className="text-xs text-slate-500">
               {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}: {inSeasonCount} of {CURATED_DESTINATIONS.length} destinations are in their best season.
@@ -2913,7 +2944,7 @@ export default function CustomersPortalPage() {
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-2.5 text-sm text-emerald-900">
               <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>
-                <strong>Recommended from Your Itinerary:</strong> Destinations matching your booking
+                <strong>{t('Recommended from Your Itinerary:')}</strong> Destinations matching your booking
                 details are highlighted first below.
               </span>
             </div>
@@ -2988,7 +3019,7 @@ export default function CustomersPortalPage() {
                         className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white px-3 py-2 text-xs font-bold shadow-2xs transition-colors cursor-pointer"
                       >
                         <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                        <span>Get a quote and let our representative contact you</span>
+                        <span>{t('Get a quote and let our representative contact you')}</span>
                       </button>
                     </div>
                   </div>
@@ -3048,7 +3079,7 @@ export default function CustomersPortalPage() {
 
                 <div className="space-y-2">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Trip Highlights
+                    {t('Trip Highlights')}
                   </h4>
                   <ul className="space-y-1.5 text-sm text-slate-700">
                     {activeDestination.highlights.map((hl) => (
@@ -3071,7 +3102,7 @@ export default function CustomersPortalPage() {
                   </div>
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                      Visa Support
+                      {t('Visa Support')}
                     </p>
                     <p className="text-xs font-semibold text-slate-800 mt-1">
                       {activeDestination.visaCue}
@@ -3094,7 +3125,7 @@ export default function CustomersPortalPage() {
                   className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-600 hover:bg-sky-700 text-white px-4 py-3 text-xs sm:text-sm font-bold shadow-sm transition-colors cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4 shrink-0" />
-                  <span>Get a quote and let our representative contact you</span>
+                  <span>{t('Get a quote and let our representative contact you')}</span>
                 </button>
               </div>
             </motion.div>
@@ -3126,7 +3157,7 @@ export default function CustomersPortalPage() {
                 <div className="space-y-1">
                   <div className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/20 border border-sky-400/30 px-2.5 py-0.5 text-[11px] font-bold text-sky-300">
                     <Sparkles className="w-3 h-3" />
-                    <span>Bahaar Journeys Concierge Desk</span>
+                    <span>{t('Bahaar Journeys Concierge Desk')}</span>
                   </div>
                   <h3 id="quote-modal-title" className="text-lg sm:text-xl font-extrabold">
                     Get a Quote &amp; Let Our Representative Contact You
@@ -3200,7 +3231,7 @@ export default function CustomersPortalPage() {
                       onClick={() => setQuoteModalOpen(false)}
                       className="rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 text-xs font-bold cursor-pointer"
                     >
-                      Done
+                      {t('Done')}
                     </button>
                   </div>
                 </div>
@@ -3228,13 +3259,13 @@ export default function CustomersPortalPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Your Name <span className="text-rose-600">*</span>
+                        {t('Your Name')} <span className="text-rose-600">*</span>
                       </label>
                       <input
                         type="text"
                         value={quoteName}
                         onChange={(e) => setQuoteName(e.target.value)}
-                        placeholder="e.g. Muhammad Hashir"
+                        placeholder={t('e.g. Muhammad Hashir')}
                         maxLength={120}
                         required={!quoteTrackingRef.trim()}
                         className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-base sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500"
@@ -3429,7 +3460,7 @@ export default function CustomersPortalPage() {
                       onClick={() => setQuoteModalOpen(false)}
                       className="rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-4 py-2.5 text-xs font-bold text-slate-700 cursor-pointer"
                     >
-                      Cancel
+                      {t('Cancel')}
                     </button>
                     <button
                       type="submit"
@@ -3505,5 +3536,13 @@ function FragmentSection({
         );
       })}
     </>
+  );
+}
+
+export default function CustomersPortalPage() {
+  return (
+    <LangProvider>
+      <PortalInner />
+    </LangProvider>
   );
 }

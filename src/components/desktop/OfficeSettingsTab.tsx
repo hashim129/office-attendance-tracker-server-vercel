@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { PortalSettingsCard } from './PortalSettingsCard';
 import {
   Settings,
   Save,
@@ -323,6 +324,8 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
             </div>
           )}
         </div>
+
+        {formData.customerPortalBetaEnabled !== false && <PortalSettingsCard />}
 
         {/* Company Profile Card */}
         <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">

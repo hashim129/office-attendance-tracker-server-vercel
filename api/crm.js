@@ -26,6 +26,8 @@ const DEFAULT_INVENTORY_ITEMS = [
 const INVENTORY_STATUSES = ['approved', 'rejected', 'delivered'];
 const SALE_TYPES = { visa: 'Visa', ticket: 'Ticket', hotel: 'Hotel', transfers: 'Transfers', insurance: 'Insurance', others: 'Others' };
 const CURRENCIES = ['PKR', 'USD', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'KWD', 'OMR', 'BHD', 'TRY', 'INR', 'BDT', 'LKR', 'NPR', 'AFN', 'CAD', 'AUD', 'NZD', 'CNY', 'JPY', 'KRW', 'HKD', 'SGD', 'MYR', 'THB', 'IDR', 'PHP', 'VND', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RON', 'RUB', 'UAH', 'GEL', 'AZN', 'AMD', 'KZT', 'UZS', 'EGP', 'JOD', 'LBP', 'IQD', 'IRR', 'MAD', 'TND', 'DZD', 'ZAR', 'KES', 'NGN', 'GHS', 'ETB', 'TZS', 'MXN', 'BRL', 'ARS'];
+// Settings the admin controls for the public Customer Portal (stored as one row in crm_company)
+const DEFAULT_PORTAL_CONFIG = { whatsappNumber: '', whatsappMessage: 'Hello Bahaar Journeys, I need help with my booking.' };
 const OUTCOMES = ['completed', 'not_completed', 'rescheduled'];
 const OPEN = ['pending', 'rescheduled'];
 const LIMIT = 5000;
@@ -1133,6 +1135,32 @@ export default async function handler(req, res) {
       };
       await upsert('crm_company', { id: 'main', data, updated_at: nowIso() });
       return res.status(200).json({ ok: true, company: { ...DEFAULT_COMPANY, ...data } });
+    }
+
+    if (action === 'portal_config_get') {
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can open the Customer Portal settings.');
+      const row = await getOne('crm_company', 'portal-config');
+      return res.status(200).json({ ok: true, config: { ...DEFAULT_PORTAL_CONFIG, ...parseJsonObj(row?.data, {}) } });
+    }
+
+    if (action === 'portal_config_save') {
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can change the Customer Portal settings.');
+      const c = body.config || {};
+      const row = await getOne('crm_company', 'portal-config');
+      const prev = { ...DEFAULT_PORTAL_CONFIG, ...parseJsonObj(row?.data, {}) };
+      const rawNumber = str(c.whatsappNumber, 30, { name: 'WhatsApp number' });
+      let digits = rawNumber.replace(/\D+/g, '');
+      if (/^0[1-9]/.test(digits)) digits = `92${digits.slice(1)}`; // a local Pakistani number like 0300… becomes +92 300…
+      if (digits && (digits.length < 8 || digits.length > 15)) throw bad('Enter the WhatsApp number with country code, e.g. +92 300 1234567.');
+      const data = {
+        ...prev,
+        whatsappNumber: digits ? `+${digits}` : '',
+        whatsappMessage: str(c.whatsappMessage, 300, { name: 'WhatsApp message' }) || DEFAULT_PORTAL_CONFIG.whatsappMessage,
+        updatedAt: nowIso(),
+        updatedBy: me.id,
+      };
+      await upsert('crm_company', { id: 'portal-config', data, updated_at: data.updatedAt });
+      return res.status(200).json({ ok: true, config: data });
     }
 
     if (action === 'invoice_save') {

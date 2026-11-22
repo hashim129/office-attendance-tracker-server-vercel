@@ -1,0 +1,14 @@
+{
+  "name": "Bahaar Journeys – Trip & Visa Portal",
+  "short_name": "Bahaar Journeys",
+  "description": "Track your booking, invoices and visa progress with Bahaar Journeys.",
+  "start_url": "/customers",
+  "scope": "/customers",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0284c7",
+  "icons": [
+    { "src": "/portal-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/portal-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

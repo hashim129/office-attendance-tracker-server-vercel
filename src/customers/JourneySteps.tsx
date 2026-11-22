@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLang } from './i18n';
 import { BedDouble, Car, CreditCard, Plane, ShieldCheck, Luggage } from 'lucide-react';
 
 const STEPS = [
@@ -15,6 +16,7 @@ const STEPS = [
  * (and a small plane follows along) the first time the section scrolls into view.
  */
 export default function JourneySteps() {
+  const { t } = useLang();
   const ref = useRef<HTMLElement>(null);
   const [lit, setLit] = useState(0);
 
@@ -38,9 +40,9 @@ export default function JourneySteps() {
 
   return (
     <section ref={ref} className="no-print rounded-3xl border border-slate-200 bg-white p-5 sm:p-7 shadow-sm">
-      <span className="text-xs font-semibold uppercase tracking-wider text-sky-700">How tracking works</span>
-      <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 mt-1">Every stage of your booking, in one place</h2>
-      <p className="text-sm text-slate-600 mt-1 max-w-2xl">Enter your Query Code, CRM ID or Invoice Number above and see exactly where your trip stands.</p>
+      <span className="text-xs font-semibold uppercase tracking-wider text-sky-700">{t('How tracking works')}</span>
+      <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 mt-1">{t('Every stage of your booking, in one place')}</h2>
+      <p className="text-sm text-slate-600 mt-1 max-w-2xl">{t('Enter your Query Code, CRM ID or Invoice Number above and see exactly where your trip stands.')}</p>
 
       {/* desktop: horizontal line with a plane that moves to the latest stage */}
       <div className="hidden lg:block relative mt-8">
@@ -55,8 +57,8 @@ export default function JourneySteps() {
                 <span className={`flex h-12 w-12 items-center justify-center rounded-2xl border-2 transition-all duration-500 ${on ? 'bg-gradient-to-br from-sky-500 to-blue-600 border-white text-white shadow-lg shadow-sky-500/30 scale-100' : 'bg-white border-slate-200 text-slate-400 scale-95'}`}>
                   <Icon className="w-5 h-5" />
                 </span>
-                <p className={`mt-3 text-sm font-bold transition-colors ${on ? 'text-slate-900' : 'text-slate-400'}`}>{s.title}</p>
-                <p className="mt-1 text-xs leading-snug text-slate-500 max-w-[11rem]">{s.text}</p>
+                <p className={`mt-3 text-sm font-bold transition-colors ${on ? 'text-slate-900' : 'text-slate-400'}`}>{t(s.title)}</p>
+                <p className="mt-1 text-xs leading-snug text-slate-500 max-w-[11rem]">{t(s.text)}</p>
               </li>
             );
           })}
@@ -74,8 +76,8 @@ export default function JourneySteps() {
                 <Icon className="w-5 h-5" />
               </span>
               <div className="pt-1">
-                <p className={`text-sm font-bold transition-colors ${on ? 'text-slate-900' : 'text-slate-400'}`}>{s.title}</p>
-                <p className="text-xs leading-snug text-slate-500">{s.text}</p>
+                <p className={`text-sm font-bold transition-colors ${on ? 'text-slate-900' : 'text-slate-400'}`}>{t(s.title)}</p>
+                <p className="text-xs leading-snug text-slate-500">{t(s.text)}</p>
               </div>
             </li>
           );
