@@ -47,13 +47,13 @@ export const WindowsTitleBar: React.FC<WindowsTitleBarProps> = ({
   };
 
   return (
-    <header className="h-10 overflow-hidden bg-slate-200/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-300 dark:border-slate-800 flex items-center justify-between px-3 select-none text-xs text-slate-700 dark:text-slate-300 z-50">
+    <header className="h-12 overflow-hidden bg-gradient-to-r from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-3 sm:px-4 select-none text-xs text-slate-700 dark:text-slate-300 z-50 shadow-[0_1px_0_rgba(15,23,42,0.03)]">
       {/* Left: App Icon & Brand Title */}
       <div className="flex items-center gap-2.5 shrink-0">
-        <div className="w-5 h-5 rounded bg-blue-600 flex items-center justify-center text-white shadow-xs">
-          <Clock className="w-3.5 h-3.5" />
+        <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm ring-1 ring-blue-700/10">
+          <Clock className="w-4 h-4" />
         </div>
-        <span className="font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap hidden min-[430px]:inline">
+        <span className="font-bold text-[13px] tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap hidden min-[430px]:inline">
           Office Attendance Tracker
         </span>
         <span className="text-slate-400 dark:text-slate-500 hidden sm:inline">|</span>
@@ -64,12 +64,12 @@ export const WindowsTitleBar: React.FC<WindowsTitleBarProps> = ({
       </div>
 
       {/* Center: Mode Switcher */}
-      <div className="flex items-center gap-1 p-0.5 bg-slate-300/60 dark:bg-slate-800/80 rounded-md border border-slate-300/80 dark:border-slate-700/60">
+      <div className="flex items-center gap-1 p-1 bg-slate-200/80 dark:bg-slate-800/80 rounded-xl border border-slate-300/70 dark:border-slate-700/70 shadow-inner">
         <button
           onClick={() => onToggleMode('desktop')}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
             appMode === 'desktop'
-              ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+              ? 'bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 shadow-sm ring-1 ring-slate-200/80 dark:ring-slate-600/70'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
           }`}
           title="Switch to Desktop Office Management Workspace"
@@ -96,7 +96,7 @@ export const WindowsTitleBar: React.FC<WindowsTitleBarProps> = ({
       <div className="flex items-center gap-1 shrink-0">
         <button
           onClick={onToggleTheme}
-          className="p-1.5 rounded hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 transition-colors"
+          className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 transition-colors"
           title={isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
         >
           {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
