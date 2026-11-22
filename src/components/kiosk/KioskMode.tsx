@@ -32,6 +32,7 @@ interface KioskModeProps {
   onTimeOut: (employeeId: string, notes?: string) => void;
   onStartBreak: (employeeId: string, type: 'lunch' | 'coffee' | 'short_break') => void;
   onEndBreak: (employeeId: string) => void;
+  onKioskAuthenticated?: () => void;
   onExitKiosk: () => void;
   currentClientIp?: string;
   currentClientIsp?: string;
@@ -47,6 +48,7 @@ export const KioskMode: React.FC<KioskModeProps> = ({
   onTimeOut,
   onStartBreak,
   onEndBreak,
+  onKioskAuthenticated,
   onExitKiosk,
   currentClientIp = 'Detecting...',
   currentClientIsp = 'Unknown ISP',
@@ -142,6 +144,7 @@ export const KioskMode: React.FC<KioskModeProps> = ({
           pinCheckBusy.current = false;
           if (result.ok && result.employee) {
             setMatchedEmployee(result.employee);
+            onKioskAuthenticated?.();
             setPinInput('');
           } else if (!longerPossible) {
             showPinError(result.error || 'PIN code not recognized. Please check your credentials.');
