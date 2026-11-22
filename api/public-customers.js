@@ -10,7 +10,7 @@ const SAFE_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const MAX_SUPABASE_PATH_LEN = 3500;
 
 const PUBLIC_INVOICE_SELECT =
-  'id,kind,crm_id,query_code,invoice_no,customer_name,reference,invoice_date,due_date,currency,sections,discount,advance_paid,subtotal,tax_label,tax_rate,tax_amount,total,balance,status,created_at,updated_at';
+  'id,kind,crm_id,query_code,invoice_no,customer_name,reference,invoice_date,due_date,travel_date,currency,sections,discount,advance_paid,subtotal,tax_label,tax_rate,tax_amount,total,balance,status,created_at,updated_at';
 
 const PUBLIC_RECEIPT_SELECT =
   'receipt_no,query_code,payment_type,currency,total_amount,amount_received,items,other_item,created_at';
@@ -307,6 +307,7 @@ function publicPortalConfig(cfg) {
     whatsappNumber: digits.length >= 8 && digits.length <= 15 ? `+${digits}` : '',
     whatsappMessage: String(cfg.whatsappMessage || '').slice(0, 300),
     effects: { jet: e.jet !== false, confetti: e.confetti !== false, scene3d: e.scene3d !== false, planeMap: e.planeMap !== false },
+    theme: ['auto', 'none', 'ramadan', 'eid', 'winter', 'summer'].includes(cfg.theme) ? cfg.theme : 'auto',
     announcement: announcementOn
       ? { text: String(a.text).slice(0, 300), tone: ['info', 'success', 'warning'].includes(a.tone) ? a.tone : 'info' }
       : null,
@@ -1145,6 +1146,7 @@ export default async function handler(req, res) {
         reference: r.reference || '',
         invoiceDate: r.invoice_date,
         dueDate: r.due_date || null,
+        travelDate: r.travel_date || null,
         currency: r.currency || 'PKR',
         sections: amountsHidden
           ? sanitizeSections(r.sections).map((sec) => ({ ...sec, lines: (sec.lines || []).map((ln) => ({ ...ln, unitPrice: 0, amount: 0, rate: null })) }))

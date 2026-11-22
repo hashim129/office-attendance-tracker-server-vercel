@@ -31,11 +31,13 @@ const DEFAULT_PORTAL_CONFIG = {
   whatsappNumber: '',
   whatsappMessage: 'Hello Bahaar Journeys, I need help with my booking.',
   effects: { jet: true, confetti: true, scene3d: true, planeMap: true },
+  theme: 'auto',
   announcement: { enabled: false, text: '', tone: 'info', expiresAt: '' },
   offers: [],
   destinations: { order: [], hidden: [], overrides: {} },
 };
 const PORTAL_TONES = ['info', 'success', 'warning'];
+const PORTAL_THEMES = ['auto', 'none', 'ramadan', 'eid', 'winter', 'summer'];
 const cleanText = (v, max) => String(v ?? '').replace(/[<>]/g, '').trim().slice(0, max);
 const cleanDate = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : '');
 const cleanHttps = (v) => { const u = String(v || '').trim(); return /^https:\/\/[^\s"'<>]{4,480}$/.test(u) ? u : ''; };
@@ -44,12 +46,17 @@ const DEST_ID_RE = /^[a-z0-9-]{1,40}$/;
 function mergePortalConfig(prev, c) {
   const out = { ...DEFAULT_PORTAL_CONFIG, ...prev };
   out.effects = { ...DEFAULT_PORTAL_CONFIG.effects, ...(prev.effects || {}) };
+  if (!PORTAL_THEMES.includes(out.theme)) out.theme = 'auto';
   out.announcement = { ...DEFAULT_PORTAL_CONFIG.announcement, ...(prev.announcement || {}) };
   out.destinations = { order: [], hidden: [], overrides: {}, ...(prev.destinations || {}) };
   const changed = [];
   if (c.effects && typeof c.effects === 'object') {
     for (const k of Object.keys(DEFAULT_PORTAL_CONFIG.effects)) if (c.effects[k] !== undefined) out.effects[k] = c.effects[k] !== false;
     changed.push('effects');
+  }
+  if (c.theme !== undefined) {
+    out.theme = PORTAL_THEMES.includes(c.theme) ? c.theme : 'auto';
+    if (!changed.includes('effects')) changed.push('effects');
   }
   if (c.announcement && typeof c.announcement === 'object') {
     const a = c.announcement;
@@ -438,7 +445,7 @@ const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const mapInvoice = (r, visaProgress = null) => ({
   id: r.id, kind: r.kind === 'vendor' ? 'vendor' : 'customer', crmId: r.crm_id || '', queryCode: r.query_code || '', invoiceNo: r.invoice_no, createdBy: r.created_by, customerName: r.customer_name, customerPhone: r.customer_phone || '',
   customerAddress: r.customer_address || '', customerNtn: r.customer_ntn || '', reference: r.reference || '',
-  invoiceDate: r.invoice_date, dueDate: r.due_date || null, currency: r.currency, sections: asArray(r.sections),
+  invoiceDate: r.invoice_date, dueDate: r.due_date || null, travelDate: r.travel_date || null, currency: r.currency, sections: asArray(r.sections),
   taxLabel: r.tax_label || 'Tax', taxRate: num(r.tax_rate), discount: num(r.discount), advancePaid: num(r.advance_paid),
   subtotal: num(r.subtotal), taxAmount: num(r.tax_amount), total: num(r.total), balance: num(r.balance), notes: r.notes || '',
   vendors: asArray(r.vendors), ntn: r.ntn === null || r.ntn === undefined ? null : String(r.ntn), showNtn: r.show_ntn !== false,
@@ -1386,7 +1393,7 @@ export default async function handler(req, res) {
         customer_address: str(x.customerAddress, 400, { name: 'Address' }), customer_ntn: str(x.customerNtn, 60, { name: 'Customer NTN' }),
         // one box on the form: "CRM ID / Query Code" (kept in both columns so searches and reports find it either way)
         reference: str(x.reference, 120, { name: 'Reference' }), crm_id: crmQuery, query_code: crmQuery,
-        ntn: str(x.ntn, 60, { name: 'NTN' }), show_ntn: x.showNtn !== false, vendors, invoice_date: dateOnly(x.invoiceDate, 'Invoice date', true), due_date: dateOnly(x.dueDate, 'Due date', false),
+        ntn: str(x.ntn, 60, { name: 'NTN' }), show_ntn: x.showNtn !== false, vendors, invoice_date: dateOnly(x.invoiceDate, 'Invoice date', true), due_date: dateOnly(x.dueDate, 'Due date', false), travel_date: vendorBill ? null : dateOnly(x.travelDate, 'Travel date', false),
         currency, sections, tax_label: str(x.taxLabel, 40, { name: 'Tax label' }) || 'Tax', tax_rate: taxRate, discount, advance_paid: advancePaid,
         subtotal: r2(subtotal), tax_amount: taxAmount, total, balance, notes: str(x.notes, 1500, { name: 'Notes' }),
       };
@@ -1518,7 +1525,7 @@ export default async function handler(req, res) {
         }
         const what = changedBits([
           [vendorBill ? 'vendor' : 'customer', existing.customer_name, base.customer_name], ['currency', existing.currency, base.currency], ['total', num(existing.total), num(base.total)],
-          ['discount', num(existing.discount), num(base.discount)], ['advance', num(existing.advance_paid), num(base.advance_paid)], ['due', existing.due_date, base.due_date],
+          ['discount', num(existing.discount), num(base.discount)], ['advance', num(existing.advance_paid), num(base.advance_paid)], ['due', existing.due_date, base.due_date], ['travel date', existing.travel_date, base.travel_date],
           ['query code', existing.query_code, base.query_code], ['notes', existing.notes, base.notes],
         ]);
         await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'Someone'} edited ${vendorBill ? 'vendor payable' : 'invoice'} ${row.invoice_no}${what ? ` (${what})` : ' (details updated)'}.`, me.id);

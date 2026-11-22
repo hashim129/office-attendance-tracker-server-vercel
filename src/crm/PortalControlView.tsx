@@ -11,6 +11,7 @@ interface Offer { id: string; title: string; text: string; expiresAt: string; ac
 interface DestOverride { tagline?: string; bestSeason?: string; fromPrice?: string; photos?: string[] }
 interface Config {
   effects: { jet: boolean; confetti: boolean; scene3d: boolean; planeMap: boolean };
+  theme?: string;
   announcement: { enabled: boolean; text: string; tone: 'info' | 'success' | 'warning'; expiresAt: string };
   offers: Offer[];
   destinations: { order: string[]; hidden: string[]; overrides: Record<string, DestOverride> };
@@ -86,6 +87,7 @@ export const PortalControlView: React.FC<{ crm: CrmState }> = ({ crm }) => {
   const [ann, setAnn] = useState<Config['announcement']>({ enabled: false, text: '', tone: 'info', expiresAt: '' });
   const [offers, setOffers] = useState<Offer[]>([]);
   const [effects, setEffects] = useState<Config['effects']>({ jet: true, confetti: true, scene3d: true, planeMap: true });
+  const [theme, setTheme] = useState('auto');
   const [order, setOrder] = useState<string[]>([]);
   const [hidden, setHidden] = useState<string[]>([]);
   const [overrides, setOverrides] = useState<Record<string, DestOverride>>({});
@@ -95,6 +97,7 @@ export const PortalControlView: React.FC<{ crm: CrmState }> = ({ crm }) => {
     setAnn(cfg.announcement);
     setOffers(cfg.offers || []);
     setEffects(cfg.effects);
+    setTheme(cfg.theme || 'auto');
     const known = CURATED_DESTINATIONS.map((d) => d.id);
     const saved = (cfg.destinations.order || []).filter((id) => known.includes(id));
     setOrder([...saved, ...known.filter((id) => !saved.includes(id))]);
@@ -209,7 +212,19 @@ export const PortalControlView: React.FC<{ crm: CrmState }> = ({ crm }) => {
               <Switch checked={effects[k]} onChange={(v) => setEffects({ ...effects, [k]: v })} label={label} />
             </div>
           ))}
-          <SaveBar k="effects" onSave={() => void save({ effects })} />
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 space-y-1.5">
+            <label className="text-xs font-semibold text-slate-800 dark:text-slate-200" htmlFor="portal-theme">Seasonal look</label>
+            <select id="portal-theme" value={theme} onChange={(e) => setTheme(e.target.value)} className={inputCls}>
+              <option value="auto">Automatic (Ramadan, Eid, winter, summer)</option>
+              <option value="none">Off (always plain)</option>
+              <option value="ramadan">Always Ramadan</option>
+              <option value="eid">Always Eid</option>
+              <option value="winter">Always winter</option>
+              <option value="summer">Always summer</option>
+            </select>
+            <p className="text-[11px] text-slate-500">Lanterns and moon for Ramadan and Eid, falling snow in winter, a warm glow in summer. Ramadan and Eid dates follow the moon, so they can be a day off; pick a fixed look any time.</p>
+          </div>
+          <SaveBar k="effects" onSave={() => void save({ effects, theme })} />
         </div>
       )}
 

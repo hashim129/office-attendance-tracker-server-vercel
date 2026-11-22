@@ -31,6 +31,7 @@ import JourneySteps from './JourneySteps';
 import { LangProvider, useLang } from './i18n';
 import { InstallButton, LangToggle, PaymentRing, VisaStamp, WhatsAppFab, WhatsAppShare, usePortalManifest } from './PortalExtras';
 import { Confetti, FloatingScene, RotatingWord, useTiltCards } from './PortalFx';
+import { BottomBar, CountUp, DestinationExtras, PlaneSwoop, SeasonTheme, TripCountdown, themeFor, useSwipe, type ThemeChoice } from './PortalBatch3';
 import JetShowcase from './JetShowcase';
 import { photoSrcSet, prefetchPhoto } from './imageUtil';
 import {
@@ -98,6 +99,7 @@ interface PublicInvoiceDTO {
   amountsHidden?: boolean;
   portalNote?: string | null;
   portalNoteAt?: string | null;
+  travelDate?: string | null;
   invoiceNo: string;
   crmId: string;
   queryCode: string;
@@ -338,6 +340,10 @@ function FeaturedDestinationHeroSlider({
 
   const heroRef = useRef<HTMLDivElement>(null);
   const heroVisible = useOnScreen(heroRef);
+  const heroSwipe = useSwipe(
+    () => setSlideIdx((prev) => (prev + 1) % Math.max(count, 1)),
+    () => setSlideIdx((prev) => (prev - 1 + Math.max(count, 1)) % Math.max(count, 1)),
+  );
 
   useEffect(() => {
     if (prefersReducedMotion || isPaused || count <= 1 || !heroVisible) return;
@@ -362,6 +368,7 @@ function FeaturedDestinationHeroSlider({
       className="relative rounded-3xl overflow-hidden border border-slate-200 shadow-lg bg-slate-900 h-[27rem] sm:h-88 md:h-96 group"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
+      {...heroSwipe}
     >
       <AnimatePresence mode="wait">
         <motion.div
@@ -503,11 +510,16 @@ function DestinationCardPhotoSlider({
 
   const currentPhoto = photos[photoIdx] || photos[0];
   const currentCaption = captions[photoIdx] || dest.name;
+  const cardSwipe = useSwipe(
+    () => photos.length > 1 && setPhotoIdx((p) => (p + 1) % photos.length),
+    () => photos.length > 1 && setPhotoIdx((p) => (p - 1 + photos.length) % photos.length),
+  );
 
   return (
     <div
       ref={cardRef}
-      className="relative h-52 w-full overflow-hidden bg-slate-900 p-4 flex flex-col justify-between"
+      {...cardSwipe}
+      className="img-shimmer relative h-52 w-full overflow-hidden bg-slate-900 p-4 flex flex-col justify-between"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
@@ -665,10 +677,14 @@ function DestinationModalPhotoSlider({
 
   const currentPhoto = photos[photoIdx] || photos[0];
   const currentCaption = captions[photoIdx] || dest.name;
+  const modalSwipe = useSwipe(
+    () => photos.length > 1 && setPhotoIdx((p) => (p + 1) % photos.length),
+    () => photos.length > 1 && setPhotoIdx((p) => (p - 1 + photos.length) % photos.length),
+  );
 
   return (
     <div className="space-y-2.5 bg-slate-950">
-      <div className="relative h-40 sm:h-52 md:h-64 p-5 flex flex-col justify-between overflow-hidden">
+      <div {...modalSwipe} className="img-shimmer relative h-40 sm:h-52 md:h-64 p-5 flex flex-col justify-between overflow-hidden">
         <AnimatePresence mode="wait">
           <motion.img
             key={`${dest.id}-modal-${photoIdx}`}
@@ -769,6 +785,7 @@ interface PortalPublicConfig {
   whatsappNumber: string;
   whatsappMessage: string;
   effects: { jet: boolean; confetti: boolean; scene3d: boolean; planeMap: boolean };
+  theme: ThemeChoice;
   announcement: { text: string; tone: 'info' | 'success' | 'warning' } | null;
   offers: { id: string; title: string; text: string; expiresAt: string }[];
   destinations: { order: string[]; hidden: string[]; overrides: Record<string, { tagline?: string; bestSeason?: string; fromPrice?: string; photos?: string[] }> };
@@ -778,6 +795,7 @@ const DEFAULT_PORTAL_CONFIG: PortalPublicConfig = {
   whatsappNumber: '',
   whatsappMessage: '',
   effects: { jet: true, confetti: true, scene3d: true, planeMap: true },
+  theme: 'auto',
   announcement: null,
   offers: [],
   destinations: { order: [], hidden: [], overrides: {} },
@@ -925,6 +943,7 @@ function PortalInner() {
               whatsappNumber: cfg.whatsappNumber || '',
               whatsappMessage: cfg.whatsappMessage || '',
               effects: { ...DEFAULT_PORTAL_CONFIG.effects, ...(cfg.effects || {}) },
+              theme: cfg.theme || 'auto',
               announcement: cfg.announcement && cfg.announcement.text ? cfg.announcement : null,
               offers: Array.isArray(cfg.offers) ? cfg.offers : [],
               destinations: { ...DEFAULT_PORTAL_CONFIG.destinations, ...(cfg.destinations || {}) },
@@ -1106,6 +1125,7 @@ function PortalInner() {
   const [surpriseKey, setSurpriseKey] = useState('');
   // Jet flyover: the booking details stay hidden until the dropped box bursts open.
   const [jetKey, setJetKey] = useState(0);
+  const [swoopKey, setSwoopKey] = useState(0);
   const [holdResults, setHoldResults] = useState(false);
   const [blastKey, setBlastKey] = useState('');
   const resultsRef = useRef<HTMLElement>(null);
@@ -1136,6 +1156,15 @@ function PortalInner() {
     if (selectedInvoiceFilter === 'all') return foundData.invoices;
     return foundData.invoices.filter((inv) => inv.id === selectedInvoiceFilter);
   }, [foundData, selectedInvoiceFilter]);
+
+  const nextTripDate = useMemo(() => {
+    const today = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10);
+    const dates = filteredInvoices
+      .filter((inv) => inv.status !== 'cancelled' && inv.travelDate && inv.travelDate >= today)
+      .map((inv) => inv.travelDate as string)
+      .sort();
+    return dates[0] || '';
+  }, [filteredInvoices]);
 
   const activeCurrencyTotals = useMemo(() => {
     const active = filteredInvoices.filter((inv) => inv.status !== 'cancelled');
@@ -1896,12 +1925,25 @@ function PortalInner() {
   }
 
   // 3. Ready — Bahaar Journeys Public Customer Portal
+  const activeTheme = portalConfig.theme === 'auto' || !portalConfig.theme ? themeFor() : portalConfig.theme;
+  const waDigitsStr = portalConfig.whatsappNumber.replace(/\D+/g, '');
+  const waHref = waDigitsStr
+    ? `https://wa.me/${waDigitsStr}?text=${encodeURIComponent(`${portalConfig.whatsappMessage || 'Hello Bahaar Journeys, I need help with my booking.'}${foundData ? ` (Ref: ${foundData.query})` : ''}`)}`
+    : '';
   const activeMatchedSet = new Set(matchedDestinationIds);
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col max-sm:pb-16">
       {portalConfig.effects.confetti && <Confetti burstKey={blastKey || confettiKey || surpriseKey} />}
       {portalConfig.effects.jet && <JetShowcase showKey={jetKey} name={foundData?.customerName || ''} onBlast={handleBlast} />}
+      {activeTheme !== 'none' && <SeasonTheme theme={activeTheme} />}
+      <PlaneSwoop swoopKey={swoopKey} />
+      <BottomBar
+        whatsappHref={waHref}
+        onTrack={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); window.setTimeout(() => document.querySelector<HTMLInputElement>('input[type="text"]')?.focus(), 400); }}
+        onDestinations={() => document.getElementById('destinations')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        onChatTap={() => sendPortalEvent('wa_click')}
+      />
       <WhatsAppFab
         onTap={() => sendPortalEvent('wa_click')}
         number={portalConfig.whatsappNumber}
@@ -2171,6 +2213,8 @@ function PortalInner() {
               </div>
             </div>
 
+            {nextTripDate && <TripCountdown date={nextTripDate} />}
+
             {/* Customer Overview & Multi-Invoice Filter Bar */}
             <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 print:p-3.5 shadow-xs print-break-inside-avoid">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -2277,7 +2321,7 @@ function PortalInner() {
                   {activeCurrencyTotals.billed.length > 0 ? (
                     activeCurrencyTotals.billed.map((entry) => (
                       <p key={entry.currency} className="text-xl font-bold text-slate-900 tabular-nums">
-                        {entry.currency} {fmtAmount(entry.amount)}
+                        {entry.currency} <CountUp value={entry.amount} format={fmtAmount} />
                       </p>
                     ))
                   ) : (
@@ -2307,7 +2351,7 @@ function PortalInner() {
                       return (
                         <div key={entry.currency} className="flex items-center justify-between gap-3">
                           <p className="text-xl font-bold text-emerald-700 tabular-nums">
-                            {entry.currency} {fmtAmount(entry.amount)}
+                            {entry.currency} <CountUp value={entry.amount} format={fmtAmount} />
                           </p>
                           {billedAmt > 0 && <PaymentRing percent={paidPct} size={46} />}
                         </div>
@@ -2345,7 +2389,7 @@ function PortalInner() {
                           entry.amount <= 0.005 ? 'text-emerald-700' : 'text-amber-700'
                         }`}
                       >
-                        {entry.currency} {fmtAmount(entry.amount)}
+                        {entry.currency} <CountUp value={entry.amount} format={fmtAmount} />
                       </p>
                     ))
                   )}
@@ -3007,7 +3051,7 @@ function PortalInner() {
         )}
 
         {/* Curated Worldwide Destinations Showcase */}
-        <section className="no-print space-y-5 pt-2">
+        <section id="destinations" className="no-print space-y-5 pt-2 scroll-mt-4">
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
               <span className="text-xs font-semibold uppercase tracking-wider text-sky-700">
@@ -3071,7 +3115,7 @@ function PortalInner() {
           <FeaturedDestinationHeroSlider
             destinations={displayedDestinations}
             prefersReducedMotion={prefersReducedMotion}
-            onSelectDestination={(dest) => setActiveDestination(dest)}
+            onSelectDestination={(dest) => { setSwoopKey(Date.now()); setActiveDestination(dest); }}
             onRequestQuote={(dest) => openQuoteModalForDestination(dest)}
           />
 
@@ -3251,7 +3295,12 @@ function PortalInner() {
                 <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3.5 py-2.5 flex items-center gap-2 text-xs font-medium text-sky-900">
                   <Compass className="w-4 h-4 text-sky-600 shrink-0" />
                   <span>{activeDestination.packageCue}</span>
+                  {activeDestination.fromPrice && (
+                    <span className="ml-auto shrink-0 rounded-full bg-white border border-sky-200 px-2.5 py-0.5 text-[11px] font-bold text-sky-800">{activeDestination.fromPrice}</span>
+                  )}
                 </div>
+
+                <DestinationExtras dest={activeDestination} />
 
                 <button
                   type="button"
