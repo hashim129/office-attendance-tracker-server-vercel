@@ -459,7 +459,6 @@ button:not(:disabled):active { transform: scale(0.97); }
 
 /* Invoice cards fold down to their header row */
 .inv-card > .grid { transition: opacity 0.25s ease; }
-.inv-collapsed > .grid > :nth-child(n+2) { display: none; }
 .inv-collapsed > .grid > :first-child > :nth-child(n+2) { display: none; }
 .inv-card:not(.inv-collapsed) > .grid { animation: rise-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
