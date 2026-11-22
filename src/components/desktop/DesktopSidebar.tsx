@@ -38,6 +38,11 @@ interface DesktopSidebarProps {
   crmBadges?: CrmBadges;
 }
 
+const NAV_GRADIENTS: [string, string][] = [
+  ['#0ea5e9', '#2563eb'], ['#8b5cf6', '#6366f1'], ['#ec4899', '#f43f5e'], ['#f59e0b', '#f97316'], ['#10b981', '#14b8a6'],
+  ['#06b6d4', '#3b82f6'], ['#d946ef', '#8b5cf6'], ['#f43f5e', '#fb923c'], ['#84cc16', '#22c55e'], ['#6366f1', '#a855f7'],
+];
+
 export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   currentUser,
   activeTab,
@@ -56,13 +61,16 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
 
   // Sliding highlight that glides to whichever menu item is active
   const navRef = useRef<HTMLDivElement | null>(null);
-  const [pills, setPills] = useState<{ top: number; height: number }[]>([]);
+  const [pills, setPills] = useState<{ top: number; height: number; g1: string; g2: string }[]>([]);
   useLayoutEffect(() => {
     const el = navRef.current;
     if (!el) return;
     const measure = () => {
-      const active = Array.from(el.querySelectorAll<HTMLButtonElement>('button.text-white.shadow-xs'));
-      setPills(active.map((b) => ({ top: b.offsetTop, height: b.offsetHeight })));
+      // every menu button gets its own pair of gradient colours (used for hover, icon tile and the active highlight)
+      const all = Array.from(el.querySelectorAll<HTMLButtonElement>('button'));
+      all.forEach((b, i) => { const [g1, g2] = NAV_GRADIENTS[i % NAV_GRADIENTS.length]; b.style.setProperty('--g1', g1); b.style.setProperty('--g2', g2); });
+      const active = all.filter((b) => b.classList.contains('text-white') && b.classList.contains('shadow-xs'));
+      setPills(active.map((b) => ({ top: b.offsetTop, height: b.offsetHeight, g1: b.style.getPropertyValue('--g1'), g2: b.style.getPropertyValue('--g2') })));
     };
     measure();
     window.addEventListener('resize', measure);
@@ -123,7 +131,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         if (btn && onCloseMobile) onCloseMobile();
       }}>
         {pills.map((p, i) => (
-          <div key={i} className="nav-pill absolute left-3 right-3 pointer-events-none" style={{ top: p.top, height: p.height }} aria-hidden="true" />
+          <div key={i} className="nav-pill absolute left-3 right-3 pointer-events-none" style={{ top: p.top, height: p.height, background: `linear-gradient(135deg, ${p.g1}, ${p.g2})`, boxShadow: `0 10px 22px -10px color-mix(in srgb, ${p.g1} 75%, transparent), inset 0 1px 0 rgba(255,255,255,0.3)` }} aria-hidden="true" />
         ))}
         <div className="space-y-6">
           {/* Employee Section (Available to All) */}
