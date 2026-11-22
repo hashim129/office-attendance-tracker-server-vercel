@@ -570,3 +570,25 @@ button:not(:disabled):active { transform: scale(0.97); }
 /* Admin chose to hide amounts for a booking on the public portal */
 .amounts-hidden .money-card,
 .inv-hidden .inv-money { display: none !important; }
+
+
+/* Reversible workforce redesign beta: scoped to the authenticated workspace only. */
+.workforce-redesign-beta main {
+  background: linear-gradient(145deg, rgba(239,246,255,.72), rgba(248,250,252,.88) 48%, rgba(238,242,255,.62));
+}
+.dark .workforce-redesign-beta main {
+  background: linear-gradient(145deg, rgba(15,23,42,.94), rgba(2,6,23,.96) 55%, rgba(30,41,59,.82));
+}
+.workforce-redesign-beta main :is(.bg-white, .dark\\:bg-slate-900) {
+  transition: box-shadow .2s ease, border-color .2s ease, transform .2s ease;
+}
+.workforce-redesign-beta main :is(.rounded-xl, .rounded-2xl) {
+  border-radius: 1rem;
+}
+.workforce-redesign-beta main :is(button, a):focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .workforce-redesign-beta * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
