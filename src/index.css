@@ -592,3 +592,107 @@ button:not(:disabled):active { transform: scale(0.97); }
 @media (prefers-reduced-motion: reduce) {
   .workforce-redesign-beta * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+
+/* Windows 11 / Fluent workspace redesign — fully reversible via the admin Beta switch.
+   All rules are scoped to the authenticated workspace wrapper so login, kiosk,
+   customer portal, print layouts and the original UI remain untouched. */
+.workforce-redesign-beta {
+  --fluent-accent: #2563eb;
+  --fluent-border: rgba(148, 163, 184, .24);
+  --fluent-surface: rgba(255, 255, 255, .78);
+  --fluent-shadow: 0 18px 48px -30px rgba(15, 23, 42, .32), 0 2px 8px rgba(15, 23, 42, .035);
+  background:
+    radial-gradient(ellipse at 8% 0%, rgba(191, 219, 254, .30), transparent 38%),
+    radial-gradient(ellipse at 92% 10%, rgba(199, 210, 254, .22), transparent 34%),
+    #f3f6fb;
+}
+.dark .workforce-redesign-beta {
+  --fluent-border: rgba(100, 116, 139, .30);
+  --fluent-surface: rgba(15, 23, 42, .76);
+  --fluent-shadow: 0 18px 48px -30px rgba(0, 0, 0, .72), 0 2px 8px rgba(0, 0, 0, .18);
+  background:
+    radial-gradient(ellipse at 8% 0%, rgba(30, 64, 175, .18), transparent 38%),
+    radial-gradient(ellipse at 92% 10%, rgba(67, 56, 202, .14), transparent 34%),
+    #080f1d;
+}
+.workforce-redesign-beta > div:first-child {
+  border-color: var(--fluent-border);
+  background: rgba(255,255,255,.82);
+  box-shadow: 0 1px 0 rgba(255,255,255,.7) inset, 0 8px 28px -24px rgba(15,23,42,.4);
+  backdrop-filter: blur(24px) saturate(1.35);
+}
+.dark .workforce-redesign-beta > div:first-child {
+  background: rgba(15,23,42,.82);
+  box-shadow: 0 1px 0 rgba(255,255,255,.035) inset;
+}
+.workforce-redesign-beta main {
+  background: transparent !important;
+  padding: clamp(.85rem, 1.8vw, 1.65rem);
+}
+.workforce-redesign-beta main > .page-enter {
+  max-width: 1720px;
+  margin-inline: auto;
+}
+.workforce-redesign-beta main :is(.bg-white, .dark\\:bg-slate-900) {
+  background-color: var(--fluent-surface);
+  border-color: var(--fluent-border);
+  box-shadow: var(--fluent-shadow);
+  backdrop-filter: blur(18px) saturate(1.18);
+}
+.workforce-redesign-beta main :is(.rounded-xl, .rounded-2xl, .rounded-3xl) {
+  border-radius: 1.1rem;
+}
+.workforce-redesign-beta main :is(h1, h2, h3) {
+  letter-spacing: -.035em;
+}
+.workforce-redesign-beta main :is(button, [role="button"]) {
+  border-radius: .75rem;
+}
+.workforce-redesign-beta main :is(input, select, textarea) {
+  border-radius: .7rem;
+  border-color: var(--fluent-border);
+  background-color: rgba(255,255,255,.78);
+  transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+}
+.dark .workforce-redesign-beta main :is(input, select, textarea) {
+  background-color: rgba(2,6,23,.42);
+}
+.workforce-redesign-beta main :is(input, select, textarea):focus {
+  border-color: rgba(37,99,235,.72);
+  box-shadow: 0 0 0 3px rgba(59,130,246,.13);
+  outline: none;
+}
+.workforce-redesign-beta main table {
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border-radius: .9rem;
+}
+.workforce-redesign-beta main thead {
+  background: rgba(226,232,240,.58);
+}
+.dark .workforce-redesign-beta main thead {
+  background: rgba(30,41,59,.62);
+}
+.workforce-redesign-beta main :is(.shadow, .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl) {
+  box-shadow: var(--fluent-shadow);
+}
+.workforce-redesign-beta main :is(.border, .border-2) {
+  border-color: var(--fluent-border);
+}
+.workforce-redesign-beta main :is(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 3px;
+}
+@media (max-width: 767px) {
+  .workforce-redesign-beta main { padding: .75rem; }
+  .workforce-redesign-beta main :is(.rounded-xl, .rounded-2xl, .rounded-3xl) { border-radius: .9rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workforce-redesign-beta *, .workforce-redesign-beta *::before, .workforce-redesign-beta *::after {
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
