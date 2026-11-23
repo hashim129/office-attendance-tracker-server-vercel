@@ -122,6 +122,7 @@ function mapDbEmployee(r) {
   const salesAccess = Boolean(pendingObj?.salesAccess);
   const customerPortalAccess = Boolean(pendingObj?.customerPortalAccess);
   const liveDashboardAccess = Boolean(pendingObj?.liveDashboardAccess);
+  const teamAttendanceAccess = Boolean(pendingObj?.teamAttendanceAccess);
   const leaderboardAccess = Boolean(pendingObj?.leaderboardAccess);
   const payablesAccess = Boolean(pendingObj?.payablesAccess);
   const birthday = /^\d{4}-\d{2}-\d{2}$/.test(String(pendingObj?.birthday || '')) ? String(pendingObj.birthday) : '';
@@ -149,6 +150,7 @@ function mapDbEmployee(r) {
     salesAccess,
     customerPortalAccess,
     liveDashboardAccess,
+    teamAttendanceAccess,
     leaderboardAccess,
     payablesAccess,
     birthday,
@@ -176,6 +178,7 @@ function mapAppEmployeeToDb(e) {
     salesAccess: Boolean(e.salesAccess),
     customerPortalAccess: Boolean(e.customerPortalAccess),
     liveDashboardAccess: Boolean(e.liveDashboardAccess),
+    teamAttendanceAccess: Boolean(e.teamAttendanceAccess),
     leaderboardAccess: Boolean(e.leaderboardAccess),
     payablesAccess: Boolean(e.payablesAccess),
     birthday: /^\d{4}-\d{2}-\d{2}$/.test(String(e.birthday || '')) ? String(e.birthday) : '',
