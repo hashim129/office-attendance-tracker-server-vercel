@@ -402,6 +402,28 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
   return (
     <div className="w-full min-w-0 space-y-4 sm:space-y-5">
+      {/* Friendly greeting */}
+      <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg sm:text-xl font-bold leading-tight">{greetingWord}, {firstName}!</h2>
+          <p className="text-xs sm:text-sm text-blue-100 mt-0.5">{greetingLine}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
+          <StreakChip streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr)} />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
+            <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+            {coworkerCounts.in} online now
+          </span>
+          {coworkerCounts.offline > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
+              <span className="w-2 h-2 rounded-full bg-slate-300" />
+              {coworkerCounts.offline} offline
+            </span>
+          )}
+        </div>
+      </div>
+
+
       {/* Main Punch Interaction Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 items-start">
         {/* Left 2 Cols: Punch Clock Card */}
@@ -864,27 +886,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
         </div>
       </div>
 
-
-      {/* Friendly greeting */}
-      <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg sm:text-xl font-bold leading-tight">{greetingWord}, {firstName}!</h2>
-          <p className="text-xs sm:text-sm text-blue-100 mt-0.5">{greetingLine}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
-          <StreakChip streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr)} />
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
-            <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
-            {coworkerCounts.in} online now
-          </span>
-          {coworkerCounts.offline > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
-              <span className="w-2 h-2 rounded-full bg-slate-300" />
-              {coworkerCounts.offline} offline
-            </span>
-          )}
-        </div>
-      </div>
 
       <MomentCards employees={allEmployees.length ? allEmployees : [currentUser]} currentUserId={currentUser.id} todayStr={todayStr} />
       {celebrate && (
