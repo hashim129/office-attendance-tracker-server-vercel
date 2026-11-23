@@ -37,6 +37,8 @@ interface FormState {
   taxLabel: string; taxRate: string; discount: string; advancePaid: string; notes: string;
   paymentApproved: boolean;
   paymentApprovedDate: string;
+  paymentReceived: boolean;
+  travelerNames: string;
   visaEnabled: boolean;
   visaStatus: VisaProgressStatus;
   visaInProgressDate: string;
@@ -169,7 +171,7 @@ const blankVendor = (currency: string): FormVendor => ({ name: '', description: 
 const blankForm = (kind: 'customer' | 'vendor' = 'customer', companyNtn = ''): FormState => ({
   kind, crmId: '', customerName: '', customerPhone: '', reference: '', ntn: companyNtn, showNtn: true, vendors: kind === 'customer' ? [blankVendor('PKR')] : [], invoiceDate: today(), dueDate: '', travelDate: '', currency: 'PKR',
   sections: [{ title: '', key: uid(), locked: false, lines: [blankLine('PKR')] }], taxLabel: 'Tax', taxRate: kind === 'vendor' ? '' : '6', discount: '', advancePaid: '', notes: '',
-  paymentApproved: false, paymentApprovedDate: '',
+  paymentApproved: false, paymentApprovedDate: '', paymentReceived: false, travelerNames: '',
   visaEnabled: false, visaStatus: 'not_started', visaInProgressDate: '', visaIssuedDate: '',
   hotelEnabled: false, hotelStatus: 'not_started', hotelName: '', hotelCheckInDate: '', hotelCheckOutDate: '', hotelInProgressDate: '', hotelIssuedDate: '',
   ticketEnabled: false, ticketStatus: 'not_started', ticketDetails: '', ticketInProgressDate: '', ticketIssuedDate: '',
@@ -227,6 +229,8 @@ function toForm(inv: CrmInvoice, companyNtn = ''): FormState {
     taxLabel: inv.taxLabel, taxRate: inv.taxRate ? String(inv.taxRate) : '', discount: inv.discount ? String(inv.discount) : '', advancePaid: inv.advancePaid ? String(inv.advancePaid) : '', notes: inv.notes,
     paymentApproved: Boolean(inv.visaProgress?.paymentApproved) || inv.status === 'paid' || inv.advancePaid > 0,
     paymentApprovedDate: inv.visaProgress?.paymentApprovedDate || '',
+    paymentReceived: Boolean(inv.paymentReceived),
+    travelerNames: (inv.travelers || []).join('\n'),
     visaEnabled: Boolean(inv.visaProgress?.enabled) || hasVisaKeyword(inv.sections, inv.reference, inv.notes),
     visaStatus: inv.visaProgress?.status || 'not_started',
     visaInProgressDate: inv.visaProgress?.inProgressDate || '',
@@ -458,8 +462,8 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
     return invoices.filter((i) => (filter === 'all' ? !fullyPaid(i) : filter === 'paid' ? fullyPaid(i) : filter === 'unpaid' ? (i.status === 'unpaid' || (i.status === 'paid' && !fullyPaid(i))) : i.status === filter) && (!q || [i.invoiceNo, i.customerName, i.reference, i.crmId || '', i.queryCode || '', i.customerPhone, empName.get(i.createdBy) || '', ...(i.vendors || []).flatMap((v) => [v.name, v.description || ''])].some((v) => v.toLowerCase().includes(q))));
   }, [invoices, filter, query, empName]);
 
-  const canEdit = (i: CrmInvoice) => isStaff || (i.createdBy === currentUser.id && i.status === 'unpaid');
-  const canUpdateVisa = (i: CrmInvoice) => (i.kind || 'customer') !== 'vendor' && (isStaff || i.createdBy === currentUser.id);
+  const canEdit = (i: CrmInvoice) => isAdmin || (i.createdBy === currentUser.id && i.status === 'unpaid');
+  const canUpdateVisa = (i: CrmInvoice) => (i.kind || 'customer') !== 'vendor' && (isAdmin || i.createdBy === currentUser.id);
   const calc = form ? compute(form) : null;
   const draft: CrmInvoice | null = form && calc ? {
     id: form.id || 'draft', kind: form.kind, crmId: form.crmId, queryCode: '', vendors: [], ntn: form.ntn.trim(), showNtn: form.showNtn,
@@ -630,6 +634,8 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
     const {
       paymentApproved,
       paymentApprovedDate,
+      paymentReceived,
+      travelerNames,
       visaEnabled,
       visaStatus,
       visaInProgressDate,
@@ -669,6 +675,8 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
       paymentApproved || visaActive || hotelActive || ticketActive || transferActive || insuranceActive || travelReadyEnabled;
     return {
       ...rest,
+      paymentReceived: Boolean(paymentReceived),
+      travelers: travelerNames.split(/\r?\n/).map((name) => name.trim()).filter(Boolean).slice(0, 100),
       vendors: (form!.vendors || []).filter((v) => v.name.trim() || v.description.trim() || v.unitPrice.trim() || v.units.trim() || v.amount.trim() || v.bank.trim()),
       sections: form!.sections.map((s, si) => {
         const lockThis = si === lockIdx;
@@ -842,7 +850,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
         </div>
         <div className="flex flex-wrap gap-2">
           <button className={btnGhost} onClick={() => setOpenIds((prev) => (prev.size ? new Set() : new Set(shown.map((x) => x.id))))}><ChevronsUpDown className="w-3.5 h-3.5" /> {openIds.size ? 'Collapse all' : 'Expand all'}</button>
-          {isStaff && <button className={btnGhost} onClick={() => { setCompanyForm({ ...company }); setError(''); }}><Building2 className="w-3.5 h-3.5" /> Company details</button>}
+          {isAdmin && <button className={btnGhost} onClick={() => { setCompanyForm({ ...company }); setError(''); }}><Building2 className="w-3.5 h-3.5" /> Company details</button>}
           <button className={btnPrimary} onClick={() => { setForm(blankForm(side, company.ntn || '')); setError(''); setNotice(''); }}><Plus className="w-3.5 h-3.5" /> {vendorSide ? 'New vendor payable' : 'New invoice'}</button>
         </div>
       </div>
@@ -1908,11 +1916,11 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                     )}
 
                     <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                      <button className={btnGhost} onClick={() => setView(i)}><Eye className="w-3.5 h-3.5" /> View</button>
+                      <button className={btnGhost} onClick={() => setView(i)}><Eye className="w-3.5 h-3.5" /> {vendorSide ? 'View payable' : 'View'}</button>
                       <button className={btnPrimary} onClick={() => void pdf(i)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
                       {canShare && <button className={btnGhost} onClick={() => void share(i)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
                       {canEdit(i) && <button className={btnGhost} onClick={() => { setForm(toForm(i, company.ntn || '')); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
-                      {isStaff && (
+                      {isAdmin && (
                         <select
                           aria-label={`Invoice status for ${i.invoiceNo}`}
                           className={`${inputCls} !w-auto !py-1 !px-2.5 !text-xs font-semibold`}
@@ -1928,10 +1936,11 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                           <option value="cancelled">Status: Cancelled</option>
                         </select>
                       )}
-                      {isStaff && i.status !== 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'paid' })}>Mark paid</button>}
-                      {isStaff && i.status === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Mark unpaid</button>}
-                      {(isStaff || i.createdBy === currentUser.id) && i.status === 'unpaid' && <button className={btnGhost} onClick={() => void cancelWithRemarks(i)}>Cancel invoice</button>}
-                      {isStaff && i.status === 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Reopen</button>}
+                      {(isAdmin || currentUser.role === 'accounts') && i.status !== 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'paid' })}>{vendorSide ? 'Mark as Paid' : currentUser.role === 'accounts' && !isAdmin ? 'Mark as Received' : 'Mark as Paid'}</button>}
+                      {isAdmin && i.status === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Mark unpaid</button>}
+                      {(isAdmin || i.createdBy === currentUser.id) && i.status === 'unpaid' && <button className={btnGhost} onClick={() => void cancelWithRemarks(i)}>Cancel invoice</button>}
+                      {isAdmin && i.status === 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Reopen</button>}
+                      {vendorSide && isStaff && <button className={btnGhost} onClick={() => void act('invoice_vendor_posted', { id: i.id, posted: !i.vendorPosted })}>{i.vendorPosted ? '✓ Posted' : 'Mark as posted'}</button>}
                       {isAdmin && <button className={btnDanger} aria-label="Delete invoice" onClick={() => { if (window.confirm(`Delete invoice ${i.invoiceNo} permanently?`)) void act('invoice_delete', { id: i.id }); }}><Trash2 className="w-3.5 h-3.5" /></button>}
                     </div>
                   </div>
@@ -2091,6 +2100,13 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
               <Field label="Due date (optional)"><input className={inputCls} type="date" value={form.dueDate} onChange={(e) => patch({ dueDate: e.target.value })} /></Field>
               {form.kind === 'customer' && <Field label="Travel date (optional)" hint="Customers see a countdown to this date on the portal"><input className={inputCls} type="date" value={form.travelDate} onChange={(e) => patch({ travelDate: e.target.value })} /></Field>}
             </div>
+
+            {form.kind === 'customer' && <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-3">
+              <Field label="Traveler names (optional)" hint="One traveler per line; up to 100 names.">
+                <textarea className={inputCls} rows={3} value={form.travelerNames} onChange={(e) => patch({ travelerNames: e.target.value })} placeholder={"Traveler 1\nTraveler 2\nTraveler 3"} maxLength={12000} />
+              </Field>
+              <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300"><input type="checkbox" checked={form.paymentReceived} onChange={(e) => patch({ paymentReceived: e.target.checked })} /> Payment received</label>
+            </div>}
 
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-1.5">
