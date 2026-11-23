@@ -147,6 +147,8 @@ export interface Employee {
   leaderboardAccess?: boolean; // Admin-selected: may see the sales leaderboard
   payablesAccess?: boolean; // Admin-selected: may see the payables-due calendar
   birthday?: string; // YYYY-MM-DD, optional (used for birthday cards)
+  gameCharacterId?: string; // Employee Universe Beta avatar selection
+  gamePetId?: string; // Employee Universe Beta optional companion
   allowWorkFromHome?: boolean; // When true, attendance punch in/out has NO IP restriction
   registeredDeviceId?: string; // Persistent device UUID bound to this employee
   registeredDeviceName?: string; // e.g. "Ahmed's Samsung Galaxy A54 (Android)"
@@ -209,6 +211,7 @@ export interface OfficeSettings {
   customerPortalBetaEnabled?: boolean; // Beta toggle for public /customers portal & invoice Visa tracking (default false)
   redesignedUiBetaEnabled?: boolean; // Admin-approved, reversible redesigned workspace rollout (default false)
   headerBetaEnabled?: boolean; // Independent administrator-controlled top header redesign (default false)
+  employeeUniverseBetaEnabled?: boolean; // Optional avatar + team chat experience (default false)
   settingsUpdatedAt?: string;
 }
 

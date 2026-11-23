@@ -107,6 +107,7 @@ export const INITIAL_SETTINGS: OfficeSettings = {
   autoPunchOutOnInactiveHours: 2,
   disconnectThresholdMinutes: 3,
   customerPortalBetaEnabled: true,
+  employeeUniverseBetaEnabled: false,
 };
 
 export const INITIAL_EMPLOYEES: Employee[] = [

@@ -63,6 +63,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
     customerPortalBetaEnabled: settings.customerPortalBetaEnabled !== false,
     redesignedUiBetaEnabled: settings.redesignedUiBetaEnabled !== false,
     headerBetaEnabled: settings.headerBetaEnabled === true,
+    employeeUniverseBetaEnabled: settings.employeeUniverseBetaEnabled === true,
   });
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
   const [detectedIp, setDetectedIp] = useState<string>(currentClientIp || 'Detecting...');
@@ -84,6 +85,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
       customerPortalBetaEnabled: settings.customerPortalBetaEnabled !== false,
       redesignedUiBetaEnabled: settings.redesignedUiBetaEnabled !== false,
     headerBetaEnabled: settings.headerBetaEnabled === true,
+    employeeUniverseBetaEnabled: settings.employeeUniverseBetaEnabled === true,
     });
   }, [settings]);
 
@@ -294,6 +296,10 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
           </div>
         </section>
         <section className="rounded-2xl border border-sky-300/70 dark:border-sky-800 bg-gradient-to-br from-sky-50 via-white to-indigo-50 dark:from-sky-950/30 dark:via-slate-900 dark:to-indigo-950/30 p-5 space-y-3"><div className="flex items-center justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100"><span>Bahaar Journeys Header Redesign</span><span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase text-sky-700 dark:bg-sky-900/60 dark:text-sky-300">Header Beta</span></div><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Larger flat logo, refined gradient header and clearer action controls. This toggle controls only the top header.</p></div><span className={formData.headerBetaEnabled ? 'text-[11px] font-bold text-emerald-600' : 'text-[11px] font-bold text-slate-500'}>{formData.headerBetaEnabled ? 'ACTIVE' : 'OFF'}</span></div><div className="flex items-center justify-between gap-4 rounded-xl border border-sky-200/70 bg-white/70 p-3 dark:border-sky-900/60 dark:bg-slate-950/30"><div className="min-w-0"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">Enable Header Beta</span><span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">OFF restores the current header without changing dashboard or Punch Clock.</span></div><Switch tone="blue" label="Enable Header Beta" checked={formData.headerBetaEnabled === true} onChange={(v) => { const updated = { ...formData, headerBetaEnabled: v }; setFormData(updated); onUpdateSettings(updated); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 3000); }} /></div></section>
+        <section className="rounded-2xl border border-fuchsia-300/70 dark:border-fuchsia-900 bg-gradient-to-br from-fuchsia-50 via-white to-sky-50 dark:from-fuchsia-950/25 dark:via-slate-900 dark:to-sky-950/25 p-5 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100"><span>Employee Universe · Avatars &amp; Team Chat</span><span className="rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold uppercase text-fuchsia-700 dark:bg-fuchsia-900/60 dark:text-fuchsia-300">Separate Beta</span></div><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Optional cartoon-style employee characters, companion pets and a live @mention conversation panel. Existing workspace tools remain unchanged.</p></div><span className={formData.employeeUniverseBetaEnabled ? 'text-[11px] font-bold text-emerald-600' : 'text-[11px] font-bold text-slate-500'}>{formData.employeeUniverseBetaEnabled ? 'ACTIVE' : 'OFF'}</span></div>
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-fuchsia-200/70 bg-white/70 p-3 dark:border-fuchsia-900/60 dark:bg-slate-950/30"><div className="min-w-0"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">Enable Employee Universe Beta</span><span className="mt-0.5 block text-[11px] text-slate-500 dark:text-slate-400">OFF hides avatars and chat; saved profiles and messages are retained.</span></div><Switch tone="blue" label="Enable Employee Universe Beta" checked={formData.employeeUniverseBetaEnabled === true} onChange={(v) => { const updated = { ...formData, employeeUniverseBetaEnabled: v }; setFormData(updated); onUpdateSettings(updated); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 3000); }} /></div>
+        </section>
         {/* Customer Portal & Visa Tracking (Beta) — Top of Settings */}
         <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border-2 border-blue-500/40 dark:border-blue-500/30 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">

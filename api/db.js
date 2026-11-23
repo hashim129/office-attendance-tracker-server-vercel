@@ -52,6 +52,7 @@ export const DEFAULT_DB = {
     faceScanAllowUnenrolled: true,
     faceEnrollRequired: false,
     customerPortalBetaEnabled: true,
+    employeeUniverseBetaEnabled: false,
   },
   shifts: [
     {
