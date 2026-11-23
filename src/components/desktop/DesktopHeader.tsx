@@ -230,7 +230,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
           <button
             type="button"
             onClick={() => { setShowNotifications((v) => !v); setShowCrmBell(false); }}
-            className="relative rounded-xl p-2.5 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-300"
+            className={`relative rounded-xl p-2.5 transition-all hover:-translate-y-0.5 hover:shadow-sm ${headerBetaEnabled ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/20 hover:from-blue-700 hover:to-indigo-700' : 'text-slate-500 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-300'}`}
             title="Smart notification center"
             aria-label={`Notifications, ${unreadCount + crmUnread} unread`}
             aria-expanded={showNotifications}
@@ -284,7 +284,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         {currentUser.role === 'admin' && (
           <button
             onClick={onSwitchToKiosk}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+            className={`hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer ${headerBetaEnabled ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-blue-600/20 hover:from-indigo-700 hover:to-blue-700' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'}`}
             title="Switch to Lobby Punch-Clock Terminal"
           >
             <Monitor className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
@@ -331,7 +331,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
           {onOpenChangePassword && (
             <button
               onClick={onOpenChangePassword}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-slate-800 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700"
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all hover:-translate-y-0.5 hover:shadow-sm cursor-pointer border ${headerBetaEnabled ? 'border-blue-200 bg-gradient-to-r from-white to-blue-50 text-blue-700 shadow-sm dark:border-slate-700 dark:from-slate-800 dark:to-slate-900 dark:text-blue-300' : 'border-slate-200 text-slate-600 hover:text-blue-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-slate-800'}`}
               title="Change your portal password / PIN"
             >
               <KeyRound className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
