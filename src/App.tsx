@@ -1125,6 +1125,7 @@ export default function App() {
                   name={currentUser?.name || ''}
                   characterId={currentUser?.gameCharacterId}
                   petId={currentUser?.gamePetId}
+                  employeeUniverseEnabled={settings.employeeUniverseBetaEnabled === true}
                   isAdmin={currentUser?.role === 'admin' || currentUser?.role === 'ceo'}
                   crm={crm}
                   todayRecord={records.find((r) => r.employeeId === currentUser?.id && r.date === getTodayDateString())}
@@ -1186,6 +1187,7 @@ export default function App() {
                   crm={crm}
                   onNavigate={setActiveTab}
                   redesignedUiBetaEnabled={betaEnabled}
+                  employeeUniverseEnabled={settings.employeeUniverseBetaEnabled === true}
                 />
               )}
 
@@ -1231,6 +1233,7 @@ export default function App() {
                   onOpenPrintModal={handleOpenPrintModal}
                   faceEnrolledIds={faceEnrolledIds}
                   onFaceChanged={refreshFaceStatus}
+                  employeeUniverseEnabled={settings.employeeUniverseBetaEnabled === true}
                 />
               )}
 
