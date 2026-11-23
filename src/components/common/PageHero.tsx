@@ -3,6 +3,7 @@ import { Bell } from 'lucide-react';
 import { ActiveDesktopTab, AttendanceRecord } from '../../types';
 import { parseTimeToMinutes } from '../../lib/attendanceCalculations';
 import { CrmState } from '../../crm/useCrm';
+import { EmployeeAvatar } from './EmployeeIdentity';
 
 // Every page has its own colours. Whole class names are written out so the style sheet always includes them.
 const GRADIENTS: Record<string, string> = {
@@ -79,6 +80,8 @@ function heroFor(tab: ActiveDesktopTab, crm: CrmState, isAdmin: boolean): Hero |
 interface Props {
   tab: ActiveDesktopTab;
   name: string;
+  characterId?: string;
+  petId?: string;
   isAdmin: boolean;
   crm: CrmState;
   /** Today's attendance record of the signed-in person (drives the live punch-in time in the sticky bar). */
@@ -89,7 +92,7 @@ interface Props {
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-export const PageHero: React.FC<Props> = ({ tab, name, isAdmin, crm, todayRecord, unreadDirectives = 0, onNavigate }) => {
+export const PageHero: React.FC<Props> = ({ tab, name, characterId, petId, isAdmin, crm, todayRecord, unreadDirectives = 0, onNavigate }) => {
   const hero = heroFor(tab, crm, isAdmin);
   const heroRef = useRef<HTMLDivElement>(null);
   const [stuck, setStuck] = useState(false);
@@ -139,6 +142,7 @@ export const PageHero: React.FC<Props> = ({ tab, name, isAdmin, crm, todayRecord
           <div className="min-w-0 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-white/90 animate-pulse shrink-0" />
             <p className="text-sm font-extrabold truncate min-w-[4rem]">{PAGE_TITLES[tab] || 'Dashboard'}</p>
+            {characterId && <EmployeeAvatar characterId={characterId} petId={petId} name={name} size="xs" />}
             <p className="hidden md:block text-xs text-white/80 truncate">· {greeting}, {first}</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -169,7 +173,7 @@ export const PageHero: React.FC<Props> = ({ tab, name, isAdmin, crm, todayRecord
         <span aria-hidden className="hero-blob pointer-events-none absolute -right-10 -top-12 w-44 h-44 rounded-full bg-white/10" />
         <span aria-hidden className="hero-blob-slow pointer-events-none absolute right-24 -bottom-16 w-36 h-36 rounded-full bg-white/10" />
         <div className="relative min-w-0">
-          <h2 className="text-lg sm:text-xl font-extrabold leading-tight tracking-tight">{greeting}, {first}!</h2>
+          <div className="flex items-center gap-2"><EmployeeAvatar characterId={characterId} petId={petId} name={name} size="sm" /><h2 className="text-lg sm:text-xl font-extrabold leading-tight tracking-tight">{greeting}, {first}!</h2></div>
           <p className="text-xs sm:text-sm text-white/85 mt-0.5">{hero.line}</p>
         </div>
         {hero.chips && hero.chips.length > 0 && (
