@@ -1936,11 +1936,11 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                           <option value="cancelled">Status: Cancelled</option>
                         </select>
                       )}
-                      {(isAdmin || currentUser.role === 'accounts') && i.status !== 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'paid' })}>{vendorSide ? 'Mark as Paid' : currentUser.role === 'accounts' && !isAdmin ? 'Mark as Received' : 'Mark as Paid'}</button>}
+                      {(isAdmin || currentUser.role === 'accounts') && i.status === 'unpaid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'paid' })}>{vendorSide ? 'Mark as Paid' : currentUser.role === 'accounts' && !isAdmin ? 'Mark as Received' : 'Mark as Paid'}</button>}
                       {isAdmin && i.status === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Mark unpaid</button>}
                       {(isAdmin || i.createdBy === currentUser.id) && i.status === 'unpaid' && <button className={btnGhost} onClick={() => void cancelWithRemarks(i)}>Cancel invoice</button>}
                       {isAdmin && i.status === 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Reopen</button>}
-                      {vendorSide && isStaff && <button className={btnGhost} onClick={() => void act('invoice_vendor_posted', { id: i.id, posted: !i.vendorPosted })}>{i.vendorPosted ? '✓ Posted' : 'Mark as posted'}</button>}
+                      {vendorSide && isStaff && i.status !== 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_vendor_posted', { id: i.id, posted: !i.vendorPosted })}>{i.vendorPosted ? '✓ Posted' : 'Mark as posted'}</button>}
                       {isAdmin && <button className={btnDanger} aria-label="Delete invoice" onClick={() => { if (window.confirm(`Delete invoice ${i.invoiceNo} permanently?`)) void act('invoice_delete', { id: i.id }); }}><Trash2 className="w-3.5 h-3.5" /></button>}
                     </div>
                   </div>
