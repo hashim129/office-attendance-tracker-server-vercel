@@ -1731,7 +1731,7 @@ export default async function handler(req, res) {
         const label = existing.kind === 'vendor' ? 'vendor payable' : 'invoice';
         const targets = [...new Set([...(await salesStaffIds()), existing.created_by])];
         await notify(targets, 'invoice', row.id, `${me.name || 'Someone'} cancelled ${label} ${existing.invoice_no}. Remarks: ${row.cancel_remarks}`, me.id);
-      } else if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Your invoice ${existing.invoice_no} was marked ${status.toUpperCase()}.`, me.id);
+      } else if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Your invoice ${existing.invoice_no} was marked ${(status === 'paid' && existing.kind !== 'vendor' ? 'RECEIVED' : status.toUpperCase())}.`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
 
