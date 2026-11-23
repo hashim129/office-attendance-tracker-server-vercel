@@ -195,6 +195,8 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
   const endOfWeek = new Date(now);
   endOfWeek.setDate(endOfWeek.getDate() + 7);
   const weekKey = ymd(endOfWeek);
+  const upcomingTasks = crm.data.followups.filter((f) => (f.status === 'pending' || f.status === 'rescheduled') && f.dueAt && new Date(f.dueAt).getTime() >= now.getTime()).sort((a, b) => String(a.dueAt).localeCompare(String(b.dueAt))).slice(0, 6);
+  const overduePayables = sortedPay.filter((p) => p.dueDate && p.dueDate < today);
   const openFollowups = crm.data.followups.filter((f) => ['pending', 'rescheduled', 'not_completed'].includes(f.status));
   const overdueFollowups = openFollowups.filter((f) => f.dueAt && f.dueAt.slice(0, 10) < today);
   const dueTodayFollowups = openFollowups.filter((f) => f.dueAt && f.dueAt.slice(0, 10) === today);
