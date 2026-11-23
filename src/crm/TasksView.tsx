@@ -338,7 +338,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
         isOpen={Boolean(viewing)}
         onClose={() => setViewingId(null)}
         title={viewing ? (viewing.customerId ? customerOf.get(viewing.customerId)?.customerName || 'Follow-up details' : KIND_LABEL[viewing.kind] || 'Follow-up') : 'Follow-up details'}
-        subtitle={viewing ? `${KIND_LABEL[viewing.kind] || viewing.kind} · Created ${fmtDateTime(viewing.createdAt)}` : undefined}
+        subtitle={viewing ? `${viewing.kind === 'internal' ? (viewing.subject || 'Internal follow-up') : KIND_LABEL[viewing.kind] || viewing.kind} · Created ${fmtDateTime(viewing.createdAt)}` : undefined}
         maxWidth="2xl"
       >
         {viewing && (() => {
