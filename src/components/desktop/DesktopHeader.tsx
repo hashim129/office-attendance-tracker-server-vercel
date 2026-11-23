@@ -92,7 +92,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   const getTabLabel = (tab: ActiveDesktopTab): string => {
     switch (tab) {
       case 'clock':
-        return 'Punch Clock & Active Shift';
+        return 'Live Dashboard & Punch Clock';
       case 'my-attendance':
         return 'My Attendance & Personal Stats';
       case 'team-attendance':
