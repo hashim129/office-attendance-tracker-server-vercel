@@ -409,8 +409,9 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Clock className="w-4 h-4 text-blue-600" />
-              <span>Shift Attendance Punch</span>
+              <span>Attendance · Punch In / Out</span>
             </h2>
+            <p className="ml-6 mt-1 text-xs text-slate-500 dark:text-slate-400">{formattedDate} <span className="mx-1">·</span> Office server time <span className="font-mono font-semibold text-blue-600 dark:text-blue-400">{formattedDigitalClock}</span> <span className="mx-1">·</span> {userShift.name}</p>
 
             {/* Current State Indicator */}
             <div>
@@ -512,13 +513,13 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
               <button
                 onClick={handleTimeInClick}
                 disabled={isPunchBlocked}
-                className={`w-full py-4 px-6 rounded-xl font-semibold text-base transition-all flex items-center justify-center gap-3 shadow-md ${
+                className={`w-full min-h-[76px] py-5 px-6 rounded-2xl font-extrabold text-lg sm:text-xl tracking-tight transition-all duration-200 flex items-center justify-center gap-3 shadow-lg ${
                   isPunchBlocked
                     ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
-                    : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-emerald-600/20 cursor-pointer'
+                    : 'bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 hover:from-emerald-700 hover:via-emerald-700 hover:to-teal-700 active:scale-[0.99] text-white shadow-xl shadow-emerald-600/25 ring-1 ring-emerald-500/20 cursor-pointer'
                 }`}
               >
-                <LogIn className="w-5 h-5" />
+                <LogIn className="w-6 h-6" />
                 <span>
                   {isPunchBlockedByIp
                     ? 'Connect to Office Wi-Fi to Punch In'
