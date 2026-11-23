@@ -44,6 +44,7 @@ interface DesktopHeaderProps {
   isDark?: boolean;
   onToggleTheme?: () => void;
   redesignedUiBetaEnabled?: boolean;
+  headerBetaEnabled?: boolean;
 }
 
 export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
@@ -65,6 +66,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   isDark = false,
   onToggleTheme,
   redesignedUiBetaEnabled = false,
+  headerBetaEnabled = false,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCrmBell, setShowCrmBell] = useState(false);
@@ -146,7 +148,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
 
   return (
     <div className={`min-h-[72px] px-3 sm:px-5 lg:px-7 py-2.5 border-b flex items-center justify-between gap-3 shrink-0 relative z-30 transition-colors duration-200 ${
-      redesignedUiBetaEnabled
+      headerBetaEnabled
         ? 'border-slate-200/80 dark:border-slate-700/80 bg-[linear-gradient(105deg,rgba(255,255,255,0.98),rgba(239,246,255,0.94),rgba(255,255,255,0.98))] dark:bg-[linear-gradient(105deg,rgba(15,23,42,0.98),rgba(23,37,64,0.96),rgba(15,23,42,0.98))] shadow-[0_8px_28px_rgba(15,23,42,0.07)]'
         : 'border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-[0_4px_18px_rgba(15,23,42,0.035)]'
     }`}>
@@ -163,10 +165,10 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             <Menu className="w-5 h-5" />
           </button>
         )}
-        {redesignedUiBetaEnabled ? (
+        {headerBetaEnabled ? (
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-12 items-center rounded-xl border border-slate-200/80 bg-white/90 px-2.5 shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
-              <img src="/bahaar-logo.png" alt="Bahaar Journeys" className="h-9 w-auto max-w-[190px] object-contain object-left shrink-0" />
+            <div className="flex h-14 sm:h-16 items-center rounded-xl bg-white px-3 sm:px-4 dark:bg-slate-900 shrink-0">
+              <img src="/bahaar-logo.png" alt="Bahaar Journeys" className="h-12 sm:h-14 w-auto max-w-[230px] object-contain object-left shrink-0" />
             </div>
             <div className="hidden sm:block min-w-0 border-l border-slate-200 dark:border-slate-700 pl-3">
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600 dark:text-blue-400">Bahaar Journeys</p>
