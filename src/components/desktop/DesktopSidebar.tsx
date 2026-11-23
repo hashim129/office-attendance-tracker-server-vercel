@@ -123,7 +123,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               }`}
             >
               <Clock className="w-4 h-4 shrink-0" />
-              <span>Punch Clock</span>
+              <span>Live Dashboard &amp; Punch Clock</span>
             </button>
 
             <button
