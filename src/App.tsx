@@ -49,7 +49,6 @@ import {
 } from './lib/attendanceCalculations';
 import { detectClientNetwork } from './lib/ipSecurity';
 import { getDeviceDetails } from './lib/deviceSecurity';
-import { WindowsTitleBar } from './components/common/WindowsTitleBar';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { LoginView } from './components/desktop/LoginView';
 import { DesktopHeader } from './components/desktop/DesktopHeader';
@@ -121,7 +120,7 @@ export default function App() {
   const [faceRequest, setFaceRequest] = useState<{ employeeId: string; run: () => void } | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveDesktopTab>('clock');
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
-  const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-') || activeTab === 'live-dashboard');
+  const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-') || activeTab === 'live-dashboard' || activeTab === 'clock');
 
   // Password Modal
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState<boolean>(false);
@@ -1034,14 +1033,6 @@ export default function App() {
       id="windows-window-frame"
       className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-all duration-200"
     >
-      {/* Windows 11 Title Bar */}
-      <WindowsTitleBar
-        isDark={isDark}
-        onToggleTheme={handleToggleTheme}
-        serverHost={settings.serverHostName}
-        serverPort={settings.serverPort}
-      />
-
       {/* Screen Mode Render */}
       {appMode === 'kiosk' ? (
         <Suspense fallback={<TabLoader />}>
@@ -1073,7 +1064,7 @@ export default function App() {
           isSyncing={isInitialCloudSyncing}
         />
       ) : (
-        <div className={`app-reveal flex-1 flex flex-col min-h-[calc(100vh-2.5rem)] min-w-0 w-full overflow-x-clip ${settings.redesignedUiBetaEnabled ? 'workforce-redesign-beta' : ''}`}>
+        <div className={`app-reveal flex-1 flex flex-col min-h-screen min-w-0 w-full overflow-x-clip ${settings.redesignedUiBetaEnabled ? 'workforce-redesign-beta' : ''}`}>
           {/* Header */}
           <DesktopHeader
             currentUser={currentUser}
@@ -1091,6 +1082,8 @@ export default function App() {
             crmLatest={CRM_ENABLED ? crm.badges.unreadLatest : []}
             onCrmRefresh={CRM_ENABLED ? () => void crm.refresh() : undefined}
             onOpenCrmNotifications={CRM_ENABLED ? () => setActiveTab('crm-notifications') : undefined}
+            isDark={isDark}
+            onToggleTheme={handleToggleTheme}
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
@@ -1121,6 +1114,18 @@ export default function App() {
                 <ErrorBoundary>
                   <Suspense fallback={<TabLoader />}>
                 {activeTab === 'clock' && (
+                <>
+                {currentUser && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
+                  <LiveDashboardTab
+                    currentUser={currentUser}
+                    employees={statEmployees}
+                    records={records}
+                    shifts={shifts}
+                    leaves={leaves}
+                    crm={crm}
+                    onNavigate={setActiveTab}
+                  />
+                )}
                 <PunchClockTab
                   onRecheckNetwork={handleRecheckNetwork}
                   currentUser={currentUser}
@@ -1141,6 +1146,7 @@ export default function App() {
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                 />
+                </>
               )}
 
               {activeTab === 'my-attendance' && (
