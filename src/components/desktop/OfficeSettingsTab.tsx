@@ -61,6 +61,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
     allowedOfficeIsps: settings.allowedOfficeIsps ?? [],
     allowAdminBypassIpLock: settings.allowAdminBypassIpLock ?? true,
     customerPortalBetaEnabled: settings.customerPortalBetaEnabled !== false,
+    redesignedUiBetaEnabled: settings.redesignedUiBetaEnabled !== false,
   });
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
   const [detectedIp, setDetectedIp] = useState<string>(currentClientIp || 'Detecting...');
@@ -80,6 +81,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
       allowedOfficeIsps: settings.allowedOfficeIsps ?? [],
       allowAdminBypassIpLock: settings.allowAdminBypassIpLock ?? true,
       customerPortalBetaEnabled: settings.customerPortalBetaEnabled !== false,
+      redesignedUiBetaEnabled: settings.redesignedUiBetaEnabled !== false,
     });
   }, [settings]);
 
