@@ -1066,7 +1066,7 @@ export default function App() {
           isSyncing={isInitialCloudSyncing}
         />
       ) : (
-        <div className={`app-reveal flex-1 flex flex-col min-h-screen min-w-0 w-full overflow-x-clip ${settings.redesignedUiBetaEnabled ? 'workforce-redesign-beta' : ''}`}>
+        <div className={`app-reveal flex-1 flex flex-col ${settings.redesignedUiBetaEnabled ? 'min-h-screen workforce-redesign-beta' : 'min-h-[calc(100vh-2.5rem)]'} min-w-0 w-full overflow-x-clip`}>
           {/* Header */}
           <DesktopHeader
             currentUser={currentUser}
