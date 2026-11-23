@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarClock, CalendarOff, CheckCircle2, Clock3, Home, Loader2, LogOut, Medal, Target, Trophy, UserX, Users, WifiOff } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ArrowRight, CalendarCheck2, CalendarClock, CalendarDays, CalendarOff, CheckCircle2, Clock3, FileText, Home, Loader2, LogOut, Medal, PackageCheck, Target, Timer, TrendingUp, Trophy, UserX, Users, Wallet, WifiOff } from 'lucide-react';
 import { ActiveDesktopTab, AttendanceRecord, Employee, LeaveRequest, ShiftSchedule } from '../../types';
 import { getTodayDateString, isLateArrival, parseTimeToMinutes } from '../../lib/attendanceCalculations';
 import { CrmState } from '../../crm/useCrm';
@@ -190,6 +190,32 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
     const d = new Date(y, m - 1 + delta, 1);
     setCalMonth(`${d.getFullYear()}-${pad(d.getMonth() + 1)}`);
   };
+
+  // Command-center metrics use existing CRM data only; no new tables or data writes.
+  const endOfWeek = new Date(now);
+  endOfWeek.setDate(endOfWeek.getDate() + 7);
+  const weekKey = ymd(endOfWeek);
+  const upcomingTasks = crm.data.followups.filter((f) => (f.status === 'pending' || f.status === 'rescheduled') && f.dueAt && new Date(f.dueAt).getTime() >= now.getTime()).sort((a, b) => String(a.dueAt).localeCompare(String(b.dueAt))).slice(0, 6);
+  const overduePayables = sortedPay.filter((p) => p.dueDate && p.dueDate < today);
+  const openFollowups = crm.data.followups.filter((f) => ['pending', 'rescheduled', 'not_completed'].includes(f.status));
+  const overdueFollowups = openFollowups.filter((f) => f.dueAt && f.dueAt.slice(0, 10) < today);
+  const notCompletedFollowups = crm.data.followups.filter((f) => f.status === 'not_completed');
+  const dueTodayFollowups = openFollowups.filter((f) => f.dueAt && f.dueAt.slice(0, 10) === today);
+  const unscheduledFollowups = openFollowups.filter((f) => !f.dueAt);
+  const nextMeetings = crm.data.meetings.filter((m) => m.status === 'scheduled' && m.startAt >= now.toISOString() && m.startAt.slice(0, 10) <= weekKey).sort((a, b) => a.startAt.localeCompare(b.startAt)).slice(0, 5);
+  const customerDues = crm.data.invoices.filter((i) => i.kind === 'customer' && i.status === 'unpaid' && i.balance > 0 && i.dueDate).sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+  const overdueCustomerDues = customerDues.filter((i) => String(i.dueDate) < today);
+  const soonCustomerDues = customerDues.filter((i) => String(i.dueDate) >= today && String(i.dueDate) <= weekKey);
+  const purchaseDues = (crm.data.purchases || []).flatMap((purchase) => purchase.items.filter((item) => item.paidByMethod === 'unpaid' && item.paymentDueDate).map((item) => ({ id: purchase.id + '-' + item.id, purchaseNo: purchase.purchaseNo, vendor: item.vendorName, currency: purchase.currency, amount: item.payable, dueDate: item.paymentDueDate as string }))).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const overduePurchaseDues = purchaseDues.filter((p) => p.dueDate < today);
+  const soonPurchaseDues = purchaseDues.filter((p) => p.dueDate >= today && p.dueDate <= weekKey);
+  const pendingSalesApprovals = isAdmin ? crm.data.sales.filter((s) => s.status === 'pending') : [];
+  const pendingInventoryApprovals = isAdmin ? crm.data.inventory.filter((r) => r.status === 'pending') : [];
+  const requiredMeetingApprovals = isAdmin ? crm.data.meetings.filter((m) => m.status === 'pending_approval') : [];
+  const overdueCount = overdueFollowups.length + overduePayables.length + overdueCustomerDues.length + overduePurchaseDues.length;
+  const actionCount = pendingLeaves + requiredMeetingApprovals.length + pendingSalesApprovals.length + pendingInventoryApprovals.length + overdueCount + dueTodayFollowups.length + notCompletedFollowups.length;
+  const deadlineCount = dueTodayFollowups.length + soonCustomerDues.length + soonPurchaseDues.length + nextMeetings.length + upcomingTasks.length;
+  const amountLabel = (currency: string, amount: number) => `${currency} ${money(amount)}`;
 
   return (
     <div className={`space-y-5 ${redesignedUiBetaEnabled ? "live-dashboard-beta" : ""}`}>
@@ -388,49 +414,64 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
         </Card>
       )}
 
-      {(() => {
-        const upcomingTasks = crm.data.followups
-          .filter((f) => (f.status === 'pending' || f.status === 'rescheduled') && f.dueAt && new Date(f.dueAt).getTime() >= now.getTime())
-          .sort((a, b) => String(a.dueAt).localeCompare(String(b.dueAt)))
-          .slice(0, 6);
-        const overdueTasks = crm.data.followups.filter((f) =>
-          (f.status === 'pending' || f.status === 'rescheduled') && f.dueAt && new Date(f.dueAt).getTime() < now.getTime()
-        );
-        const requiredMeetings = isAdmin ? crm.data.meetings.filter((m) => m.status === 'pending_approval') : [];
-        const attentionTasks = crm.data.followups.filter((f) => f.status === 'not_completed');
-        const overduePayables = sortedPay.filter((p) => p.dueDate && p.dueDate < today);
-        const actionCount = pendingLeaves + requiredMeetings.length + attentionTasks.length + overdueTasks.length + overduePayables.length;
-        return (
-          <Card title="Upcoming tasks & required actions" icon={<CalendarClock className="w-4 h-4 text-blue-600" />} right={<span className="text-[11px] text-slate-400">Live · {actionCount} requiring attention</span>}>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+          <div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-400">Operations command center</p><h3 className="text-lg font-extrabold text-slate-900 dark:text-slate-100">What needs attention next?</h3><p className="text-xs text-slate-500 dark:text-slate-400">Deadlines, approvals and work that could slip through the cracks.</p></div>
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">Live overview · refreshed with dashboard data</span>
+        </div>
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+          <button type="button" onClick={() => onNavigate('crm-tasks')} className="text-left rounded-2xl border border-rose-200 dark:border-rose-900/60 bg-gradient-to-br from-rose-50 to-white dark:from-rose-950/40 dark:to-slate-900 p-3.5 hover:-translate-y-0.5 transition-transform"><span className="flex justify-between text-rose-700 dark:text-rose-300"><AlertCircle className="w-4 h-4"/><small className="font-bold uppercase">Urgent</small></span><strong className="block mt-2 text-2xl font-black text-slate-900 dark:text-white">{overdueCount}</strong><span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Overdue items</span></button>
+          <button type="button" onClick={() => onNavigate('crm-tasks')} className="text-left rounded-2xl border border-amber-200 dark:border-amber-900/60 bg-gradient-to-br from-amber-50 to-white dark:from-amber-950/30 dark:to-slate-900 p-3.5 hover:-translate-y-0.5 transition-transform"><span className="flex justify-between text-amber-700 dark:text-amber-300"><Timer className="w-4 h-4"/><small className="font-bold uppercase">Today</small></span><strong className="block mt-2 text-2xl font-black text-slate-900 dark:text-white">{dueTodayFollowups.length}</strong><span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Follow-ups due today</span></button>
+          <button type="button" onClick={() => onNavigate('crm-invoices')} className="text-left rounded-2xl border border-sky-200 dark:border-sky-900/60 bg-gradient-to-br from-sky-50 to-white dark:from-sky-950/30 dark:to-slate-900 p-3.5 hover:-translate-y-0.5 transition-transform"><span className="flex justify-between text-sky-700 dark:text-sky-300"><CalendarDays className="w-4 h-4"/><small className="font-bold uppercase">Next 7 days</small></span><strong className="block mt-2 text-2xl font-black text-slate-900 dark:text-white">{deadlineCount}</strong><span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Upcoming deadlines & events</span></button>
+          <button type="button" onClick={() => onNavigate(isAdmin ? 'crm-sales' : 'leaves')} className="text-left rounded-2xl border border-violet-200 dark:border-violet-900/60 bg-gradient-to-br from-violet-50 to-white dark:from-violet-950/30 dark:to-slate-900 p-3.5 hover:-translate-y-0.5 transition-transform"><span className="flex justify-between text-violet-700 dark:text-violet-300"><CheckCircle2 className="w-4 h-4"/><small className="font-bold uppercase">Action queue</small></span><strong className="block mt-2 text-2xl font-black text-slate-900 dark:text-white">{actionCount}</strong><span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Required actions</span></button>
+        </div>
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+          <div className="xl:col-span-3 space-y-4">
+            <Card title="Priority action queue" icon={<AlertTriangle className="w-4 h-4 text-rose-500"/>} right={<span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold ${actionCount ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'}`}>{actionCount} open</span>}>
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div><h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">Upcoming tasks</h4><p className="text-[10px] text-slate-500">Your next scheduled follow-ups</p></div>
-                  <button type="button" onClick={() => onNavigate('crm-tasks')} className="text-[11px] font-semibold text-blue-600 hover:underline">View all</button>
-                </div>
+                {pendingLeaves > 0 && <button type="button" onClick={() => onNavigate('leaves')} className="w-full flex items-center justify-between rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/20 p-3 text-left"><span><strong className="block text-xs text-slate-900 dark:text-slate-100">{pendingLeaves} leave request{pendingLeaves === 1 ? '' : 's'} awaiting review</strong><small className="text-[10px] text-slate-500">Review and decide</small></span><ArrowRight className="w-4 h-4 text-amber-600"/></button>}
+                {requiredMeetingApprovals.map((m) => <button key={m.id} type="button" onClick={() => onNavigate('crm-meetings')} className="w-full flex items-center justify-between rounded-xl border border-violet-200 dark:border-violet-900/50 bg-violet-50/70 dark:bg-violet-950/20 p-3 text-left"><span><strong className="block text-xs text-slate-900 dark:text-slate-100">{m.title}</strong><small className="text-[10px] text-slate-500">Meeting approval · {new Date(m.startAt).toLocaleString()}</small></span><ArrowRight className="w-4 h-4 text-violet-600"/></button>)}
+                {pendingSalesApprovals.length > 0 && <button type="button" onClick={() => onNavigate('crm-sales')} className="w-full flex items-center justify-between rounded-xl border border-sky-200 dark:border-sky-900/50 bg-sky-50/70 dark:bg-sky-950/20 p-3 text-left"><span><strong className="block text-xs text-slate-900 dark:text-slate-100">{pendingSalesApprovals.length} sales records awaiting approval</strong><small className="text-[10px] text-slate-500">Review sales</small></span><ArrowRight className="w-4 h-4 text-sky-600"/></button>}
+                {pendingInventoryApprovals.length > 0 && <button type="button" onClick={() => onNavigate('crm-inventory')} className="w-full flex items-center justify-between rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/70 dark:bg-indigo-950/20 p-3 text-left"><span><strong className="block text-xs text-slate-900 dark:text-slate-100">{pendingInventoryApprovals.length} inventory requests awaiting approval</strong><small className="text-[10px] text-slate-500">Review inventory requests</small></span><ArrowRight className="w-4 h-4 text-indigo-600"/></button>}
+                {overdueFollowups.slice(0,4).map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full flex items-center justify-between rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/70 dark:bg-rose-950/20 p-3 text-left"><span className="min-w-0"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{f.subject || f.remarks || 'Follow-up'}</strong><small className="text-[10px] text-rose-600 dark:text-rose-300">Overdue · {employees.find((e) => e.id === f.assignedTo)?.name || 'Assigned employee'} · {f.dueAt ? new Date(f.dueAt).toLocaleDateString() : ''}</small></span><ArrowRight className="w-4 h-4 text-rose-600"/></button>)}
+                {notCompletedFollowups.slice(0,4).map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full flex items-center justify-between rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/20 p-3 text-left"><span className="min-w-0"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{f.subject || f.remarks || 'Follow-up needs an update'}</strong><small className="text-[10px] text-amber-700 dark:text-amber-300">Not completed · review and update status</small></span><ArrowRight className="w-4 h-4 text-amber-600"/></button>)}
+                {overduePayables.slice(0,3).map((p) => <button key={p.id} type="button" onClick={() => onNavigate('crm-purchases')} className="w-full flex items-center justify-between rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/70 dark:bg-rose-950/20 p-3 text-left"><span className="min-w-0"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{p.vendor} · {p.currency} {money(p.total)}</strong><small className="text-[10px] text-rose-600 dark:text-rose-300">Vendor bill overdue since {p.dueDate}</small></span><ArrowRight className="w-4 h-4 text-rose-600"/></button>)}
+                {overdueCustomerDues.slice(0,3).map((i) => <button key={i.id} type="button" onClick={() => onNavigate('crm-invoices')} className="w-full flex items-center justify-between rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/70 dark:bg-rose-950/20 p-3 text-left"><span className="min-w-0"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{i.invoiceNo} · {i.customerName}</strong><small className="text-[10px] text-rose-600 dark:text-rose-300">Customer balance overdue · {i.currency} {money(i.balance)}</small></span><ArrowRight className="w-4 h-4 text-rose-600"/></button>)}
+                {overduePurchaseDues.slice(0,3).map((p) => <button key={p.id} type="button" onClick={() => onNavigate('crm-purchases')} className="w-full flex items-center justify-between rounded-xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/70 dark:bg-rose-950/20 p-3 text-left"><span className="min-w-0"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{p.vendor} · {p.currency} {money(p.amount)}</strong><small className="text-[10px] text-rose-600 dark:text-rose-300">Purchase payment overdue · {p.dueDate}</small></span><ArrowRight className="w-4 h-4 text-rose-600"/></button>)}
+                {actionCount === 0 && <div className="rounded-xl border border-dashed border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/50 dark:bg-emerald-950/10 p-5 text-center"><CheckCircle2 className="w-7 h-7 mx-auto text-emerald-500"/><p className="mt-2 text-xs font-bold text-emerald-700 dark:text-emerald-300">All clear — no urgent actions</p><p className="text-[10px] text-slate-500">Your action queue is up to date.</p></div>}
+                {actionCount > 0 && <p className="pt-1 text-[10px] text-slate-400">Highest-priority items first. Open each workspace to review the full list.</p>}
+              </div>
+            </Card>
+            <Card title="Upcoming tasks" icon={<CalendarCheck2 className="w-4 h-4 text-indigo-600"/>} right={<button type="button" onClick={() => onNavigate('crm-tasks')} className="text-[11px] font-bold text-blue-600 hover:underline">View all</button>}>
+              <div className="space-y-2">
                 {upcomingTasks.length === 0 && <p className="text-xs text-slate-500 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 p-4">No upcoming follow-ups scheduled.</p>}
-                {upcomingTasks.map((f) => <button type="button" key={f.id} onClick={() => onNavigate('crm-tasks')} className="w-full text-left flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/30 px-3 py-2.5 hover:bg-blue-50/70 dark:hover:bg-blue-950/20 transition-colors">
-                  <span className="min-w-0"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{f.subject || f.remarks || (f.kind === 'internal' ? 'Internal follow-up' : 'Follow-up')}</span><span className="block text-[10px] text-slate-500">{employees.find((e) => e.id === f.assignedTo)?.name || 'Assigned employee'}</span></span>
-                  <span className="text-[10px] font-semibold text-slate-500 shrink-0 text-right">{f.dueAt ? new Date(f.dueAt).toLocaleString() : ''}</span>
-                </button>)}
+                {upcomingTasks.map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full text-left flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/30 px-3 py-2.5 hover:bg-blue-50/70 dark:hover:bg-blue-950/20"><span className="min-w-0"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{f.subject || f.remarks || 'Follow-up'}</strong><small className="text-[10px] text-slate-500">{employees.find((e) => e.id === f.assignedTo)?.name || 'Assigned employee'}</small></span><span className="text-[10px] text-slate-500 shrink-0">{f.dueAt ? new Date(f.dueAt).toLocaleString() : ''}</span></button>)}
               </div>
+            </Card>
+          </div>
+          <div className="xl:col-span-2 space-y-4">
+            <Card title="Deadline radar · next 7 days" icon={<CalendarClock className="w-4 h-4 text-sky-600"/>} right={<span className="text-[10px] font-bold text-slate-400">{deadlineCount} tracked</span>}>
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div><h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">Pending / required actions</h4><p className="text-[10px] text-slate-500">Items that may need your attention</p></div>
-                  <span className={`text-[11px] font-extrabold rounded-full px-2.5 py-1 ${actionCount ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'}`}>{actionCount} open</span>
-                </div>
-                {pendingLeaves > 0 && <button type="button" onClick={() => onNavigate('leaves')} className="w-full text-left rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/20 px-3 py-2.5"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{pendingLeaves} leave request{pendingLeaves === 1 ? '' : 's'} awaiting review</span><span className="block text-[10px] text-slate-500">Open leave management</span></button>}
-                {requiredMeetings.map((m) => <button key={m.id} type="button" onClick={() => onNavigate('crm-meetings')} className="w-full text-left rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2.5"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{m.title}</span><span className="block text-[10px] text-slate-500">Meeting awaiting approval · {new Date(m.startAt).toLocaleString()}</span></button>)}
-                {overduePayables.slice(0, 4).map((p) => <button key={p.id} type="button" onClick={() => onNavigate('crm-purchases')} className="w-full text-left rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2.5"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{p.vendor} · {p.currency} {money(p.total)}</span><span className="block text-[10px] text-slate-500">Vendor bill overdue since {p.dueDate}</span></button>)}
-                {overdueTasks.slice(0, 4).map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full text-left rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2.5"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{f.subject || f.remarks || 'Follow-up'}</span><span className="block text-[10px] text-slate-500">Overdue follow-up · Update status</span></button>)}
-                {attentionTasks.slice(0, 4).map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full text-left rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2.5"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{f.subject || f.remarks || 'Follow-up needs attention'}</span><span className="block text-[10px] text-slate-500">Not completed · Update status</span></button>)}
-                {actionCount === 0 && <p className="text-xs text-slate-500 rounded-xl border border-dashed border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/10 p-4">No pending actions. You’re up to date.</p>}
-                {(requiredMeetings.length + attentionTasks.length + overdueTasks.length + overduePayables.length) > 0 && <button type="button" onClick={() => onNavigate('crm-tasks')} className="pt-1 text-[11px] font-semibold text-blue-600 hover:underline">Open action workspace</button>}
+                {dueTodayFollowups.slice(0,3).map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 p-2.5 text-left"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{f.subject || f.remarks || 'Follow-up due today'}</strong><small className="text-[10px] text-amber-700 dark:text-amber-300">Due today · {f.dueAt ? new Date(f.dueAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : ''}</small></button>)}
+                {soonCustomerDues.slice(0,3).map((i) => <button key={i.id} type="button" onClick={() => onNavigate('crm-invoices')} className="w-full rounded-xl border border-sky-200 dark:border-sky-900/50 p-2.5 text-left"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">Invoice {i.invoiceNo} · {i.customerName}</strong><small className="text-[10px] text-slate-500">Payment due {i.dueDate} · {i.currency} {money(i.balance)}</small></button>)}
+                {soonPurchaseDues.slice(0,3).map((p) => <button key={p.id} type="button" onClick={() => onNavigate('crm-purchases')} className="w-full rounded-xl border border-sky-200 dark:border-sky-900/50 p-2.5 text-left"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{p.vendor} · {p.purchaseNo}</strong><small className="text-[10px] text-slate-500">Vendor payment due {p.dueDate} · {p.currency} {money(p.amount)}</small></button>)}
+                {nextMeetings.map((m) => <button key={m.id} type="button" onClick={() => onNavigate('crm-meetings')} className="w-full rounded-xl border border-violet-200 dark:border-violet-900/50 p-2.5 text-left"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{m.title}</strong><small className="text-[10px] text-slate-500">Meeting · {new Date(m.startAt).toLocaleString()}</small></button>)}
+                {upcomingTasks.slice(0,4).map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full rounded-xl border border-slate-200 dark:border-slate-800 p-2.5 text-left"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{f.subject || f.remarks || 'Follow-up'}</strong><small className="text-[10px] text-slate-500">Follow-up · {f.dueAt ? new Date(f.dueAt).toLocaleString() : 'Date not set'}</small></button>)}
+                {deadlineCount === 0 && <p className="rounded-xl border border-dashed border-slate-200 dark:border-slate-700 p-4 text-xs text-slate-500">No deadlines in the next seven days. Time to get ahead.</p>}
               </div>
-            </div>
-          </Card>
-        );
-      })()}
+            </Card>
+            {unscheduledFollowups.length > 0 && <Card title="Follow-ups without a deadline" icon={<Timer className="w-4 h-4 text-amber-600"/>} right={<span className="text-[10px] font-bold text-amber-600">{unscheduledFollowups.length} need scheduling</span>}><p className="mb-2 text-xs text-slate-500">Open follow-ups without due dates can quietly get missed. Add a date so they appear in the deadline radar.</p><button type="button" onClick={() => onNavigate('crm-tasks')} className="inline-flex items-center gap-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 text-xs font-bold">Schedule follow-ups <ArrowRight className="w-3.5 h-3.5"/></button></Card>}
+            <Card title="Business pulse" icon={<TrendingUp className="w-4 h-4 text-emerald-600"/>}>
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button" onClick={() => onNavigate('crm-invoices')} className="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 text-left"><FileText className="w-4 h-4 text-blue-600"/><strong className="block mt-2 text-xl text-slate-900 dark:text-slate-100">{customerDues.length}</strong><span className="text-[10px] text-slate-500">Unpaid customer invoices</span></button>
+                <button type="button" onClick={() => onNavigate('crm-purchases')} className="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 text-left"><Wallet className="w-4 h-4 text-amber-600"/><strong className="block mt-2 text-xl text-slate-900 dark:text-slate-100">{purchaseDues.length + sortedPay.length}</strong><span className="text-[10px] text-slate-500">Vendor / purchase dues</span></button>
+                <button type="button" onClick={() => onNavigate('crm-meetings')} className="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 text-left"><CalendarDays className="w-4 h-4 text-violet-600"/><strong className="block mt-2 text-xl text-slate-900 dark:text-slate-100">{nextMeetings.length}</strong><span className="text-[10px] text-slate-500">Meetings next 7 days</span></button>
+                <button type="button" onClick={() => onNavigate('crm-tasks')} className="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 text-left"><PackageCheck className="w-4 h-4 text-indigo-600"/><strong className="block mt-2 text-xl text-slate-900 dark:text-slate-100">{openFollowups.length}</strong><span className="text-[10px] text-slate-500">Open follow-ups</span></button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
