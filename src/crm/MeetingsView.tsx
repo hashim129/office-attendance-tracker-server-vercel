@@ -249,7 +249,7 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
             {m.decisionNote && <p className="text-xs text-slate-600 dark:text-slate-400 border-l-2 border-slate-300 dark:border-slate-700 pl-2">Admin note: {m.decisionNote}</p>}
           </div>
           <div className="flex flex-wrap gap-1.5 shrink-0">
-            {(m.status === 'scheduled' || m.status === 'pending_approval' || m.status === 'completed') && (isAdmin || m.createdBy === currentUser.id || m.requestedBy === currentUser.id || m.attendeeIds.includes(currentUser.id)) && <button className={btnGhost} onClick={() => { setUpdateFor(m); setUpdateText(''); setUpdateError(''); }}>Add update</button>}
+            {(isAdmin || m.createdBy === currentUser.id || m.requestedBy === currentUser.id || m.attendeeIds.includes(currentUser.id)) && <button className={btnGhost} onClick={() => { setUpdateFor(m); setUpdateText(''); setUpdateError(''); }}>Add update</button>}
             {(m.status === 'scheduled' || m.status === 'pending_approval' || m.status === 'completed') && (
               <AddToCalendar event={{ title: `CEO meeting: ${m.title}`, startIso: m.startAt, endIso: m.endAt, location: m.location, description: [m.notes, who.length ? `With: ${who.join(', ')}` : ''].filter(Boolean).join('\n') }} />
             )}
