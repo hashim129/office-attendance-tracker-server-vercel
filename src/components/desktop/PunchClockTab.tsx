@@ -23,6 +23,7 @@ import {
   Search,
   Sparkles,
 } from 'lucide-react';
+import { EmployeeAvatar } from '../common/EmployeeIdentity';
 import {
   AttendanceRecord,
   CeoComment,
@@ -405,7 +406,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
       {/* Friendly greeting */}
       <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-lg sm:text-xl font-bold leading-tight">{greetingWord}, {firstName}!</h2>
+          <div className="flex items-center gap-2">{settings.employeeUniverseBetaEnabled === true && currentUser.gameCharacterId && <EmployeeAvatar characterId={currentUser.gameCharacterId} petId={currentUser.gamePetId} name={currentUser.name} size="sm" />}<h2 className="text-lg sm:text-xl font-bold leading-tight">{greetingWord}, {firstName}!</h2></div>
           <p className="text-xs sm:text-sm text-blue-100 mt-0.5">{greetingLine}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
