@@ -218,9 +218,6 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
   const amountLabel = (currency: string, amount: number) => `${currency} ${money(amount)}`;
 
   return (
-    <div className={`space-y-5  };
-
-  return (
     <div className={`space-y-5 ${redesignedUiBetaEnabled ? "live-dashboard-beta" : ""}`}>
       <div data-dashboard-header className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 p-4 sm:p-5 shadow-xs">
         <div>
