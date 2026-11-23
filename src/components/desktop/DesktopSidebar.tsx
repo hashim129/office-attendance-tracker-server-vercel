@@ -38,6 +38,7 @@ interface DesktopSidebarProps {
   onCloseMobile?: () => void;
   crmEnabled?: boolean;
   crmBadges?: CrmBadges;
+  redesignedUiBetaEnabled?: boolean;
 }
 
 const NAV_GRADIENTS: [string, string][] = [
@@ -55,6 +56,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   onCloseMobile,
   crmEnabled = false,
   crmBadges,
+  redesignedUiBetaEnabled = false,
 }) => {
   const isAdmin = currentUser.role === 'admin';
   const isCeo = currentUser.role === 'ceo';
@@ -100,9 +102,10 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex flex-col justify-start transition-transform duration-300 ease-in-out ${isMobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'} md:static md:translate-x-0 md:flex md:flex-col md:justify-start w-64 bg-slate-50/95 md:bg-slate-50/70 dark:bg-slate-900/95 md:dark:bg-slate-900/60 border-r border-slate-200 dark:border-slate-800 shrink-0 select-none`}
       >
-      <div className="md:hidden flex justify-end px-3 py-2">
-        {onCloseMobile && <button type="button" onClick={onCloseMobile} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" aria-label="Close Menu"><X className="w-4 h-4" /></button>}
-      </div>
+      {!redesignedUiBetaEnabled ? <div className="shrink-0 px-4 py-3 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3 min-w-0"><div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-xs shrink-0"><Building2 className="w-5 h-5" /></div><div className="min-w-0"><h1 className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">{settings.companyName}</h1><p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">Office Attendance Hub</p></div></div>
+        {onCloseMobile && <button type="button" onClick={onCloseMobile} className="md:hidden p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer" aria-label="Close Menu"><X className="w-4 h-4" /></button>}
+      </div> : <div className="md:hidden flex justify-end px-3 py-2">{onCloseMobile && <button type="button" onClick={onCloseMobile} className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" aria-label="Close Menu"><X className="w-4 h-4" /></button>}</div>}
 
       {/* Nav List */}
       <div ref={navRef} className="nav-scope relative flex-1 pt-2 pb-3 px-3 space-y-1 overflow-y-auto" onClick={(e) => {
@@ -128,7 +131,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               }`}
             >
               <Clock className="w-4 h-4 shrink-0" />
-              <span>Live Dashboard &amp; Punch Clock</span>
+              <span>{redesignedUiBetaEnabled ? 'Live Dashboard & Punch Clock' : 'Punch Clock'}</span>
             </button>
 
             <button
@@ -176,6 +179,11 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               )}
             </button>
 
+            {(!redesignedUiBetaEnabled && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess)) && (
+              <button onClick={() => onSelectTab('live-dashboard')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${activeTab === 'live-dashboard' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'}`}>
+                <Gauge className="w-4 h-4 shrink-0" /><span>Live Dashboard</span>
+              </button>
+            )}
 
           </div>
         </div>
