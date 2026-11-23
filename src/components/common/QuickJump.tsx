@@ -27,7 +27,7 @@ export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, o
     const list: Page[] = [
       { tab: 'clock', label: 'Punch Clock', hint: 'Time in, breaks, time out' },
       { tab: 'my-attendance', label: 'My Attendance & Stats', hint: 'Your hours and history' },
-      { tab: 'team-attendance', label: 'Team Presence', hint: 'Who is online, offline or absent' },
+      ...(['admin', 'ceo'].includes(currentUser.role) || currentUser.teamAttendanceAccess ? [{ tab: 'team-attendance' as const, label: 'Team Presence', hint: 'Read-only team attendance and presence' }] : []),
       { tab: 'leaves', label: 'Leave Requests', hint: 'Apply for or review leave' },
       ...(['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess ? [{ tab: 'live-dashboard' as const, label: 'Live Dashboard', hint: 'Who is in today, sales and payables' }] : []),
     ];
@@ -61,7 +61,7 @@ export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, o
       );
     }
     return list;
-  }, [currentUser.role, currentUser.salesAccess, currentUser.liveDashboardAccess, crmEnabled]);
+  }, [currentUser.role, currentUser.salesAccess, currentUser.liveDashboardAccess, currentUser.teamAttendanceAccess, crmEnabled]);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
