@@ -208,6 +208,7 @@ export interface OfficeSettings {
   disconnectThresholdMinutes?: number; // Minutes without heartbeat before marking "No Internet" (default 3)
   customerPortalBetaEnabled?: boolean; // Beta toggle for public /customers portal & invoice Visa tracking (default false)
   redesignedUiBetaEnabled?: boolean; // Admin-approved, reversible redesigned workspace rollout (default false)
+  headerBetaEnabled?: boolean; // Independent administrator-controlled top header redesign (default false)
   settingsUpdatedAt?: string;
 }
 
