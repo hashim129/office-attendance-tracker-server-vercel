@@ -2,7 +2,7 @@
 // Self-contained: only reads the employees table and its own crm_* tables.
 // Every call needs the signed-in person's token; what they may do is decided here from the database, never from the browser.
 import crypto from 'node:crypto';
-import { isSupabaseConfigured, supabaseFetch, sweepShiftReminders } from './_supabase.js';
+import { confirmOpenWork, isSupabaseConfigured, supabaseFetch, sweepShiftReminders } from './_supabase.js';
 import { format12h, getShiftEndWindowMs } from './_cloud.js';
 import { getSessionEmployee } from './_session.js';
 
@@ -789,19 +789,10 @@ export default async function handler(req, res) {
 
     // Employee answers "Are you still working online?" - postpones the automatic punch-out
     if (action === 'work_confirm') {
-      const since = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
-      const open = await supabaseFetch(`/attendance?employee_id=eq.${encodeURIComponent(me.id)}&time_out=is.null&time_in=not.is.null&date=gte.${since}&select=id&order=date.desc&limit=1`);
-      if (!Array.isArray(open) || !open[0]) throw bad('You are not punched in right now.');
       const at = nowIso();
-      const updated = await supabaseFetch(
-        `/attendance?id=eq.${encodeURIComponent(open[0].id)}&time_out=is.null&select=id,work_confirmed_at`,
-        {
-          method: 'PATCH',
-          headers: { Prefer: 'return=representation' },
-          body: JSON.stringify({ work_confirmed_at: at, record_updated_at: at }),
-        }
-      );
-      if (!Array.isArray(updated) || !updated[0]?.work_confirmed_at) {
+      const updated = await confirmOpenWork(me.id, at);
+      if (!updated.length) throw bad('You are not punched in right now.');
+      if (!updated.every((r) => r.work_confirmed_at)) {
         throw new HttpError(409, 'Your attendance record changed before confirmation. Refresh your attendance and try again.', 'WORK_CONFIRM_NOT_SAVED');
       }
       // Saving the confirmation is the critical operation. Clearing reminder badges is

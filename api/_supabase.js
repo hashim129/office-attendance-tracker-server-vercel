@@ -546,6 +546,20 @@ export async function sweepAutoClose(evaluate) {
   }
 }
 
+/**
+ * "Yes, I'm working": extends EVERY punch the employee still has open (an overnight session can sit on
+ * yesterday's record while a new one exists for today), so the reminder that was asked about is the one extended.
+ * Returns the updated rows.
+ */
+export async function confirmOpenWork(employeeId, at) {
+  const since = new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10);
+  const updated = await supabaseFetch(
+    `/attendance?employee_id=eq.${encodeURIComponent(employeeId)}&time_out=is.null&time_in=not.is.null&date=gte.${since}&select=id,work_confirmed_at`,
+    { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ work_confirmed_at: at, record_updated_at: at }) }
+  );
+  return Array.isArray(updated) ? updated : [];
+}
+
 let lastReminderSweepAt = 0;
 const REMIND_BEFORE_MS = 15 * 60 * 1000;
 const ASK_WINDOW_MS = 30 * 60 * 1000;

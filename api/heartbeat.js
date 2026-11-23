@@ -1,5 +1,5 @@
 import { format12h, getOfficeDateTimeParts, getShiftEndWindowMs, setNoCacheHeaders } from './_cloud.js';
-import { isSupabaseConfigured, supabaseFetch, sweepAutoClose, sweepShiftReminders } from './_supabase.js';
+import { confirmOpenWork, isSupabaseConfigured, supabaseFetch, sweepAutoClose, sweepShiftReminders } from './_supabase.js';
 import { evaluateAttendancePresenceAndAutoClose } from './_cloud.js';
 import { getEmployeeRow, verifyAutoToken } from './_auth.js';
 import { getSessionEmployee } from './_session.js';
@@ -59,6 +59,17 @@ export default async function handler(req, res) {
     );
     const rec = Array.isArray(rows) ? rows[0] : null;
     const nowIso = new Date().toISOString();
+
+    // "Yes, I'm working" from the Windows agent: extend every open punch (an overnight session may still be on yesterday's record)
+    if (confirmWork === true && closing !== true) {
+      const confirmed = await confirmOpenWork(e.id, nowIso);
+      if (confirmed.length) {
+        const pendingAsks = await supabaseFetch(`/crm_notifications?employee_id=eq.${encodeURIComponent(e.id)}&category=eq.reminder&read_at=is.null&select=*`);
+        const mine = (Array.isArray(pendingAsks) ? pendingAsks : []).filter((n) => /-(end|ask-\d+-\d+)$/.test(String(n.id)));
+        if (mine.length) await supabaseFetch('/crm_notifications?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify(mine.map((n) => ({ ...n, read_at: nowIso }))) });
+        if (!rec || !rec.time_in || rec.time_out) return res.status(200).json({ ok: true, state: 'active', active: true, askWorking: false, confirmedWork: true, timestamp: nowIso });
+      }
+    }
 
     if (!rec || !rec.time_in) {
       return res.status(200).json({ ok: true, active: true, state: 'no_punch', timestamp: nowIso });
