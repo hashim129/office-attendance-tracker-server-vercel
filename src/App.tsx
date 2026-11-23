@@ -1032,7 +1032,7 @@ export default function App() {
   return (
     <div
       id="windows-window-frame"
-      className={`${settings.redesignedUiBetaEnabled ? 'min-h-screen' : 'min-h-[calc(100vh-2.5rem)]'} bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-all duration-200"
+      className={`${settings.redesignedUiBetaEnabled ? 'min-h-screen' : 'min-h-[calc(100vh-2.5rem)]'} bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-all duration-200`}
     >
       {!settings.redesignedUiBetaEnabled && <WindowsTitleBar isDark={isDark} onToggleTheme={handleToggleTheme} serverHost={settings.serverHostName} serverPort={settings.serverPort} />}
       {/* Screen Mode Render */}
