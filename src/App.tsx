@@ -1074,7 +1074,7 @@ export default function App() {
           isSyncing={isInitialCloudSyncing}
         />
       ) : (
-        <div className={`app-reveal flex-1 flex flex-col ${betaEnabled ? 'min-h-screen workforce-redesign-beta' : 'min-h-[calc(100vh-2.5rem)]'} min-w-0 w-full overflow-x-clip`}>
+        <div className={`app-reveal flex-1 flex flex-col ${betaEnabled && activeTab !== 'clock' ? 'min-h-screen workforce-redesign-beta' : 'min-h-[calc(100vh-2.5rem)]'} min-w-0 w-full overflow-x-clip`}>
           {/* Header */}
           <DesktopHeader
             currentUser={currentUser}
@@ -1177,6 +1177,7 @@ export default function App() {
                   leaves={leaves}
                   crm={crm}
                   onNavigate={setActiveTab}
+                  redesignedUiBetaEnabled={betaEnabled}
                 />
               )}
 
