@@ -747,3 +747,42 @@ button:not(:disabled):active { transform: scale(0.97); }
   .pc-ring, .pc-tick { animation-duration: .01s !important; animation-delay: 0s !important; }
   .pc-bits { display: none; }
 }
+
+
+/* Live Dashboard beta refresh — intentionally scoped away from Punch Clock. */
+.workforce-redesign-beta main .live-dashboard-beta [data-dashboard-header] {
+  border-color: rgba(148, 163, 184, .24);
+  background:
+    radial-gradient(ellipse at 92% 0%, rgba(59, 130, 246, .12), transparent 36%),
+    linear-gradient(135deg, rgba(255,255,255,.96), rgba(239,246,255,.82));
+  box-shadow: 0 14px 34px -28px rgba(15, 23, 42, .45), inset 0 1px 0 rgba(255,255,255,.9);
+}
+.dark .workforce-redesign-beta main .live-dashboard-beta [data-dashboard-header] {
+  background:
+    radial-gradient(ellipse at 92% 0%, rgba(59, 130, 246, .16), transparent 36%),
+    linear-gradient(135deg, rgba(15,23,42,.96), rgba(17,28,49,.88));
+  box-shadow: 0 14px 34px -28px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.workforce-redesign-beta main .live-dashboard-beta > .grid.grid-cols-2 > div {
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.workforce-redesign-beta main .live-dashboard-beta > .grid.grid-cols-2 > div:hover {
+  transform: translateY(-2px);
+  border-color: rgba(59,130,246,.32);
+  box-shadow: 0 14px 30px -24px rgba(37,99,235,.38);
+}
+.workforce-redesign-beta main .live-dashboard-beta section {
+  box-shadow: 0 12px 32px -28px rgba(15,23,42,.42), inset 0 1px 0 rgba(255,255,255,.75);
+}
+.dark .workforce-redesign-beta main .live-dashboard-beta section {
+  box-shadow: 0 12px 32px -28px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.025);
+}
+.workforce-redesign-beta main .live-dashboard-beta button {
+  transition: background-color .16s ease, border-color .16s ease, transform .16s ease;
+}
+.workforce-redesign-beta main .live-dashboard-beta button:active {
+  transform: translateY(1px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .workforce-redesign-beta main .live-dashboard-beta * { transition-duration: .01ms !important; }
+}
