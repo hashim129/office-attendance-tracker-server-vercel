@@ -105,7 +105,7 @@ export default function App() {
   const [ceoComments, setCeoComments] = useState<CeoComment[]>([]);
   const [settings, setSettings] = useState<OfficeSettings>(loadSettings());
   const [previewBetaEnabled, setPreviewBetaEnabled] = useState<boolean>(() => IS_VERCEL_PREVIEW && localStorage.getItem('office_preview_redesign_beta') === 'true');
-  const betaEnabled = IS_VERCEL_PREVIEW ? previewBetaEnabled : settings.redesignedUiBetaEnabled !== false;
+  const betaEnabled = IS_VERCEL_PREVIEW ? previewBetaEnabled : settings.redesignedUiBetaEnabled === true;
   const handlePreviewBetaChange = (enabled: boolean) => {
     setPreviewBetaEnabled(enabled);
     localStorage.setItem('office_preview_redesign_beta', enabled ? 'true' : 'false');
@@ -1127,18 +1127,6 @@ export default function App() {
                   <Suspense fallback={<TabLoader />}>
                 {activeTab === 'clock' && (
                 <>
-                {betaEnabled && currentUser && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
-                  <LiveDashboardTab
-                    currentUser={currentUser}
-                    employees={statEmployees}
-                    records={records}
-                    shifts={shifts}
-                    leaves={leaves}
-                    crm={crm}
-                    onNavigate={setActiveTab}
-                    redesignedUiBetaEnabled={settings.redesignedUiBetaEnabled}
-                  />
-                )}
                 <PunchClockTab
                   onRecheckNetwork={handleRecheckNetwork}
                   currentUser={currentUser}
