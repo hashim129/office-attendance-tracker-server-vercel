@@ -442,7 +442,7 @@ const mapInvoice = (r, visaProgress = null) => ({
   taxLabel: r.tax_label || 'Tax', taxRate: num(r.tax_rate), discount: num(r.discount), advancePaid: num(r.advance_paid),
   subtotal: num(r.subtotal), taxAmount: num(r.tax_amount), total: num(r.total), balance: num(r.balance), notes: r.notes || '',
   vendors: asArray(r.vendors), ntn: r.ntn === null || r.ntn === undefined ? null : String(r.ntn), showNtn: r.show_ntn !== false,
-  status: r.status, paymentReceived: Boolean(r.payment_received), paymentReceivedAt: r.payment_received_at || null, paymentReceivedBy: r.payment_received_by || null, paymentReceivedAuto: Boolean(r.payment_received_auto), travelers: asArray(r.travelers), vendorStatus: r.vendor_status === 'paid' ? 'paid' : 'unpaid', vendorPaidAt: r.vendor_paid_at || null, vendorPaidBy: r.vendor_paid_by || null,
+  status: r.status, paymentReceived: Boolean(r.payment_received), paymentReceivedAt: r.payment_received_at || null, paymentReceivedBy: r.payment_received_by || null, paymentReceivedAuto: Boolean(r.payment_received_auto), travelers: asArray(r.travelers), vendorPosted: Boolean(r.vendor_posted), vendorPostedAt: r.vendor_posted_at || null, vendorPostedBy: r.vendor_posted_by || null, vendorStatus: r.vendor_status === 'paid' ? 'paid' : 'unpaid', vendorPaidAt: r.vendor_paid_at || null, vendorPaidBy: r.vendor_paid_by || null,
   cancelRemarks: r.cancel_remarks || '', cancelledBy: r.cancelled_by || null, cancelledAt: r.cancelled_at || null,
   visaProgress: r.kind === 'vendor' ? null : (visaProgress || null), createdAt: r.created_at, updatedAt: r.updated_at,
 });
@@ -463,7 +463,7 @@ const mapSale = (r) => ({
 const mapMeeting = (r) => ({
   id: r.id, title: r.title, customerId: r.customer_id || null, externalName: r.external_name || '', attendeeIds: asArray(r.attendee_ids),
   startAt: r.start_at, endAt: r.end_at, location: r.location || '', notes: r.notes || '', status: r.status,
-  requestedBy: r.requested_by || null, decidedBy: r.decided_by || null, decisionNote: r.decision_note || '',
+  requestedBy: r.requested_by || null, decidedBy: r.decided_by || null, decisionNote: r.decision_note || '', noteLog: asArray(r.note_log),
   createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
@@ -980,6 +980,20 @@ export default async function handler(req, res) {
       const clashes = (await findCeoOverlaps(Date.parse(row.start_at), Date.parse(row.end_at), { exceptMeetingId: row.id })).filter((c) => !String(c.title).startsWith('CEO meeting'));
       await notifyOverlap(row.id, `CEO meeting "${row.title}"`, Date.parse(row.start_at), clashes, null);
     };
+
+    if (action === 'meeting_note_add') {
+      const existing = await getOne('crm_meetings', body.id);
+      if (!existing) throw notFound('Meeting not found.');
+      if (!(isAdmin || existing.created_by === me.id || existing.requested_by === me.id || asArray(existing.attendee_ids).includes(me.id))) {
+        throw forbidden('Only meeting participants can add updates.');
+      }
+      const note = str(body.text, 4000, { required: true, name: 'Meeting update' });
+      const noteLog = [...asArray(existing.note_log), { id: id('mnote'), at: nowIso(), by: me.id, text: note }];
+      const row = { ...existing, note_log: noteLog, updated_at: nowIso() };
+      await upsert('crm_meetings', row);
+      await notify([...new Set([existing.created_by, existing.requested_by, ...asArray(existing.attendee_ids)].filter(Boolean).filter((x) => x !== me.id))], 'meeting', row.id, `New meeting update added to: ${row.title}.`, me.id);
+      return res.status(200).json({ ok: true, meeting: mapMeeting(row) });
+    }
 
     if (action === 'meeting_save') {
       if (!isAdmin) throw forbidden('Only an administrator can set up CEO meetings. You can request a slot instead.');
@@ -1701,6 +1715,19 @@ export default async function handler(req, res) {
       const row = { ...existing, vendor_status: status, vendor_paid_at: status === 'paid' ? at : null, vendor_paid_by: status === 'paid' ? me.id : null, updated_at: at };
       await upsert('crm_invoices', row);
       if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Vendor side of invoice ${existing.invoice_no} was marked ${status.toUpperCase()}.`, me.id);
+      return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
+    }
+
+    if (action === 'invoice_vendor_posted') {
+      const existing = await getOne('crm_invoices', body.id);
+      if (!existing) throw notFound('Vendor payable not found.');
+      if (existing.kind !== 'vendor') throw bad('Posting is only available for vendor payable records.');
+      if (!(isAdmin || me.role === 'accounts')) throw forbidden('Only Accounts or Admin can post a vendor payable.');
+      const posted = body.posted !== false;
+      const at = nowIso();
+      const row = { ...existing, vendor_posted: posted, vendor_posted_at: posted ? at : null, vendor_posted_by: posted ? me.id : null, updated_at: at };
+      await upsert('crm_invoices', row);
+      await notify([existing.created_by, ...(await salesStaffIds())], 'invoice', row.id, `Vendor payable ${row.invoice_no} was ${posted ? 'posted' : 'unposted'} by ${me.name || 'Accounts'}.`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
 
