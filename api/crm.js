@@ -1676,7 +1676,7 @@ export default async function handler(req, res) {
       const status = String(body.status || '');
       if (!['unpaid', 'paid', 'cancelled'].includes(status)) throw bad('Choose Unpaid, Paid or Cancelled.');
       const staff = isAdmin || me.role === 'accounts';
-      if (me.role === 'accounts' && !isAdmin && status !== 'paid') throw forbidden('Accounts Officer can only mark an invoice as received or reverse that receipt.');
+      if (me.role === 'accounts' && !isAdmin && status !== 'paid') throw forbidden('Accounts Officer can only mark an invoice as received.');
       if (!staff && !(existing.created_by === me.id && status === 'cancelled' && existing.status === 'unpaid')) throw forbidden('Only Accounts or Admin can change the invoice status.');
       const at = nowIso();
       const markReceived = status === 'paid';
