@@ -412,7 +412,7 @@ const mapCustomer = (r) => ({
   sharedWith: cleanSharedIds(r.shared_with), createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const mapFollowup = (r) => ({
-  id: r.id, customerId: r.customer_id || null, participantIds: asArray(r.participant_ids), kind: r.kind, assignedTo: r.assigned_to, remarks: r.remarks || '', dueAt: r.due_at,
+  id: r.id, customerId: r.customer_id || null, participantIds: asArray(r.participant_ids), kind: r.kind, subject: r.subject || '', assignedTo: r.assigned_to, remarks: r.remarks || '', dueAt: r.due_at,
   status: r.status, outcomeRemarks: r.outcome_remarks || '', history: asArray(r.history), createdBy: r.created_by,
   createdAt: r.created_at, updatedAt: r.updated_at, completedAt: r.completed_at, remarkLog: asArray(r.remark_log),
 });
@@ -897,7 +897,7 @@ export default async function handler(req, res) {
       for (const p of participantIds) if (!staff.some((e) => e.id === p)) throw bad('One of the extra employees was not found or is no longer active.');
       const fields = {
         customer_id: customer ? customer.id : null, kind, assigned_to: String(f.assignedTo), participant_ids: participantIds,
-        remarks: str(f.remarks, 4000, { name: 'Remarks' }), due_at: isoOrNull(f.dueAt, 'Due date'), updated_at: nowIso(),
+        subject: str(f.subject, 180, { name: 'Subject' }), remarks: str(f.remarks, 4000, { name: 'Remarks' }), due_at: isoOrNull(f.dueAt, 'Due date'), updated_at: nowIso(),
       };
       if (!customer && !fields.remarks) throw bad('Without a customer, please type the follow-up remarks so it can be identified.');
       const label = KIND_LABEL[kind];
