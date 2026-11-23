@@ -1113,6 +1113,25 @@ export default function App() {
                 <ErrorBoundary>
                   <Suspense fallback={<TabLoader />}>
                 {activeTab === 'clock' && (
+                <>
+                <section className="mb-4 grid grid-cols-1 xl:grid-cols-3 gap-3" aria-label="Live workspace dashboard">
+                  <div className="rounded-2xl border border-amber-200/80 dark:border-amber-900/50 bg-white/85 dark:bg-slate-900/70 p-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-2 mb-2"><h3 className="text-xs font-bold text-slate-800 dark:text-slate-100">Unpaid vendor bills</h3><button type="button" onClick={() => setActiveTab('crm-invoices')} className="text-[11px] font-semibold text-blue-600 hover:underline">View payables</button></div>
+                    {crm.data.invoices.filter((i) => i.kind === 'vendor' && i.status !== 'paid' && i.status !== 'cancelled').slice(0, 3).map((i) => <button type="button" key={i.id} onClick={() => setActiveTab('crm-invoices')} className="w-full flex items-center justify-between gap-2 py-2 border-t border-slate-100 dark:border-slate-800 text-left"><span className="min-w-0"><span className="block text-xs font-semibold truncate text-slate-800 dark:text-slate-100">{i.customerName}</span><span className="block text-[10px] text-slate-500">{i.invoiceNo} · {i.dueDate || 'No due date'}</span></span><span className="shrink-0 text-xs font-bold text-amber-700 dark:text-amber-300">{i.currency} {i.balance.toLocaleString()}</span></button>)}
+                    {crm.data.invoices.every((i) => i.kind !== 'vendor' || i.status === 'paid' || i.status === 'cancelled') && <p className="text-[11px] text-slate-500 py-3">No unpaid vendor bills recorded.</p>}
+                  </div>
+                  <div className="rounded-2xl border border-blue-200/80 dark:border-blue-900/50 bg-white/85 dark:bg-slate-900/70 p-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-2 mb-2"><h3 className="text-xs font-bold text-slate-800 dark:text-slate-100">Upcoming tasks</h3><button type="button" onClick={() => setActiveTab('crm-tasks')} className="text-[11px] font-semibold text-blue-600 hover:underline">Open follow-ups</button></div>
+                    {crm.data.followups.filter((f) => (f.status === 'pending' || f.status === 'rescheduled') && f.dueAt).sort((a,b) => String(a.dueAt).localeCompare(String(b.dueAt))).slice(0, 3).map((f) => <button type="button" key={f.id} onClick={() => setActiveTab('crm-tasks')} className="w-full flex items-center justify-between gap-2 py-2 border-t border-slate-100 dark:border-slate-800 text-left"><span className="min-w-0"><span className="block text-xs font-semibold truncate text-slate-800 dark:text-slate-100">{f.subject || f.remarks || (f.kind === 'internal' ? 'Internal follow-up' : 'Follow-up')}</span><span className="block text-[10px] text-slate-500">{employees.find((e) => e.id === f.assignedTo)?.name || 'Assigned employee'}</span></span><span className="shrink-0 text-[10px] font-semibold text-blue-700 dark:text-blue-300">{new Date(f.dueAt!).toLocaleString()}</span></button>)}
+                    {crm.data.followups.every((f) => (f.status !== 'pending' && f.status !== 'rescheduled') || !f.dueAt) && <p className="text-[11px] text-slate-500 py-3">No upcoming follow-ups.</p>}
+                  </div>
+                  <div className="rounded-2xl border border-rose-200/80 dark:border-rose-900/50 bg-white/85 dark:bg-slate-900/70 p-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-2 mb-2"><h3 className="text-xs font-bold text-slate-800 dark:text-slate-100">Required action</h3><span className="text-[10px] font-bold text-rose-600 dark:text-rose-300">{crm.data.meetings.filter((m) => m.status === 'pending_approval').length + crm.data.followups.filter((f) => f.status === 'not_completed').length} items</span></div>
+                    {crm.data.meetings.filter((m) => m.status === 'pending_approval').slice(0, 2).map((m) => <button key={m.id} type="button" onClick={() => setActiveTab('crm-meetings')} className="w-full text-left py-2 border-t border-slate-100 dark:border-slate-800"><span className="block text-xs font-semibold text-slate-800 dark:text-slate-100">{m.title}</span><span className="block text-[10px] text-slate-500">Meeting awaiting approval · {new Date(m.startAt).toLocaleString()}</span></button>)}
+                    {crm.data.followups.filter((f) => f.status === 'not_completed').slice(0, 2).map((f) => <button key={f.id} type="button" onClick={() => setActiveTab('crm-tasks')} className="w-full text-left py-2 border-t border-slate-100 dark:border-slate-800"><span className="block text-xs font-semibold text-slate-800 dark:text-slate-100">{f.subject || f.remarks || 'Follow-up needs attention'}</span><span className="block text-[10px] text-slate-500">Not completed · Update status</span></button>)}
+                    {crm.data.meetings.every((m) => m.status !== 'pending_approval') && crm.data.followups.every((f) => f.status !== 'not_completed') && <p className="text-[11px] text-slate-500 py-3">No pending actions. You’re up to date.</p>}
+                  </div>
+                </section>
                 <PunchClockTab
                   onRecheckNetwork={handleRecheckNetwork}
                   currentUser={currentUser}
@@ -1133,6 +1152,7 @@ export default function App() {
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                 />
+                </>
               )}
 
               {activeTab === 'my-attendance' && (
