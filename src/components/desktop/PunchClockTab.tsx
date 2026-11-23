@@ -423,6 +423,111 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
         </div>
       </div>
 
+      <MomentCards employees={allEmployees.length ? allEmployees : [currentUser]} currentUserId={currentUser.id} todayStr={todayStr} />
+      {celebrate && (
+        <PunchCelebration
+          name={firstName}
+          late={celebrate.late}
+          streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr) + (todayRecord?.timeIn ? 0 : 1)}
+          timeLabel={celebrate.timeLabel}
+          onDone={() => setCelebrate(null)}
+        />
+      )}
+
+      {/* Unread Executive Directives Banner */}
+      {myDirectives.length > 0 && (
+        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold text-xs">
+              <Crown className="w-4 h-4 text-amber-600" />
+              <span>Executive Directives & Mentions ({myDirectives.length})</span>
+            </div>
+            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium uppercase tracking-wider">
+              Immediate Action
+            </span>
+          </div>
+          <div className="space-y-2">
+            {myDirectives.map((comment) => (
+              <div
+                key={comment.id}
+                className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 flex items-start justify-between gap-3 shadow-2xs"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                      {comment.fromName} ({comment.fromRole.toUpperCase()})
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    "{comment.message}"
+                  </p>
+                </div>
+                {onMarkCeoCommentRead && (
+                  <button
+                    onClick={() => onMarkCeoCommentRead(comment.id)}
+                    className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 text-xs font-bold transition-colors cursor-pointer"
+                    title="Acknowledge directive"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Acknowledge</span>
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Top Banner: Welcome & Live Windows Clock */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-100/90 dark:bg-emerald-950/80 border-2 border-emerald-400 dark:border-emerald-600 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs font-black text-emerald-900 dark:text-emerald-200">
+              {formattedDate}
+            </span>
+            <span className="text-emerald-500 font-bold">•</span>
+            <span className="text-xs font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">
+              {dayName}
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
+            Welcome back, {currentUser.name}
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Assigned Shift: <strong className="text-slate-700 dark:text-slate-300">{userShift.name}</strong>
+            {userShift.isNoRestriction ? (
+              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                24/7 Flexible · No Shift Restriction
+              </span>
+            ) : (
+              <span> ({formatTime12h(userShift.startTime)} – {formatTime12h(userShift.endTime)}) · {userShift.graceMinutes}m grace period</span>
+            )}
+          </p>
+          {isAdminUser && currentUser.allowWorkFromHome && (
+            <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700/70 text-emerald-800 dark:text-emerald-200 text-xs font-semibold shadow-2xs">
+              <Home className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>{isRemoteWfhPunch ? 'Work From Home shift · Reason note required' : 'Work From Home allowed · counted separately when you are off the office network'}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Big Live Digital Clock Display */}
+        <div className="bg-slate-950 text-white dark:bg-black rounded-xl px-6 py-4 border border-slate-800 shadow-inner flex flex-col items-center">
+          <span className="text-[10px] font-mono tracking-widest text-slate-400 uppercase">
+            Office Server Time
+          </span>
+          <div className="text-3xl sm:text-4xl font-mono font-bold tracking-wider text-blue-400 mt-0.5 tabular-nums">
+            {formattedDigitalClock}
+          </div>
+          <span className="text-[11px] text-emerald-400 font-bold mt-1 tracking-wide">
+            {dayName} · Live Sync
+          </span>
+        </div>
+      </div>
 
       {/* Main Punch Interaction Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 items-start">
@@ -883,113 +988,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
               <span className="font-medium text-blue-600 dark:text-blue-400">1 Punch Cycle / Day</span>
             </div>
           </div>
-        </div>
-      </div>
-
-
-      <MomentCards employees={allEmployees.length ? allEmployees : [currentUser]} currentUserId={currentUser.id} todayStr={todayStr} />
-      {celebrate && (
-        <PunchCelebration
-          name={firstName}
-          late={celebrate.late}
-          streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr) + (todayRecord?.timeIn ? 0 : 1)}
-          timeLabel={celebrate.timeLabel}
-          onDone={() => setCelebrate(null)}
-        />
-      )}
-
-      {/* Unread Executive Directives Banner */}
-      {myDirectives.length > 0 && (
-        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold text-xs">
-              <Crown className="w-4 h-4 text-amber-600" />
-              <span>Executive Directives & Mentions ({myDirectives.length})</span>
-            </div>
-            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium uppercase tracking-wider">
-              Immediate Action
-            </span>
-          </div>
-          <div className="space-y-2">
-            {myDirectives.map((comment) => (
-              <div
-                key={comment.id}
-                className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 flex items-start justify-between gap-3 shadow-2xs"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                      {comment.fromName} ({comment.fromRole.toUpperCase()})
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">
-                    "{comment.message}"
-                  </p>
-                </div>
-                {onMarkCeoCommentRead && (
-                  <button
-                    onClick={() => onMarkCeoCommentRead(comment.id)}
-                    className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 text-xs font-bold transition-colors cursor-pointer"
-                    title="Acknowledge directive"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Acknowledge</span>
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Top Banner: Welcome & Live Windows Clock */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-100/90 dark:bg-emerald-950/80 border-2 border-emerald-400 dark:border-emerald-600 shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-black text-emerald-900 dark:text-emerald-200">
-              {formattedDate}
-            </span>
-            <span className="text-emerald-500 font-bold">•</span>
-            <span className="text-xs font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">
-              {dayName}
-            </span>
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-            Welcome back, {currentUser.name}
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Assigned Shift: <strong className="text-slate-700 dark:text-slate-300">{userShift.name}</strong>
-            {userShift.isNoRestriction ? (
-              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                24/7 Flexible · No Shift Restriction
-              </span>
-            ) : (
-              <span> ({formatTime12h(userShift.startTime)} – {formatTime12h(userShift.endTime)}) · {userShift.graceMinutes}m grace period</span>
-            )}
-          </p>
-          {isAdminUser && currentUser.allowWorkFromHome && (
-            <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700/70 text-emerald-800 dark:text-emerald-200 text-xs font-semibold shadow-2xs">
-              <Home className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>{isRemoteWfhPunch ? 'Work From Home shift · Reason note required' : 'Work From Home allowed · counted separately when you are off the office network'}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Big Live Digital Clock Display */}
-        <div className="bg-slate-950 text-white dark:bg-black rounded-xl px-6 py-4 border border-slate-800 shadow-inner flex flex-col items-center">
-          <span className="text-[10px] font-mono tracking-widest text-slate-400 uppercase">
-            Office Server Time
-          </span>
-          <div className="text-3xl sm:text-4xl font-mono font-bold tracking-wider text-blue-400 mt-0.5 tabular-nums">
-            {formattedDigitalClock}
-          </div>
-          <span className="text-[11px] text-emerald-400 font-bold mt-1 tracking-wide">
-            {dayName} · Live Sync
-          </span>
         </div>
       </div>
 
