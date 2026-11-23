@@ -1711,6 +1711,7 @@ export default async function handler(req, res) {
       const staff = isAdmin || me.role === 'accounts';
       if (me.role === 'accounts' && !isAdmin && status !== 'paid') throw forbidden('Accounts Officer can only mark an invoice as received.');
       if (!staff && !(existing.created_by === me.id && status === 'cancelled' && existing.status === 'unpaid')) throw forbidden('Only Accounts or Admin can change the invoice status.');
+      if (status === 'paid' && existing.status === 'cancelled') throw bad('A cancelled invoice cannot be marked as received.');
       const at = nowIso();
       const row = {
         ...existing, status, updated_at: at,
@@ -1753,6 +1754,7 @@ export default async function handler(req, res) {
       const existing = await getOne('crm_invoices', body.id);
       if (!existing) throw notFound('Vendor payable not found.');
       if (existing.kind !== 'vendor') throw bad('Posting is only available for vendor payable records.');
+      if (existing.status === 'cancelled') throw bad('A cancelled payable cannot be posted.');
       if (!(isAdmin || me.role === 'accounts')) throw forbidden('Only Accounts or Admin can post a vendor payable.');
       const posted = body.posted !== false;
       const at = nowIso();
