@@ -192,8 +192,8 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
+    <div className={`space-y-5 ${redesignedUiBetaEnabled ? "live-dashboard-beta" : ""}`}>
+      <div data-dashboard-header className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 p-4 sm:p-5 shadow-xs">
         <div>
           <h2 className="text-lg font-extrabold text-slate-900 dark:text-slate-100">Live Dashboard</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">Updated every 30 seconds. {now.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
@@ -388,35 +388,49 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
         </Card>
       )}
 
-      {redesignedUiBetaEnabled && <Card title="Upcoming tasks & required actions" icon={<CalendarClock className="w-4 h-4 text-blue-600" />} right={<span className="text-[11px] text-slate-400">Live CRM items</span>}>
-        {(() => {
-          const upcomingTasks = crm.data.followups
-            .filter((f) => (f.status === 'pending' || f.status === 'rescheduled') && f.dueAt)
-            .sort((a, b) => String(a.dueAt).localeCompare(String(b.dueAt)))
-            .slice(0, 5);
-          const requiredMeetings = isAdmin ? crm.data.meetings.filter((m) => m.status === 'pending_approval') : [];
-          const attentionTasks = crm.data.followups.filter((f) => f.status === 'not_completed');
-          const actionCount = requiredMeetings.length + attentionTasks.length;
-          return (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {(() => {
+        const upcomingTasks = crm.data.followups
+          .filter((f) => (f.status === 'pending' || f.status === 'rescheduled') && f.dueAt && new Date(f.dueAt).getTime() >= now.getTime())
+          .sort((a, b) => String(a.dueAt).localeCompare(String(b.dueAt)))
+          .slice(0, 6);
+        const overdueTasks = crm.data.followups.filter((f) =>
+          (f.status === 'pending' || f.status === 'rescheduled') && f.dueAt && new Date(f.dueAt).getTime() < now.getTime()
+        );
+        const requiredMeetings = isAdmin ? crm.data.meetings.filter((m) => m.status === 'pending_approval') : [];
+        const attentionTasks = crm.data.followups.filter((f) => f.status === 'not_completed');
+        const overduePayables = sortedPay.filter((p) => p.dueDate && p.dueDate < today);
+        const actionCount = pendingLeaves + requiredMeetings.length + attentionTasks.length + overdueTasks.length + overduePayables.length;
+        return (
+          <Card title="Upcoming tasks & required actions" icon={<CalendarClock className="w-4 h-4 text-blue-600" />} right={<span className="text-[11px] text-slate-400">Live · {actionCount} requiring attention</span>}>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2"><h4 className="text-xs font-bold text-slate-700 dark:text-slate-200">Upcoming tasks</h4><button type="button" onClick={() => onNavigate('crm-tasks')} className="text-[11px] font-semibold text-blue-600 hover:underline">Open follow-ups</button></div>
-                {upcomingTasks.length === 0 && <p className="text-xs text-slate-500 py-2">No upcoming follow-ups.</p>}
-                {upcomingTasks.map((f) => <button type="button" key={f.id} onClick={() => onNavigate('crm-tasks')} className="w-full text-left flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                <div className="flex items-center justify-between gap-2">
+                  <div><h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">Upcoming tasks</h4><p className="text-[10px] text-slate-500">Your next scheduled follow-ups</p></div>
+                  <button type="button" onClick={() => onNavigate('crm-tasks')} className="text-[11px] font-semibold text-blue-600 hover:underline">View all</button>
+                </div>
+                {upcomingTasks.length === 0 && <p className="text-xs text-slate-500 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 p-4">No upcoming follow-ups scheduled.</p>}
+                {upcomingTasks.map((f) => <button type="button" key={f.id} onClick={() => onNavigate('crm-tasks')} className="w-full text-left flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/30 px-3 py-2.5 hover:bg-blue-50/70 dark:hover:bg-blue-950/20 transition-colors">
                   <span className="min-w-0"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{f.subject || f.remarks || (f.kind === 'internal' ? 'Internal follow-up' : 'Follow-up')}</span><span className="block text-[10px] text-slate-500">{employees.find((e) => e.id === f.assignedTo)?.name || 'Assigned employee'}</span></span>
-                  <span className="text-[10px] font-semibold text-slate-500 shrink-0">{f.dueAt ? new Date(f.dueAt).toLocaleString() : ''}</span>
+                  <span className="text-[10px] font-semibold text-slate-500 shrink-0 text-right">{f.dueAt ? new Date(f.dueAt).toLocaleString() : ''}</span>
                 </button>)}
               </div>
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2"><h4 className="text-xs font-bold text-slate-700 dark:text-slate-200">Required action</h4><span className="text-[10px] font-bold text-rose-600 dark:text-rose-300">{actionCount} item{actionCount === 1 ? '' : 's'}</span></div>
-                {requiredMeetings.map((m) => <button key={m.id} type="button" onClick={() => onNavigate('crm-meetings')} className="w-full text-left rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{m.title}</span><span className="block text-[10px] text-slate-500">Meeting awaiting approval · {new Date(m.startAt).toLocaleString()}</span></button>)}
-                {attentionTasks.slice(0, 5).map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full text-left rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{f.subject || f.remarks || 'Follow-up needs attention'}</span><span className="block text-[10px] text-slate-500">Not completed · Update status</span></button>)}
-                {actionCount === 0 && <p className="text-xs text-slate-500 py-2">No pending actions. You’re up to date.</p>}
+                <div className="flex items-center justify-between gap-2">
+                  <div><h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">Pending / required actions</h4><p className="text-[10px] text-slate-500">Items that may need your attention</p></div>
+                  <span className={`text-[11px] font-extrabold rounded-full px-2.5 py-1 ${actionCount ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'}`}>{actionCount} open</span>
+                </div>
+                {pendingLeaves > 0 && <button type="button" onClick={() => onNavigate('leaves')} className="w-full text-left rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/20 px-3 py-2.5"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{pendingLeaves} leave request{pendingLeaves === 1 ? '' : 's'} awaiting review</span><span className="block text-[10px] text-slate-500">Open leave management</span></button>}
+                {requiredMeetings.map((m) => <button key={m.id} type="button" onClick={() => onNavigate('crm-meetings')} className="w-full text-left rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2.5"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{m.title}</span><span className="block text-[10px] text-slate-500">Meeting awaiting approval · {new Date(m.startAt).toLocaleString()}</span></button>)}
+                {overduePayables.slice(0, 4).map((p) => <button key={p.id} type="button" onClick={() => onNavigate('crm-purchases')} className="w-full text-left rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2.5"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{p.vendor} · {p.currency} {money(p.total)}</span><span className="block text-[10px] text-slate-500">Vendor bill overdue since {p.dueDate}</span></button>)}
+                {overdueTasks.slice(0, 4).map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full text-left rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2.5"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{f.subject || f.remarks || 'Follow-up'}</span><span className="block text-[10px] text-slate-500">Overdue follow-up · Update status</span></button>)}
+                {attentionTasks.slice(0, 4).map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full text-left rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2.5"><span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">{f.subject || f.remarks || 'Follow-up needs attention'}</span><span className="block text-[10px] text-slate-500">Not completed · Update status</span></button>)}
+                {actionCount === 0 && <p className="text-xs text-slate-500 rounded-xl border border-dashed border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/40 dark:bg-emerald-950/10 p-4">No pending actions. You’re up to date.</p>}
+                {(requiredMeetings.length + attentionTasks.length + overdueTasks.length + overduePayables.length) > 0 && <button type="button" onClick={() => onNavigate('crm-tasks')} className="pt-1 text-[11px] font-semibold text-blue-600 hover:underline">Open action workspace</button>}
               </div>
             </div>
-          );
-        })()}
-      </Card>}
+          </Card>
+        );
+      })()}
     </div>
   );
 };
