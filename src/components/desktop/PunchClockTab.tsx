@@ -402,137 +402,10 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
   return (
     <div className="w-full min-w-0 space-y-4 sm:space-y-5">
-      {/* Friendly greeting */}
-      <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg sm:text-xl font-bold leading-tight">{greetingWord}, {firstName}!</h2>
-          <p className="text-xs sm:text-sm text-blue-100 mt-0.5">{greetingLine}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
-          <StreakChip streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr)} />
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
-            <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
-            {coworkerCounts.in} online now
-          </span>
-          {coworkerCounts.offline > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
-              <span className="w-2 h-2 rounded-full bg-slate-300" />
-              {coworkerCounts.offline} offline
-            </span>
-          )}
-        </div>
-      </div>
-
-      <MomentCards employees={allEmployees.length ? allEmployees : [currentUser]} currentUserId={currentUser.id} todayStr={todayStr} />
-      {celebrate && (
-        <PunchCelebration
-          name={firstName}
-          late={celebrate.late}
-          streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr) + (todayRecord?.timeIn ? 0 : 1)}
-          timeLabel={celebrate.timeLabel}
-          onDone={() => setCelebrate(null)}
-        />
-      )}
-
-      {/* Unread Executive Directives Banner */}
-      {myDirectives.length > 0 && (
-        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold text-xs">
-              <Crown className="w-4 h-4 text-amber-600" />
-              <span>Executive Directives & Mentions ({myDirectives.length})</span>
-            </div>
-            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium uppercase tracking-wider">
-              Immediate Action
-            </span>
-          </div>
-          <div className="space-y-2">
-            {myDirectives.map((comment) => (
-              <div
-                key={comment.id}
-                className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 flex items-start justify-between gap-3 shadow-2xs"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                      {comment.fromName} ({comment.fromRole.toUpperCase()})
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">
-                    "{comment.message}"
-                  </p>
-                </div>
-                {onMarkCeoCommentRead && (
-                  <button
-                    onClick={() => onMarkCeoCommentRead(comment.id)}
-                    className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 text-xs font-bold transition-colors cursor-pointer"
-                    title="Acknowledge directive"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Acknowledge</span>
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Top Banner: Welcome & Live Windows Clock */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-100/90 dark:bg-emerald-950/80 border-2 border-emerald-400 dark:border-emerald-600 shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-black text-emerald-900 dark:text-emerald-200">
-              {formattedDate}
-            </span>
-            <span className="text-emerald-500 font-bold">•</span>
-            <span className="text-xs font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">
-              {dayName}
-            </span>
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-            Welcome back, {currentUser.name}
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Assigned Shift: <strong className="text-slate-700 dark:text-slate-300">{userShift.name}</strong>
-            {userShift.isNoRestriction ? (
-              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                24/7 Flexible · No Shift Restriction
-              </span>
-            ) : (
-              <span> ({formatTime12h(userShift.startTime)} – {formatTime12h(userShift.endTime)}) · {userShift.graceMinutes}m grace period</span>
-            )}
-          </p>
-          {isAdminUser && currentUser.allowWorkFromHome && (
-            <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700/70 text-emerald-800 dark:text-emerald-200 text-xs font-semibold shadow-2xs">
-              <Home className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>{isRemoteWfhPunch ? 'Work From Home shift · Reason note required' : 'Work From Home allowed · counted separately when you are off the office network'}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Big Live Digital Clock Display */}
-        <div className="bg-slate-950 text-white dark:bg-black rounded-xl px-6 py-4 border border-slate-800 shadow-inner flex flex-col items-center">
-          <span className="text-[10px] font-mono tracking-widest text-slate-400 uppercase">
-            Office Server Time
-          </span>
-          <div className="text-3xl sm:text-4xl font-mono font-bold tracking-wider text-blue-400 mt-0.5 tabular-nums">
-            {formattedDigitalClock}
-          </div>
-          <span className="text-[11px] text-emerald-400 font-bold mt-1 tracking-wide">
-            {dayName} · Live Sync
-          </span>
-        </div>
-      </div>
-
       {/* Main Punch Interaction Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 items-start">
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 items-start">
         {/* Left 2 Cols: Punch Clock Card */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 space-y-5">
+        <div className="w-full bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-7 shadow-lg shadow-slate-200/50 dark:shadow-black/20 border border-slate-200 dark:border-slate-800 space-y-5">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Clock className="w-4 h-4 text-blue-600" />
@@ -567,150 +440,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                 </span>
               )}
             </div>
-          </div>
-
-          {/* Active Counters if Clocked In */}
-          {isClockedIn && (
-            <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
-              <div>
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
-                  Time In Recorded
-                </span>
-                <p className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-0.5">
-                  {formatTime12h(todayRecord?.timeIn)}
-                </p>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  {todayRecord?.status === 'late' ? (
-                    <span className="text-amber-600 dark:text-amber-400 font-medium">
-                      Late Arrival (Past {userShift.graceMinutes}m grace)
-                    </span>
-                  ) : (
-                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                      On-Time Arrival
-                    </span>
-                  )}
-                </p>
-              </div>
-
-              <div>
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
-                  {isOnBreak ? 'Active Break Duration' : 'Elapsed Shift Duration'}
-                </span>
-                <p className="text-xl font-bold font-mono text-blue-600 dark:text-blue-400 mt-0.5 tabular-nums">
-                  {isOnBreak && activeBreak
-                    ? getElapsedTimeString(activeBreak.start)
-                    : todayRecord?.timeIn
-                    ? getElapsedTimeString(todayRecord.timeIn)
-                    : '00:00:00'}
-                </p>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Target: {userShift.expectedHours} hours
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Separate Live Attendance & Connection Status Bar (admin only) */}
-          {isAdminUser && (
-          <div
-            className={`p-3 rounded-xl border flex items-start justify-between gap-3 ${
-              isNoInternet
-                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200'
-                : isOnBreak
-                ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200'
-                : isClockedIn
-                ? 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
-                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
-            }`}
-          >
-            <div className="flex items-start gap-2.5">
-              {isNoInternet ? (
-                <WifiOff className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 animate-pulse" />
-              ) : isOnBreak ? (
-                <Coffee className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              ) : (
-                <Wifi className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-              )}
-              <div className="text-xs">
-                <div className="font-bold">
-                  {isNoInternet
-                    ? 'Attendance Status: Device Internet Disconnected — Offline (Still In)'
-                    : isOnBreak
-                    ? 'Attendance Status: On Break (Timer Active)'
-                    : isClockedIn
-                    ? 'Attendance Status: Connected Online · Clocked In & Working'
-                    : isCompleted
-                    ? `Attendance Status: Shift Completed (Punched Out at ${formatTime12h(todayRecord?.timeOut)})`
-                    : 'Attendance Status: Connected Online · Ready to Punch In'}
-                </div>
-                <p className="text-[11px] opacity-90 mt-0.5">
-                  {isNoInternet
-                    ? `You remain marked Clocked In while reconnecting. You are automatically logged out ${settings.autoPunchOutOnInactiveHours ?? 2}h after your shift ends.`
-                    : `Live internet connected · You are automatically logged out ${settings.autoPunchOutOnInactiveHours ?? 2}h after your shift ends.`}
-                </p>
-              </div>
-            </div>
-            <span
-              className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 uppercase tracking-wider ${
-                isNetworkOnline
-                  ? 'bg-emerald-100/90 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700'
-                  : 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700'
-              }`}
-            >
-              {isNetworkOnline ? 'Online' : 'Offline'}
-            </span>
-          </div>
-          )}
-
-          {/* Security Status Banners */}
-          <div className="space-y-2">
-            {/* 1. Office Wi-Fi Public IP Verification Banner */}
-            {settings.enforceOfficeIpLock && (
-              isPunchBlockedByIp ? (
-                showLockedPanel ? null :
-                /* Everyone sees the blocked message, but employees don't see raw IP */
-                <div className="p-3 rounded-xl border flex items-start justify-between gap-3 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200">
-                  <div className="flex items-start gap-2.5">
-                    <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                    <div className="text-xs">
-                      <div className="font-bold">Attendance Locked — Unauthorized Network</div>
-                      <p className="text-[11px] opacity-90 mt-0.5">
-                        {isAdminUser
-                          ? ipCheck.reason
-                          : 'Please connect to the authorized Office Wi-Fi network to mark attendance.'}
-                      </p>
-                    </div>
-                  </div>
-                  {isAdminUser && (
-                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 border border-current/20 shrink-0">
-                      IP: {currentClientIp}
-                      {currentClientIsp && currentClientIsp !== 'Unknown ISP' && currentClientIsp !== 'Detected via IP' ? ` · ${currentClientIsp}` : ''}
-                    </span>
-                  )}
-                </div>
-              ) : (
-                /* Verified — only admin/CEO see the full green banner with IP */
-                isAdminUser && (
-                  <div className="p-3 rounded-xl border flex items-start justify-between gap-3 bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50 text-emerald-800 dark:text-emerald-200">
-                    <div className="flex items-start gap-2.5">
-                      <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                      <div className="text-xs">
-                        <div className="font-bold">
-                          {`Verified Office Wi-Fi (${ipCheck.matchedLabel || 'Authorized Office Network'})`}
-                        </div>
-                        <p className="text-[11px] opacity-90 mt-0.5">
-                          Your connection matches an authorized Office Wi-Fi network.
-                        </p>
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 border border-current/20 shrink-0">
-                      IP: {currentClientIp}
-                      {currentClientIsp && currentClientIsp !== 'Unknown ISP' && currentClientIsp !== 'Detected via IP' ? ` · ${currentClientIsp}` : ''}
-                    </span>
-                  </div>
-                )
-              )
-            )}
           </div>
 
           {/* Action Buttons */}
@@ -904,6 +633,152 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
             </div>
             )}
           </div>
+
+
+          {/* Active Counters if Clocked In */}
+          {isClockedIn && (
+            <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
+              <div>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                  Time In Recorded
+                </span>
+                <p className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-0.5">
+                  {formatTime12h(todayRecord?.timeIn)}
+                </p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {todayRecord?.status === 'late' ? (
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">
+                      Late Arrival (Past {userShift.graceMinutes}m grace)
+                    </span>
+                  ) : (
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                      On-Time Arrival
+                    </span>
+                  )}
+                </p>
+              </div>
+
+              <div>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 uppercase tracking-wider font-semibold">
+                  {isOnBreak ? 'Active Break Duration' : 'Elapsed Shift Duration'}
+                </span>
+                <p className="text-xl font-bold font-mono text-blue-600 dark:text-blue-400 mt-0.5 tabular-nums">
+                  {isOnBreak && activeBreak
+                    ? getElapsedTimeString(activeBreak.start)
+                    : todayRecord?.timeIn
+                    ? getElapsedTimeString(todayRecord.timeIn)
+                    : '00:00:00'}
+                </p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Target: {userShift.expectedHours} hours
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Separate Live Attendance & Connection Status Bar (admin only) */}
+          {isAdminUser && (
+          <div
+            className={`p-3 rounded-xl border flex items-start justify-between gap-3 ${
+              isNoInternet
+                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200'
+                : isOnBreak
+                ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200'
+                : isClockedIn
+                ? 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200'
+            }`}
+          >
+            <div className="flex items-start gap-2.5">
+              {isNoInternet ? (
+                <WifiOff className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 animate-pulse" />
+              ) : isOnBreak ? (
+                <Coffee className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              ) : (
+                <Wifi className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              )}
+              <div className="text-xs">
+                <div className="font-bold">
+                  {isNoInternet
+                    ? 'Attendance Status: Device Internet Disconnected — Offline (Still In)'
+                    : isOnBreak
+                    ? 'Attendance Status: On Break (Timer Active)'
+                    : isClockedIn
+                    ? 'Attendance Status: Connected Online · Clocked In & Working'
+                    : isCompleted
+                    ? `Attendance Status: Shift Completed (Punched Out at ${formatTime12h(todayRecord?.timeOut)})`
+                    : 'Attendance Status: Connected Online · Ready to Punch In'}
+                </div>
+                <p className="text-[11px] opacity-90 mt-0.5">
+                  {isNoInternet
+                    ? `You remain marked Clocked In while reconnecting. You are automatically logged out ${settings.autoPunchOutOnInactiveHours ?? 2}h after your shift ends.`
+                    : `Live internet connected · You are automatically logged out ${settings.autoPunchOutOnInactiveHours ?? 2}h after your shift ends.`}
+                </p>
+              </div>
+            </div>
+            <span
+              className={`text-[10px] font-bold px-2 py-0.5 rounded border shrink-0 uppercase tracking-wider ${
+                isNetworkOnline
+                  ? 'bg-emerald-100/90 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700'
+                  : 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700'
+              }`}
+            >
+              {isNetworkOnline ? 'Online' : 'Offline'}
+            </span>
+          </div>
+          )}
+
+          {/* Security Status Banners */}
+          <div className="space-y-2">
+            {/* 1. Office Wi-Fi Public IP Verification Banner */}
+            {settings.enforceOfficeIpLock && (
+              isPunchBlockedByIp ? (
+                showLockedPanel ? null :
+                /* Everyone sees the blocked message, but employees don't see raw IP */
+                <div className="p-3 rounded-xl border flex items-start justify-between gap-3 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-200">
+                  <div className="flex items-start gap-2.5">
+                    <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                    <div className="text-xs">
+                      <div className="font-bold">Attendance Locked — Unauthorized Network</div>
+                      <p className="text-[11px] opacity-90 mt-0.5">
+                        {isAdminUser
+                          ? ipCheck.reason
+                          : 'Please connect to the authorized Office Wi-Fi network to mark attendance.'}
+                      </p>
+                    </div>
+                  </div>
+                  {isAdminUser && (
+                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 border border-current/20 shrink-0">
+                      IP: {currentClientIp}
+                      {currentClientIsp && currentClientIsp !== 'Unknown ISP' && currentClientIsp !== 'Detected via IP' ? ` · ${currentClientIsp}` : ''}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                /* Verified — only admin/CEO see the full green banner with IP */
+                isAdminUser && (
+                  <div className="p-3 rounded-xl border flex items-start justify-between gap-3 bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50 text-emerald-800 dark:text-emerald-200">
+                    <div className="flex items-start gap-2.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <div className="text-xs">
+                        <div className="font-bold">
+                          {`Verified Office Wi-Fi (${ipCheck.matchedLabel || 'Authorized Office Network'})`}
+                        </div>
+                        <p className="text-[11px] opacity-90 mt-0.5">
+                          Your connection matches an authorized Office Wi-Fi network.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-white/80 dark:bg-slate-900/80 border border-current/20 shrink-0">
+                      IP: {currentClientIp}
+                      {currentClientIsp && currentClientIsp !== 'Unknown ISP' && currentClientIsp !== 'Detected via IP' ? ` · ${currentClientIsp}` : ''}
+                    </span>
+                  </div>
+                )
+              )
+            )}
+          </div>
+
         </div>
 
         {/* Right Col: Today's Timeline Card */}
@@ -988,6 +863,133 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
               <span className="font-medium text-blue-600 dark:text-blue-400">1 Punch Cycle / Day</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Friendly greeting */}
+      <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg sm:text-xl font-bold leading-tight">{greetingWord}, {firstName}!</h2>
+          <p className="text-xs sm:text-sm text-blue-100 mt-0.5">{greetingLine}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
+          <StreakChip streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr)} />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
+            <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+            {coworkerCounts.in} online now
+          </span>
+          {coworkerCounts.offline > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
+              <span className="w-2 h-2 rounded-full bg-slate-300" />
+              {coworkerCounts.offline} offline
+            </span>
+          )}
+        </div>
+      </div>
+
+      <MomentCards employees={allEmployees.length ? allEmployees : [currentUser]} currentUserId={currentUser.id} todayStr={todayStr} />
+      {celebrate && (
+        <PunchCelebration
+          name={firstName}
+          late={celebrate.late}
+          streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr) + (todayRecord?.timeIn ? 0 : 1)}
+          timeLabel={celebrate.timeLabel}
+          onDone={() => setCelebrate(null)}
+        />
+      )}
+
+      {/* Unread Executive Directives Banner */}
+      {myDirectives.length > 0 && (
+        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold text-xs">
+              <Crown className="w-4 h-4 text-amber-600" />
+              <span>Executive Directives & Mentions ({myDirectives.length})</span>
+            </div>
+            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium uppercase tracking-wider">
+              Immediate Action
+            </span>
+          </div>
+          <div className="space-y-2">
+            {myDirectives.map((comment) => (
+              <div
+                key={comment.id}
+                className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 flex items-start justify-between gap-3 shadow-2xs"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                      {comment.fromName} ({comment.fromRole.toUpperCase()})
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    "{comment.message}"
+                  </p>
+                </div>
+                {onMarkCeoCommentRead && (
+                  <button
+                    onClick={() => onMarkCeoCommentRead(comment.id)}
+                    className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 text-xs font-bold transition-colors cursor-pointer"
+                    title="Acknowledge directive"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Acknowledge</span>
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Top Banner: Welcome & Live Windows Clock */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-100/90 dark:bg-emerald-950/80 border-2 border-emerald-400 dark:border-emerald-600 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs font-black text-emerald-900 dark:text-emerald-200">
+              {formattedDate}
+            </span>
+            <span className="text-emerald-500 font-bold">•</span>
+            <span className="text-xs font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">
+              {dayName}
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
+            Welcome back, {currentUser.name}
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Assigned Shift: <strong className="text-slate-700 dark:text-slate-300">{userShift.name}</strong>
+            {userShift.isNoRestriction ? (
+              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                24/7 Flexible · No Shift Restriction
+              </span>
+            ) : (
+              <span> ({formatTime12h(userShift.startTime)} – {formatTime12h(userShift.endTime)}) · {userShift.graceMinutes}m grace period</span>
+            )}
+          </p>
+          {isAdminUser && currentUser.allowWorkFromHome && (
+            <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700/70 text-emerald-800 dark:text-emerald-200 text-xs font-semibold shadow-2xs">
+              <Home className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>{isRemoteWfhPunch ? 'Work From Home shift · Reason note required' : 'Work From Home allowed · counted separately when you are off the office network'}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Big Live Digital Clock Display */}
+        <div className="bg-slate-950 text-white dark:bg-black rounded-xl px-6 py-4 border border-slate-800 shadow-inner flex flex-col items-center">
+          <span className="text-[10px] font-mono tracking-widest text-slate-400 uppercase">
+            Office Server Time
+          </span>
+          <div className="text-3xl sm:text-4xl font-mono font-bold tracking-wider text-blue-400 mt-0.5 tabular-nums">
+            {formattedDigitalClock}
+          </div>
+          <span className="text-[11px] text-emerald-400 font-bold mt-1 tracking-wide">
+            {dayName} · Live Sync
+          </span>
         </div>
       </div>
 
