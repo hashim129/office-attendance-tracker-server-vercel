@@ -121,6 +121,10 @@ function mapDbEmployee(r) {
   const crmCustomerAccess = Boolean(pendingObj?.crmCustomerAccess);
   const salesAccess = Boolean(pendingObj?.salesAccess);
   const customerPortalAccess = Boolean(pendingObj?.customerPortalAccess);
+  const liveDashboardAccess = Boolean(pendingObj?.liveDashboardAccess);
+  const leaderboardAccess = Boolean(pendingObj?.leaderboardAccess);
+  const payablesAccess = Boolean(pendingObj?.payablesAccess);
+  const birthday = /^\d{4}-\d{2}-\d{2}$/.test(String(pendingObj?.birthday || '')) ? String(pendingObj.birthday) : '';
 
   return {
     id: r.id,
@@ -144,6 +148,10 @@ function mapDbEmployee(r) {
     crmCustomerAccess,
     salesAccess,
     customerPortalAccess,
+    liveDashboardAccess,
+    leaderboardAccess,
+    payablesAccess,
+    birthday,
     registeredDeviceId: r.registered_device_id || undefined,
     registeredDeviceName: r.registered_device_name || undefined,
     registeredAt: r.registered_at || undefined,
@@ -167,6 +175,10 @@ function mapAppEmployeeToDb(e) {
     crmCustomerAccess: Boolean(e.crmCustomerAccess),
     salesAccess: Boolean(e.salesAccess),
     customerPortalAccess: Boolean(e.customerPortalAccess),
+    liveDashboardAccess: Boolean(e.liveDashboardAccess),
+    leaderboardAccess: Boolean(e.leaderboardAccess),
+    payablesAccess: Boolean(e.payablesAccess),
+    birthday: /^\d{4}-\d{2}-\d{2}$/.test(String(e.birthday || '')) ? String(e.birthday) : '',
   };
 
   return {
@@ -558,6 +570,33 @@ export async function confirmOpenWork(employeeId, at) {
     { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ work_confirmed_at: at, record_updated_at: at }) }
   );
   return Array.isArray(updated) ? updated : [];
+}
+
+
+/** Leave request alerts in the notification list. Never blocks saving the leave. */
+async function sendLeaveAlerts(alerts) {
+  if (!alerts.length) return;
+  try {
+    const people = (await supabaseFetch('/employees?deleted_at=is.null&select=id,name,role,is_active')) || [];
+    const at = new Date().toISOString();
+    const rows = [];
+    const days = (l) => `${l.totalDays || ''} day${Number(l.totalDays) === 1 ? '' : 's'}`.trim();
+    const typeName = (l) => String(l.leaveType || 'leave').replace('_', ' ');
+    for (const { kind, leave } of alerts) {
+      const who = people.find((p) => p.id === leave.employeeId)?.name || 'An employee';
+      const rand = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+      if (kind === 'asked') {
+        for (const p of people.filter((x) => x.is_active !== false && x.role === 'admin' && x.id !== leave.employeeId)) {
+          rows.push({ id: `ntf-lv-${rand()}`, employee_id: p.id, category: 'reminder', ref_id: leave.id, message: `${who} asked for ${typeName(leave)} (${days(leave)}, ${leave.startDate} to ${leave.endDate}). Open Leave Requests to approve or reject.`, created_at: at, read_at: null });
+        }
+      } else {
+        rows.push({ id: `ntf-lv-${rand()}`, employee_id: leave.employeeId, category: 'reminder', ref_id: leave.id, message: `Your ${typeName(leave)} request (${leave.startDate} to ${leave.endDate}) was ${kind === 'approved' ? 'approved' : 'rejected'}${leave.reviewNote ? `: ${leave.reviewNote}` : '.'}`, created_at: at, read_at: null });
+      }
+    }
+    if (rows.length) await supabaseFetch('/crm_notifications', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify(rows) });
+  } catch (e) {
+    console.warn('[Leaves] Could not send alerts:', e?.message || e);
+  }
 }
 
 let lastReminderSweepAt = 0;
@@ -1140,6 +1179,7 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
   } else if (scope === 'leaves') {
     const leavesList = incoming.changedLeave ? [incoming.changedLeave] : incoming.leaves || [];
     const rowsToUpsert = [];
+    const leaveAlerts = [];
     for (const l of leavesList) {
       if (!l || !l.id) continue;
       const existingRows = await supabaseFetch(`/leaves?id=eq.${encodeURIComponent(l.id)}&select=*`);
@@ -1181,6 +1221,9 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
         mergedLeave.lastEditedByRole = incoming.actorRole;
       }
       rowsToUpsert.push(mapAppLeaveToDb(mergedLeave));
+      // Who should hear about this: admins when a request arrives, the employee when it is decided
+      if (!existing && mergedLeave.status === 'pending') leaveAlerts.push({ kind: 'asked', leave: mergedLeave });
+      else if (existing && existing.status === 'pending' && ['approved', 'rejected'].includes(mergedLeave.status)) leaveAlerts.push({ kind: mergedLeave.status, leave: mergedLeave });
     }
 
     if (rowsToUpsert.length > 0) {
@@ -1189,6 +1232,7 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
         headers: { Prefer: 'resolution=merge-duplicates' },
         body: JSON.stringify(rowsToUpsert),
       });
+      await sendLeaveAlerts(leaveAlerts);
     }
   } else if (scope === 'leave_delete') {
     const targetId = incoming.leaveId || incoming.id;

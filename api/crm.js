@@ -721,6 +721,7 @@ export default async function handler(req, res) {
       let purchaseCustomCategories = [];
       let company = DEFAULT_COMPANY;
       let inventoryItems = DEFAULT_INVENTORY_ITEMS;
+      let business = null;
       if (action === 'list') {
         const [invRows, companyRow, receiptRows, catalogItems, allPurchases, purchaseSchema, betaEnabled, allPortalQueries, visaRowsAll] = await Promise.all([
           getAll('crm_invoices'),
@@ -750,6 +751,28 @@ export default async function handler(req, res) {
           .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
           .map((r) => mapInvoice(r, betaEnabled && r.kind !== 'vendor' ? (visaByInvId.get(r.id) || null) : null));
         purchases = (allPurchases || []).filter((x) => salesViewer || x.createdBy === me.id);
+        // Sales target / leaderboard / payables-due calendar for the Live Dashboard.
+        // Totals only (never cost or profit); the leaderboard and payables need Admin / CEO / Accounts or an admin-granted switch.
+        const monthKey = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 7);
+        const targetRow = await getOne('crm_company', 'sales-targets').catch(() => null);
+        const tdata = parseJsonObj(targetRow?.data, {});
+        const targets = { currency: str(tdata.currency, 6) || 'PKR', team: num(tdata.team), people: parseJsonObj(tdata.people, {}) };
+        const inMonth = (x) => String(new Date(Date.parse(x.created_at) + 5 * 3600 * 1000).toISOString()).slice(0, 7) === monthKey;
+        const closed = salesRows.filter((x) => x.status === 'approved' && inMonth(x));
+        const tally = (rows) => ({ count: rows.length, amount: r2(rows.filter((x) => x.currency === targets.currency).reduce((a, x) => a + num(x.sale_amount), 0)) });
+        const canBoard = salesViewer || flagOf(me, 'leaderboardAccess');
+        const canPay = salesViewer || flagOf(me, 'payablesAccess');
+        const staffNames = canBoard ? await activeEmployees() : [];
+        business = {
+          monthKey, targets: canBoard || canSales ? targets : null,
+          me: canSales || canBoard ? { ...tally(closed.filter((x) => x.created_by === me.id)), target: num(targets.people[me.id]) } : null,
+          leaderboard: canBoard
+            ? staffNames.map((e) => ({ id: e.id, name: e.name, ...tally(closed.filter((x) => x.created_by === e.id)), target: num(targets.people[e.id]) })).filter((x) => x.count > 0 || x.target > 0).sort((a, b) => b.amount - a.amount || b.count - a.count)
+            : null,
+          payables: canPay
+            ? invRows.filter((x) => x.kind === 'vendor' && x.status === 'unpaid').map((x) => ({ id: x.id, invoiceNo: x.invoice_no, vendor: x.customer_name, dueDate: x.due_date || null, currency: x.currency, total: num(x.total) })).slice(0, 300)
+            : null,
+        };
         portalQueries = betaEnabled && hasPortalAccess(me) ? (allPortalQueries || []) : [];
         if (betaEnabled && (isAdmin || hasPortalAccess(me))) {
           const pinvRows = (await supabaseFetch(`/crm_company?id=like.pinv-*&select=id,data&limit=${LIMIT}`).catch(() => [])) || [];
@@ -775,9 +798,23 @@ export default async function handler(req, res) {
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales, portalAccess: hasPortalAccess(me) }, customers, followups: visibleFollowups, meetings: visibleMeetings, bookedSlots, inventory: visibleInventory, inventoryItems, sales, purchases, portalQueries, portalInvoices, purchaseCustomFields, purchaseCustomCategories, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES,
+        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales, portalAccess: hasPortalAccess(me) }, customers, followups: visibleFollowups, meetings: visibleMeetings, bookedSlots, inventory: visibleInventory, inventoryItems, sales, purchases, portalQueries, portalInvoices, purchaseCustomFields, purchaseCustomCategories, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES, business,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
+    }
+
+    // Monthly sales targets (Admin / CEO). Same target every month until changed.
+    if (action === 'targets_save') {
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can set sales targets.');
+      const t = body.targets || {};
+      const people = {};
+      for (const [k, v] of Object.entries(parseJsonObj(t.people, {}))) {
+        const n = Math.max(0, Math.min(1e12, num(v)));
+        if (n > 0 && typeof k === 'string' && k.length <= 80) people[k] = n;
+      }
+      const next = { currency: CURRENCIES.includes(t.currency) ? t.currency : 'PKR', team: Math.max(0, Math.min(1e12, num(t.team))), people, updatedAt: nowIso(), updatedBy: me.id };
+      await upsert('crm_company', { id: 'sales-targets', data: next, updated_at: next.updatedAt });
+      return res.status(200).json({ ok: true, targets: { currency: next.currency, team: next.team, people } });
     }
 
     if (action === 'notifications_read') {

@@ -24,6 +24,7 @@ const GRADIENTS: Record<string, string> = {
   'crm-receipts': 'from-lime-600 via-emerald-600 to-teal-600',
   'crm-portal': 'from-sky-600 via-blue-600 to-indigo-600',
   'crm-notifications': 'from-rose-600 via-pink-600 to-orange-500',
+  'live-dashboard': 'from-blue-600 via-indigo-600 to-violet-600',
 };
 const FALLBACK_GRADIENT = 'from-blue-600 via-indigo-600 to-violet-600';
 
@@ -31,7 +32,7 @@ const PAGE_TITLES: Record<string, string> = {
   'my-attendance': 'My Attendance', 'team-attendance': 'Team Presence', leaves: 'Leave Requests', insights: 'Smart Insights',
   employees: 'Team Roster', shifts: 'Shifts', reports: 'Reports & Payroll', settings: 'Settings', 'crm-customers': 'Customers',
   'crm-tasks': 'Follow-ups & Tasks', 'crm-meetings': 'Meetings', 'crm-inventory': 'Inventory', 'crm-sales': 'Sales',
-  'crm-purchases': 'Purchases', 'crm-invoices': 'Invoices', 'crm-receipts': 'Receipts', 'crm-portal': 'Portal Control', 'crm-notifications': 'Notifications',
+  'crm-purchases': 'Purchases', 'crm-invoices': 'Invoices', 'crm-receipts': 'Receipts', 'crm-portal': 'Portal Control', 'crm-notifications': 'Notifications', 'live-dashboard': 'Live Dashboard',
 };
 
 interface Hero { line: string; chips?: string[] }
@@ -68,6 +69,7 @@ function heroFor(tab: ActiveDesktopTab, crm: CrmState, isAdmin: boolean): Hero |
       return { line: unpaid ? `${plural(unpaid, 'invoice')} still waiting for payment.` : 'All invoices are settled. Lovely!', chips: badges.invoiceNew ? [`${badges.invoiceNew} new`] : [] };
     }
     case 'crm-receipts': return { line: 'Money received, recorded and ready for Accounts.', chips: badges.receiptNew ? [`${badges.receiptNew} new`] : [] };
+    case 'live-dashboard': return { line: 'Who is in, who is late and how the month is going, all in one live view.' };
     case 'crm-portal': return { line: 'Banner, offers, animations, destinations and WhatsApp for your customers, all in one place.' };
     case 'crm-notifications': return { line: badges.unreadTotal ? `${plural(badges.unreadTotal, 'new notification')} for you.` : 'Nothing new. You are up to date!' };
     default: return null;
