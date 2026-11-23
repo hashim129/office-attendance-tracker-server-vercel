@@ -53,6 +53,10 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
   // decision modal (admin)
   const [deciding, setDeciding] = useState<{ m: CrmMeeting; approve: boolean } | null>(null);
   const [decisionNote, setDecisionNote] = useState('');
+  const [updateFor, setUpdateFor] = useState<CrmMeeting | null>(null);
+  const [updateText, setUpdateText] = useState('');
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateError, setUpdateError] = useState('');
 
   const hasNew = unread.some((u) => u.category === 'meeting');
   const newIds = useMemo(() => new Set(unread.filter((u) => u.category === 'meeting').map((u) => u.refId)), [unread]);
@@ -103,6 +107,19 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
     } finally {
       setBusy(false);
     }
+  };
+
+  const addMeetingUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!updateFor || !updateText.trim() || updateBusy) return;
+    setUpdateBusy(true); setUpdateError('');
+    try {
+      await crmCall('meeting_note_add', { id: updateFor.id, text: updateText.trim() });
+      await crm.refresh();
+      setUpdateFor(null); setUpdateText('');
+    } catch (err: any) {
+      setUpdateError(err?.message || 'Could not save this meeting update.');
+    } finally { setUpdateBusy(false); }
   };
 
   const act = async (action: string, id: string, extra: Record<string, unknown> = {}) => {
@@ -228,9 +245,11 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
             {attendLine(m, who.slice(m.attendeeIds.length)) && <p className="text-xs font-medium text-slate-700 dark:text-slate-200">{attendLine(m, who.slice(m.attendeeIds.length))}</p>}
             {m.requestedBy && <p className="text-[11px] text-slate-500 dark:text-slate-400">Requested by {empName.get(m.requestedBy) || 'Former employee'}</p>}
             {m.notes && <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">{m.notes}</p>}
+            {(m.noteLog || []).length > 0 && <div className="mt-2 space-y-1 border-l-2 border-blue-200 pl-2.5 max-h-40 overflow-y-auto">{(m.noteLog || []).map((n) => <p key={n.id} className="text-[11px] text-slate-500"><b>{empName.get(n.by) || 'Former employee'}</b> · {fmtDateTime(n.at)} — {n.text}</p>)}</div>}
             {m.decisionNote && <p className="text-xs text-slate-600 dark:text-slate-400 border-l-2 border-slate-300 dark:border-slate-700 pl-2">Admin note: {m.decisionNote}</p>}
           </div>
           <div className="flex flex-wrap gap-1.5 shrink-0">
+            {(isAdmin || m.createdBy === currentUser.id || m.requestedBy === currentUser.id || m.attendeeIds.includes(currentUser.id)) && <button className={btnGhost} onClick={() => { setUpdateFor(m); setUpdateText(''); setUpdateError(''); }}>Add update</button>}
             {(m.status === 'scheduled' || m.status === 'pending_approval' || m.status === 'completed') && (
               <AddToCalendar event={{ title: `CEO meeting: ${m.title}`, startIso: m.startAt, endIso: m.endAt, location: m.location, description: [m.notes, who.length ? `With: ${who.join(', ')}` : ''].filter(Boolean).join('\n') }} />
             )}
@@ -391,6 +410,14 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
             <button type="button" className={btnGhost} onClick={() => setFormMode(null)}>Cancel</button>
             <button type="submit" className={btnPrimary} disabled={busy}>{busy ? 'Saving…' : formMode === 'request' ? 'Send request' : editing ? 'Save changes' : 'Schedule meeting'}</button>
           </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={Boolean(updateFor)} onClose={() => setUpdateFor(null)} title={updateFor ? `Add meeting update · ${updateFor.title}` : 'Add meeting update'} subtitle="Each update is saved with employee and timestamp. Previous updates are retained." maxWidth="md">
+        <form onSubmit={addMeetingUpdate} className="space-y-3">
+          <Field label="Update / note"><textarea className={inputCls} rows={4} maxLength={4000} required value={updateText} onChange={(e) => setUpdateText(e.target.value)} placeholder="Record the discussion, decision, progress or next action…" /></Field>
+          <ErrorNote message={updateError} />
+          <div className="flex justify-end gap-2"><button type="button" className={btnGhost} onClick={() => setUpdateFor(null)}>Cancel</button><button type="submit" className={btnPrimary} disabled={updateBusy || !updateText.trim()}>{updateBusy ? 'Saving…' : 'Save update'}</button></div>
         </form>
       </Modal>
 

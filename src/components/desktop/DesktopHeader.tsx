@@ -18,6 +18,8 @@ import {
   CheckCircle2,
   Cloud,
   Menu,
+  Moon,
+  Sun,
 } from 'lucide-react';
 import { ActiveDesktopTab, AppMode, CeoComment, Employee } from '../../types';
 import { CloudSyncState } from '../../lib/storage';
@@ -39,6 +41,9 @@ interface DesktopHeaderProps {
   crmLatest?: { id: string; category: string; message: string }[];
   onCrmRefresh?: () => void;
   onOpenCrmNotifications?: () => void;
+  isDark?: boolean;
+  onToggleTheme?: () => void;
+  redesignedUiBetaEnabled?: boolean;
 }
 
 export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
@@ -57,6 +62,9 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   crmLatest = [],
   onCrmRefresh,
   onOpenCrmNotifications,
+  isDark = false,
+  onToggleTheme,
+  redesignedUiBetaEnabled = false,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCrmBell, setShowCrmBell] = useState(false);
@@ -86,7 +94,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   const getTabLabel = (tab: ActiveDesktopTab): string => {
     switch (tab) {
       case 'clock':
-        return 'Punch Clock & Active Shift';
+        return 'Live Dashboard & Punch Clock';
       case 'my-attendance':
         return 'My Attendance & Personal Stats';
       case 'team-attendance':
@@ -151,15 +159,12 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             <Menu className="w-5 h-5" />
           </button>
         )}
-        <span className="hidden sm:inline text-[11px] uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500 font-bold">Workspace</span>
-        <span className="hidden sm:inline text-slate-300 dark:text-slate-700">/</span>
-        <h2 className="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate border-l-2 border-blue-500 pl-3">
-          {getTabLabel(activeTab)}
-        </h2>
+        {redesignedUiBetaEnabled ? <><img src="/bahaar-logo.png" alt="Bahaar Journeys" className="h-9 w-auto max-w-[190px] object-contain object-left shrink-0" /><span className="hidden lg:inline text-xs text-slate-400 dark:text-slate-500 border-l border-slate-200 dark:border-slate-700 pl-3">Office Attendance Hub</span></> : <><span className="hidden sm:inline text-[11px] uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500 font-bold">Workspace</span><span className="hidden sm:inline text-slate-300 dark:text-slate-700">/</span><h2 className="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate border-l-2 border-blue-500 pl-3">{getTabLabel(activeTab)}</h2></>}
       </div>
 
       {/* Right Controls: Cloud Sync, Connection State, Notifications, Kiosk Mode Shortcut & User Profile */}
       <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+        {redesignedUiBetaEnabled && onToggleTheme && <button type="button" onClick={onToggleTheme} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800" aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"} title={isDark ? "Light theme" : "Dark theme"}>{isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}</button>}
         {cloudSyncState && cloudSyncState.status === 'saving' && (
           <span
             className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800"

@@ -39,6 +39,9 @@ interface OfficeSettingsTabProps {
   onReloadAllData: () => void;
   currentClientIp?: string;
   currentClientIsp?: string;
+  previewDeployment?: boolean;
+  previewBetaEnabled?: boolean;
+  onPreviewBetaChange?: (enabled: boolean) => void;
 }
 
 export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
@@ -47,6 +50,9 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
   onReloadAllData,
   currentClientIp,
   currentClientIsp,
+  previewDeployment = false,
+  previewBetaEnabled = false,
+  onPreviewBetaChange,
 }) => {
   const [formData, setFormData] = useState<OfficeSettings>({
     ...settings,
@@ -55,6 +61,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
     allowedOfficeIsps: settings.allowedOfficeIsps ?? [],
     allowAdminBypassIpLock: settings.allowAdminBypassIpLock ?? true,
     customerPortalBetaEnabled: settings.customerPortalBetaEnabled !== false,
+    redesignedUiBetaEnabled: settings.redesignedUiBetaEnabled !== false,
   });
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
   const [detectedIp, setDetectedIp] = useState<string>(currentClientIp || 'Detecting...');
@@ -74,6 +81,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
       allowedOfficeIsps: settings.allowedOfficeIsps ?? [],
       allowAdminBypassIpLock: settings.allowAdminBypassIpLock ?? true,
       customerPortalBetaEnabled: settings.customerPortalBetaEnabled !== false,
+      redesignedUiBetaEnabled: settings.redesignedUiBetaEnabled !== false,
     });
   }, [settings]);
 
@@ -266,14 +274,15 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
               </div>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Preview the refreshed workspace experience. Only an administrator can enable or disable this rollout.</p>
             </div>
-            <span className={`text-[11px] font-bold ${formData.redesignedUiBetaEnabled ? 'text-emerald-600' : 'text-slate-500'}`}>{formData.redesignedUiBetaEnabled ? 'BETA ACTIVE' : 'ORIGINAL UI'}</span>
+            <span className={`text-[11px] font-bold ${(previewDeployment ? previewBetaEnabled : formData.redesignedUiBetaEnabled) ? 'text-emerald-600' : 'text-slate-500'}`}>{(previewDeployment ? previewBetaEnabled : formData.redesignedUiBetaEnabled) ? 'BETA ACTIVE' : 'ORIGINAL UI'}</span>
           </div>
           <div className="flex items-center justify-between gap-4 rounded-xl border border-indigo-200/70 dark:border-indigo-900/60 bg-white/70 dark:bg-slate-950/30 p-3">
             <div className="min-w-0">
               <span className="block text-xs font-semibold text-slate-900 dark:text-slate-100">Enable redesigned UI (Beta)</span>
-              <span className="block mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">Turn OFF to immediately return to the original workspace styling. This does not change employee, attendance, shift or CRM data.</span>
+              <span className="block mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">Turn OFF to return to the original interface. Preview changes are stored only in this browser; production approval is saved to workspace settings.</span>
             </div>
-            <Switch tone="blue" label="Enable redesigned UI Beta" checked={formData.redesignedUiBetaEnabled === true} onChange={(v) => {
+            <Switch tone="blue" label="Enable redesigned UI Beta" checked={previewDeployment ? previewBetaEnabled : formData.redesignedUiBetaEnabled === true} onChange={(v) => {
+              if (previewDeployment) { onPreviewBetaChange?.(v); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 3000); return; }
               const updated = { ...formData, redesignedUiBetaEnabled: v };
               setFormData(updated);
               onUpdateSettings(updated);

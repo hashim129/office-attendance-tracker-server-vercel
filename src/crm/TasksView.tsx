@@ -81,6 +81,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
           attendees,
           kindLabel,
           statusLabel,
+          f.subject || '',
           f.remarks || '',
           f.outcomeRemarks || '',
         ].join(' ').toLowerCase();
@@ -250,7 +251,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                     {/* Header: Title + Type + Status + Countdown */}
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        {c?.customerName || (f.customerId ? 'Deleted customer' : KIND_LABEL[f.kind] || 'Follow-up')}
+                        {f.kind === 'internal' ? (f.subject || f.remarks || 'Internal follow-up') : c?.customerName || (f.customerId ? 'Deleted customer' : KIND_LABEL[f.kind] || 'Follow-up')}
                       </h3>
                       {c?.companyName && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
@@ -321,7 +322,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                     {f.dueAt && (
                       <AddToCalendar event={{ title: `${KIND_LABEL[f.kind] || 'Follow-up'}${c ? `: ${c.customerName}` : ''}`, startIso: f.dueAt, description: [f.remarks, `Assigned to: ${takingName}`].filter(Boolean).join('\n') }} />
                     )}
-                    {canAct && isOpen && <button type="button" className={btnPrimary} onClick={() => openOutcome(f)}>Update status</button>}
+                    {canAct && <button type="button" className={btnPrimary} onClick={() => openOutcome(f)}>Update status</button>}
                     {canManage && isOpen && <button type="button" className={btnGhost} onClick={() => { setEditing(f); setFormOpen(true); }} aria-label="Edit follow-up"><Pencil className="w-3.5 h-3.5" /></button>}
                     {canManage && <button type="button" className={btnDanger} onClick={() => remove(f)} aria-label="Delete follow-up"><Trash2 className="w-3.5 h-3.5" /></button>}
                   </div>
@@ -337,7 +338,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
         isOpen={Boolean(viewing)}
         onClose={() => setViewingId(null)}
         title={viewing ? (viewing.customerId ? customerOf.get(viewing.customerId)?.customerName || 'Follow-up details' : KIND_LABEL[viewing.kind] || 'Follow-up') : 'Follow-up details'}
-        subtitle={viewing ? `${KIND_LABEL[viewing.kind] || viewing.kind} · Created ${fmtDateTime(viewing.createdAt)}` : undefined}
+        subtitle={viewing ? `${viewing.kind === 'internal' ? (viewing.subject || 'Internal follow-up') : KIND_LABEL[viewing.kind] || viewing.kind} · Created ${fmtDateTime(viewing.createdAt)}` : undefined}
         maxWidth="2xl"
       >
         {viewing && (() => {
@@ -353,6 +354,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
 
           return (
             <div className="space-y-4 text-xs">
+              {viewing.kind === 'internal' && <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">{viewing.subject || viewing.remarks || 'Internal follow-up'}</h2>}
               {/* Status & Timing Bar */}
               <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
                 <div className="flex flex-wrap items-center gap-2">
@@ -516,7 +518,7 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {vCanAct && vOpen && (
+                  {vCanAct && (
                     <button type="button" className={btnPrimary} onClick={() => { const f = viewing; setViewingId(null); openOutcome(f); }}>
                       Update status
                     </button>
