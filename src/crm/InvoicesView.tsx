@@ -2183,7 +2183,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
               const insuranceTrackingActive = insuranceAutoDetected || form.insuranceEnabled;
               return (
                 <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 p-3.5 space-y-3.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-indigo-200/60 dark:border-indigo-900/50">
+                  {isAdmin && <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-indigo-200/60 dark:border-indigo-900/50">
                     <label className="inline-flex items-center gap-2 text-xs font-bold text-indigo-900 dark:text-indigo-200 cursor-pointer">
                       <input
                         type="checkbox"
@@ -2205,7 +2205,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                         onChange={(e) => patch({ paymentApprovedDate: e.target.value })}
                       />
                     )}
-                  </div>
+                  </div>}
 
                   <div className="space-y-2.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
