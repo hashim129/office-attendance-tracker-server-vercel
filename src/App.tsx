@@ -49,6 +49,7 @@ import {
 } from './lib/attendanceCalculations';
 import { detectClientNetwork } from './lib/ipSecurity';
 import { getDeviceDetails } from './lib/deviceSecurity';
+import { WindowsTitleBar } from './components/common/WindowsTitleBar';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { LoginView } from './components/desktop/LoginView';
 import { DesktopHeader } from './components/desktop/DesktopHeader';
@@ -120,7 +121,7 @@ export default function App() {
   const [faceRequest, setFaceRequest] = useState<{ employeeId: string; run: () => void } | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveDesktopTab>('clock');
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
-  const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-') || activeTab === 'live-dashboard' || activeTab === 'clock');
+  const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-') || activeTab === 'live-dashboard' || (settings.redesignedUiBetaEnabled && activeTab === 'clock'));
 
   // Password Modal
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState<boolean>(false);
@@ -1031,8 +1032,9 @@ export default function App() {
   return (
     <div
       id="windows-window-frame"
-      className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-all duration-200"
+      className={`${settings.redesignedUiBetaEnabled ? 'min-h-screen' : 'min-h-[calc(100vh-2.5rem)]'} bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-all duration-200"
     >
+      {!settings.redesignedUiBetaEnabled && <WindowsTitleBar isDark={isDark} onToggleTheme={handleToggleTheme} serverHost={settings.serverHostName} serverPort={settings.serverPort} />}
       {/* Screen Mode Render */}
       {appMode === 'kiosk' ? (
         <Suspense fallback={<TabLoader />}>
@@ -1084,6 +1086,7 @@ export default function App() {
             onOpenCrmNotifications={CRM_ENABLED ? () => setActiveTab('crm-notifications') : undefined}
             isDark={isDark}
             onToggleTheme={handleToggleTheme}
+            redesignedUiBetaEnabled={settings.redesignedUiBetaEnabled}
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
@@ -1098,6 +1101,7 @@ export default function App() {
               onCloseMobile={() => setIsMobileNavOpen(false)}
               crmEnabled={CRM_ENABLED}
               crmBadges={crm.badges}
+              redesignedUiBetaEnabled={settings.redesignedUiBetaEnabled}
             />
 
             <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-x-clip bg-slate-50/50 dark:bg-slate-950/40">
@@ -1115,7 +1119,7 @@ export default function App() {
                   <Suspense fallback={<TabLoader />}>
                 {activeTab === 'clock' && (
                 <>
-                {currentUser && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
+                {settings.redesignedUiBetaEnabled && currentUser && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
                   <LiveDashboardTab
                     currentUser={currentUser}
                     employees={statEmployees}
