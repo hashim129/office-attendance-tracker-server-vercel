@@ -280,7 +280,7 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
               <span className="block mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">Turn OFF to return to the original interface. Preview changes are stored only in this browser; production approval is saved to workspace settings.</span>
             </div>
             <Switch tone="blue" label="Enable redesigned UI Beta" checked={previewDeployment ? previewBetaEnabled : formData.redesignedUiBetaEnabled === true} onChange={(v) => {
-              if (previewDeployment) { onPreviewBetaChange?.(v); return; }
+              if (previewDeployment) { onPreviewBetaChange?.(v); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 3000); return; }
               const updated = { ...formData, redesignedUiBetaEnabled: v };
               setFormData(updated);
               onUpdateSettings(updated);
