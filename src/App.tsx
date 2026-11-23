@@ -1128,6 +1128,7 @@ export default function App() {
                     leaves={leaves}
                     crm={crm}
                     onNavigate={setActiveTab}
+                    redesignedUiBetaEnabled={settings.redesignedUiBetaEnabled}
                   />
                 )}
                 <PunchClockTab
