@@ -52,6 +52,7 @@ import { exportAttendanceToCsv } from '../../lib/exportUtils';
 import { downloadOfficialTimesheetPdf } from '../../lib/pdfTimesheet';
 import { Modal } from '../common/Modal';
 import { CountUp } from '../common/CountUp';
+import { EmployeeAvatar } from '../common/EmployeeIdentity';
 
 export type RosterCategoryKey =
   | 'present'
@@ -1912,7 +1913,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                         <tr key={employee.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                           <td className="py-2.5 px-3 font-mono text-slate-400">{idx + 1}</td>
                           <td className="py-2.5 px-3">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100">{employee.name}</p>
+                            <div className="flex items-center gap-2">{settings.employeeUniverseBetaEnabled === true && employee.gameCharacterId && <EmployeeAvatar characterId={employee.gameCharacterId} petId={employee.gamePetId} name={employee.name} size="xs" />}<p className="font-semibold text-slate-900 dark:text-slate-100">{employee.name}</p></div>
                             <p className="text-[10px] font-mono text-slate-400">{employee.employeeCode}</p>
                           </td>
                           <td className="py-2.5 px-3">
