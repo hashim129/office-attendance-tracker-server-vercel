@@ -34,6 +34,7 @@ export interface CrmFollowup {
   customerId: string | null;
   participantIds: string[];
   kind: FollowupKind;
+  subject?: string;
   assignedTo: string;
   remarks: string;
   dueAt: string | null;
