@@ -442,7 +442,7 @@ const mapInvoice = (r, visaProgress = null) => ({
   taxLabel: r.tax_label || 'Tax', taxRate: num(r.tax_rate), discount: num(r.discount), advancePaid: num(r.advance_paid),
   subtotal: num(r.subtotal), taxAmount: num(r.tax_amount), total: num(r.total), balance: num(r.balance), notes: r.notes || '',
   vendors: asArray(r.vendors), ntn: r.ntn === null || r.ntn === undefined ? null : String(r.ntn), showNtn: r.show_ntn !== false,
-  status: r.status, vendorStatus: r.vendor_status === 'paid' ? 'paid' : 'unpaid', vendorPaidAt: r.vendor_paid_at || null, vendorPaidBy: r.vendor_paid_by || null,
+  status: r.status, paymentReceived: Boolean(r.payment_received), paymentReceivedAt: r.payment_received_at || null, paymentReceivedBy: r.payment_received_by || null, paymentReceivedAuto: Boolean(r.payment_received_auto), travelers: asArray(r.travelers), vendorStatus: r.vendor_status === 'paid' ? 'paid' : 'unpaid', vendorPaidAt: r.vendor_paid_at || null, vendorPaidBy: r.vendor_paid_by || null,
   cancelRemarks: r.cancel_remarks || '', cancelledBy: r.cancelled_by || null, cancelledAt: r.cancelled_at || null,
   visaProgress: r.kind === 'vendor' ? null : (visaProgress || null), createdAt: r.created_at, updatedAt: r.updated_at,
 });
@@ -1387,11 +1387,15 @@ export default async function handler(req, res) {
         // one box on the form: "CRM ID / Query Code" (kept in both columns so searches and reports find it either way)
         reference: str(x.reference, 120, { name: 'Reference' }), crm_id: crmQuery, query_code: crmQuery,
         ntn: str(x.ntn, 60, { name: 'NTN' }), show_ntn: x.showNtn !== false, vendors, invoice_date: dateOnly(x.invoiceDate, 'Invoice date', true), due_date: dateOnly(x.dueDate, 'Due date', false),
-        currency, sections, tax_label: str(x.taxLabel, 40, { name: 'Tax label' }) || 'Tax', tax_rate: taxRate, discount, advance_paid: advancePaid,
+        currency, sections, travelers: asArray(x.travelers).map((name) => str(name, 120, { name: 'Traveler name' })).filter(Boolean).slice(0, 100), tax_label: str(x.taxLabel, 40, { name: 'Tax label' }) || 'Tax', tax_rate: taxRate, discount, advance_paid: advancePaid,
         subtotal: r2(subtotal), tax_amount: taxAmount, total, balance, notes: str(x.notes, 1500, { name: 'Notes' }),
+        payment_received: existing ? (existing.created_by === me.id && existing.status === 'unpaid' ? Boolean(x.paymentReceived) : Boolean(existing.payment_received)) : Boolean(x.paymentReceived),
+        payment_received_at: existing ? (existing.created_by === me.id && existing.status === 'unpaid' ? (x.paymentReceived ? (existing.payment_received_at || at) : null) : existing.payment_received_at) : (x.paymentReceived ? at : null),
+        payment_received_by: existing ? (existing.created_by === me.id && existing.status === 'unpaid' ? (x.paymentReceived ? me.id : null) : existing.payment_received_by) : (x.paymentReceived ? me.id : null),
+        payment_received_auto: existing ? Boolean(existing.payment_received_auto) : false,
       };
       const at = nowIso();
-      if (existing && !isAdmin && me.role !== 'accounts' && !(existing.created_by === me.id && existing.status === 'unpaid')) {
+      if (existing && !isAdmin && !(existing.created_by === me.id && existing.status === 'unpaid')) {
         throw forbidden('You can only edit your own unpaid invoices.');
       }
       const betaEnabled = await isCustomerPortalBetaEnabled();
@@ -1657,9 +1661,21 @@ export default async function handler(req, res) {
       const status = String(body.status || '');
       if (!['unpaid', 'paid', 'cancelled'].includes(status)) throw bad('Choose Unpaid, Paid or Cancelled.');
       const staff = isAdmin || me.role === 'accounts';
+      if (me.role === 'accounts' && !isAdmin && !['paid', 'unpaid'].includes(status)) throw forbidden('Accounts Officer can only mark an invoice as received or reverse that receipt.');
       if (!staff && !(existing.created_by === me.id && status === 'cancelled' && existing.status === 'unpaid')) throw forbidden('Only Accounts or Admin can change the invoice status.');
       const at = nowIso();
-      const row = { ...existing, status, updated_at: at };
+      const markReceived = status === 'paid';
+      const row = {
+        ...existing, status, updated_at: at,
+        ...(markReceived ? {
+          payment_received: true,
+          payment_received_at: existing.payment_received_at || at,
+          payment_received_by: me.id,
+          payment_received_auto: !Boolean(existing.payment_received),
+        } : status === 'unpaid' ? {
+          payment_received: false, payment_received_at: null, payment_received_by: null, payment_received_auto: false,
+        } : {}),
+      };
       if (status === 'cancelled') {
         const remarks = str(body.remarks, 600, { required: true, name: 'Cancellation remarks' });
         row.cancel_remarks = remarks; row.cancelled_by = me.id; row.cancelled_at = at;
