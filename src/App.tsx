@@ -105,7 +105,7 @@ export default function App() {
   const [ceoComments, setCeoComments] = useState<CeoComment[]>([]);
   const [settings, setSettings] = useState<OfficeSettings>(loadSettings());
   const [previewBetaEnabled, setPreviewBetaEnabled] = useState<boolean>(() => IS_VERCEL_PREVIEW && localStorage.getItem('office_preview_redesign_beta') === 'true');
-  const betaEnabled = IS_VERCEL_PREVIEW ? previewBetaEnabled : Boolean(settings.redesignedUiBetaEnabled);
+  const betaEnabled = IS_VERCEL_PREVIEW ? previewBetaEnabled : settings.redesignedUiBetaEnabled !== false;
   const handlePreviewBetaChange = (enabled: boolean) => {
     setPreviewBetaEnabled(enabled);
     localStorage.setItem('office_preview_redesign_beta', enabled ? 'true' : 'false');
@@ -1109,7 +1109,7 @@ export default function App() {
               onCloseMobile={() => setIsMobileNavOpen(false)}
               crmEnabled={CRM_ENABLED}
               crmBadges={crm.badges}
-              redesignedUiBetaEnabled={settings.redesignedUiBetaEnabled}
+              redesignedUiBetaEnabled={betaEnabled}
             />
 
             <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-x-clip bg-slate-50/50 dark:bg-slate-950/40">
