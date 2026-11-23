@@ -402,142 +402,16 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
   return (
     <div className="w-full min-w-0 space-y-4 sm:space-y-5">
-      {/* Friendly greeting */}
-      <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-lg sm:text-xl font-bold leading-tight">{greetingWord}, {firstName}!</h2>
-          <p className="text-xs sm:text-sm text-blue-100 mt-0.5">{greetingLine}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
-          <StreakChip streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr)} />
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
-            <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
-            {coworkerCounts.in} online now
-          </span>
-          {coworkerCounts.offline > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
-              <span className="w-2 h-2 rounded-full bg-slate-300" />
-              {coworkerCounts.offline} offline
-            </span>
-          )}
-        </div>
-      </div>
-
-      <MomentCards employees={allEmployees.length ? allEmployees : [currentUser]} currentUserId={currentUser.id} todayStr={todayStr} />
-      {celebrate && (
-        <PunchCelebration
-          name={firstName}
-          late={celebrate.late}
-          streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr) + (todayRecord?.timeIn ? 0 : 1)}
-          timeLabel={celebrate.timeLabel}
-          onDone={() => setCelebrate(null)}
-        />
-      )}
-
-      {/* Unread Executive Directives Banner */}
-      {myDirectives.length > 0 && (
-        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold text-xs">
-              <Crown className="w-4 h-4 text-amber-600" />
-              <span>Executive Directives & Mentions ({myDirectives.length})</span>
-            </div>
-            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium uppercase tracking-wider">
-              Immediate Action
-            </span>
-          </div>
-          <div className="space-y-2">
-            {myDirectives.map((comment) => (
-              <div
-                key={comment.id}
-                className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 flex items-start justify-between gap-3 shadow-2xs"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                      {comment.fromName} ({comment.fromRole.toUpperCase()})
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">
-                    "{comment.message}"
-                  </p>
-                </div>
-                {onMarkCeoCommentRead && (
-                  <button
-                    onClick={() => onMarkCeoCommentRead(comment.id)}
-                    className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 text-xs font-bold transition-colors cursor-pointer"
-                    title="Acknowledge directive"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Acknowledge</span>
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Top Banner: Welcome & Live Windows Clock */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-100/90 dark:bg-emerald-950/80 border-2 border-emerald-400 dark:border-emerald-600 shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-black text-emerald-900 dark:text-emerald-200">
-              {formattedDate}
-            </span>
-            <span className="text-emerald-500 font-bold">•</span>
-            <span className="text-xs font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">
-              {dayName}
-            </span>
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-            Welcome back, {currentUser.name}
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Assigned Shift: <strong className="text-slate-700 dark:text-slate-300">{userShift.name}</strong>
-            {userShift.isNoRestriction ? (
-              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                24/7 Flexible · No Shift Restriction
-              </span>
-            ) : (
-              <span> ({formatTime12h(userShift.startTime)} – {formatTime12h(userShift.endTime)}) · {userShift.graceMinutes}m grace period</span>
-            )}
-          </p>
-          {isAdminUser && currentUser.allowWorkFromHome && (
-            <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700/70 text-emerald-800 dark:text-emerald-200 text-xs font-semibold shadow-2xs">
-              <Home className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>{isRemoteWfhPunch ? 'Work From Home shift · Reason note required' : 'Work From Home allowed · counted separately when you are off the office network'}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Big Live Digital Clock Display */}
-        <div className="bg-slate-950 text-white dark:bg-black rounded-xl px-6 py-4 border border-slate-800 shadow-inner flex flex-col items-center">
-          <span className="text-[10px] font-mono tracking-widest text-slate-400 uppercase">
-            Office Server Time
-          </span>
-          <div className="text-3xl sm:text-4xl font-mono font-bold tracking-wider text-blue-400 mt-0.5 tabular-nums">
-            {formattedDigitalClock}
-          </div>
-          <span className="text-[11px] text-emerald-400 font-bold mt-1 tracking-wide">
-            {dayName} · Live Sync
-          </span>
-        </div>
-      </div>
-
       {/* Main Punch Interaction Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 items-start">
+      <div className="grid grid-cols-1 gap-4 sm:gap-5 items-start">
         {/* Left 2 Cols: Punch Clock Card */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 space-y-5">
+        <div className="w-full bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-7 shadow-lg shadow-slate-200/50 dark:shadow-black/20 border border-slate-200 dark:border-slate-800 space-y-5">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Clock className="w-4 h-4 text-blue-600" />
-              <span>Shift Attendance Punch</span>
+              <span>Attendance · Punch In / Out</span>
             </h2>
+            <p className="ml-6 mt-1 text-xs text-slate-500 dark:text-slate-400">{formattedDate} <span className="mx-1">·</span> Office server time <span className="font-mono font-semibold text-blue-600 dark:text-blue-400">{formattedDigitalClock}</span> <span className="mx-1">·</span> {userShift.name}</p>
 
             {/* Current State Indicator */}
             <div>
@@ -568,6 +442,199 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
               )}
             </div>
           </div>
+
+          {/* Action Buttons */}
+          <div className="space-y-4 pt-1">
+            {isOvertimeVerificationDue && !todayRecord?.timeOut && (
+              <div className="p-3.5 rounded-xl border-2 border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-950 dark:text-amber-100 space-y-2.5 shadow-xs">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-1">
+                    <p className="font-bold">
+                      {isFinalVerificationDue ? `Overtime Verification (${graceHours}h After Shift End) — Are you currently working?` : 'Your shift has ended — are you working extra hours?'}
+                    </p>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-200">
+                      {isFinalVerificationDue
+                        ? <>Please verify if you are still actively working on overtime. If not verified within <b>{verifyMinsRemaining} min</b>, the system will automatically punch you out and record your overtime separately under auto punch-out remarks.</>
+                        : <>Press “Yes” to stay punched in — the automatic punch-out is paused and you will be asked again after {graceHours} hours. If you are finished, punch out now.</>}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={verifyingWork}
+                    onClick={handleConfirmStillWorking}
+                    className="px-3.5 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer disabled:opacity-60"
+                  >
+                    {verifyingWork ? 'Verifying…' : '✓ Yes, I Am Currently Working (Continue Overtime)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTimeOutClick}
+                    className="px-3.5 py-2 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+                  >
+                    No, Punch Out Now
+                  </button>
+                </div>
+              </div>
+            )}
+            {!todayRecord?.timeIn ? (
+              showLockedPanel ? (
+                <div className="rounded-2xl border border-rose-200 dark:border-rose-900/60 bg-gradient-to-br from-rose-50 via-white to-amber-50 dark:from-rose-950/40 dark:via-slate-900 dark:to-amber-950/20 p-5 sm:p-6 text-center space-y-4">
+                  <div className="mx-auto w-14 h-14 rounded-2xl bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-300 flex items-center justify-center">
+                    <WifiOff className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100">Connect to the office Wi-Fi to punch in</h3>
+                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">
+                      Attendance is locked until you are on the office network. It unlocks by itself a few seconds after you connect.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold">
+                    <span className="px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">1 · Join the office Wi-Fi</span>
+                    <span className="px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">2 · Tap “Check again”</span>
+                    <span className="px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">3 · Punch in</span>
+                  </div>
+                  {onRecheckNetwork && (
+                    <button
+                      type="button"
+                      onClick={recheckNow}
+                      disabled={rechecking}
+                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-600/20 disabled:opacity-70 cursor-pointer"
+                    >
+                      <Wifi className={`w-4 h-4 ${rechecking ? 'animate-pulse' : ''}`} />
+                      <span>{rechecking ? 'Checking your network…' : 'Check again'}</span>
+                    </button>
+                  )}
+                  <p className="text-[11px] text-slate-400">We re-check automatically every few seconds.</p>
+                </div>
+              ) : (
+              <button
+                onClick={handleTimeInClick}
+                disabled={isPunchBlocked}
+                className={`w-full min-h-[76px] py-5 px-6 rounded-2xl font-extrabold text-lg sm:text-xl tracking-tight transition-all duration-200 flex items-center justify-center gap-3 shadow-lg ${
+                  isPunchBlocked
+                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
+                    : 'bg-gradient-to-r from-emerald-600 via-emerald-600 to-teal-600 hover:from-emerald-700 hover:via-emerald-700 hover:to-teal-700 active:scale-[0.99] text-white shadow-xl shadow-emerald-600/25 ring-1 ring-emerald-500/20 cursor-pointer'
+                }`}
+              >
+                <LogIn className="w-6 h-6" />
+                <span>
+                  {isPunchBlockedByIp
+                    ? 'Connect to Office Wi-Fi to Punch In'
+                    : 'Punch Time In (Once Daily)'}
+                </span>
+              </button>
+              )
+            ) : !todayRecord.timeOut ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                  onClick={handleBreakToggle}
+                  disabled={isPunchBlocked}
+                  className={`py-3.5 px-5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2.5 shadow-xs ${
+                    isPunchBlocked
+                      ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                      : isOnBreak
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white cursor-pointer'
+                      : 'bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 dark:hover:bg-amber-900/60 border border-amber-300 dark:border-amber-800 cursor-pointer'
+                  }`}
+                >
+                  <Coffee className="w-4 h-4" />
+                  <span>{isOnBreak ? 'End Lunch Break' : 'Start Lunch Break'}</span>
+                </button>
+
+                <button
+                  onClick={handleTimeOutClick}
+                  disabled={isOnBreak || isPunchBlocked}
+                  className={`py-3.5 px-5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2.5 shadow-xs ${
+                    isOnBreak || isPunchBlocked
+                      ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 cursor-not-allowed'
+                      : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20 cursor-pointer'
+                  }`}
+                  title={
+                    isPunchBlockedByIp
+                      ? 'Connect to Office Wi-Fi to clock out'
+                      : isOnBreak
+                      ? 'Please end break before clocking out'
+                      : 'Record Time Out for today'
+                  }
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Punch Time Out</span>
+                </button>
+              </div>
+            ) : (
+              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800/50 text-center space-y-1">
+                <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                  Daily Attendance Completed
+                </p>
+                <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                  Time In: {formatTime12h(todayRecord.timeIn)} · Time Out: {formatTime12h(todayRecord.timeOut)} · Total Worked: {formatMinutesToHoursMinutes(todayRecord.totalWorkedMinutes)}
+                  {(todayRecord.overtimeMinutes || 0) > 0 ? ` · Overtime: ${formatMinutesToHoursMinutes(todayRecord.overtimeMinutes)}` : ''}
+                </p>
+                {todayRecord.isAutoPunchedOut && (
+                  <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                    {`System Notice: Auto punched out ${settings.autoPunchOutOnInactiveHours ?? 2}h after shift ended · Overtime counted in remarks: ${formatMinutesToHoursMinutes(todayRecord.overtimeMinutes || 0)}`}
+                  </p>
+                )}
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1">
+                  Employees are permitted ONE attendance punch cycle per day. For any manual adjustments, please contact the Administrator.
+                </p>
+              </div>
+            )}
+
+            {/* Real-Time Punch Note / Remark Section: staff only see it when a Work From Home reason is required */}
+            {(isAdminUser || isRemoteWfhPunch) && (
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                  <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{isRemoteWfhPunch ? 'Note: Reason for Working from Home (required)' : 'Punch Note / Daily Remark'}</span>
+                </div>
+                {noteSavedFeedback && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 animate-in fade-in">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Saved in Real-Time!</span>
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <input
+                  type="text"
+                  value={actionNotes}
+                  onChange={(e) => setActionNotes(e.target.value)}
+                  placeholder={isRemoteWfhPunch ? 'Why are you working from home today? (required before Time In)' : 'e.g. Working from client branch in morning / Doctor appointment'}
+                  className={`flex-1 text-xs px-3 py-2 bg-white dark:bg-slate-900 border rounded-lg ${wfhReasonMissing ? 'border-amber-500 ring-1 ring-amber-400' : 'border-slate-300 dark:border-slate-700'} text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500`}
+                />
+
+                {todayRecord ? (
+                  <button
+                    type="button"
+                    onClick={handleSaveNoteRealTime}
+                    className="px-3.5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
+                    title="Save remark to database immediately"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Save Remark</span>
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 self-center px-1">
+                    Will save automatically with Time In
+                  </span>
+                )}
+              </div>
+
+              {todayRecord?.notes && !noteSavedFeedback && (
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Current Saved Note: <strong className="text-slate-700 dark:text-slate-300">{todayRecord.notes}</strong>
+                </p>
+              )}
+            </div>
+            )}
+          </div>
+
 
           {/* Active Counters if Clocked In */}
           {isClockedIn && (
@@ -713,197 +780,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
             )}
           </div>
 
-          {/* Action Buttons */}
-          <div className="space-y-4 pt-1">
-            {isOvertimeVerificationDue && !todayRecord?.timeOut && (
-              <div className="p-3.5 rounded-xl border-2 border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-950 dark:text-amber-100 space-y-2.5 shadow-xs">
-                <div className="flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div className="text-xs space-y-1">
-                    <p className="font-bold">
-                      {isFinalVerificationDue ? `Overtime Verification (${graceHours}h After Shift End) — Are you currently working?` : 'Your shift has ended — are you working extra hours?'}
-                    </p>
-                    <p className="text-[11px] text-amber-800 dark:text-amber-200">
-                      {isFinalVerificationDue
-                        ? <>Please verify if you are still actively working on overtime. If not verified within <b>{verifyMinsRemaining} min</b>, the system will automatically punch you out and record your overtime separately under auto punch-out remarks.</>
-                        : <>Press “Yes” to stay punched in — the automatic punch-out is paused and you will be asked again after {graceHours} hours. If you are finished, punch out now.</>}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={verifyingWork}
-                    onClick={handleConfirmStillWorking}
-                    className="px-3.5 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer disabled:opacity-60"
-                  >
-                    {verifyingWork ? 'Verifying…' : '✓ Yes, I Am Currently Working (Continue Overtime)'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleTimeOutClick}
-                    className="px-3.5 py-2 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
-                  >
-                    No, Punch Out Now
-                  </button>
-                </div>
-              </div>
-            )}
-            {!todayRecord?.timeIn ? (
-              showLockedPanel ? (
-                <div className="rounded-2xl border border-rose-200 dark:border-rose-900/60 bg-gradient-to-br from-rose-50 via-white to-amber-50 dark:from-rose-950/40 dark:via-slate-900 dark:to-amber-950/20 p-5 sm:p-6 text-center space-y-4">
-                  <div className="mx-auto w-14 h-14 rounded-2xl bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-300 flex items-center justify-center">
-                    <WifiOff className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100">Connect to the office Wi-Fi to punch in</h3>
-                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-1">
-                      Attendance is locked until you are on the office network. It unlocks by itself a few seconds after you connect.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] font-semibold">
-                    <span className="px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">1 · Join the office Wi-Fi</span>
-                    <span className="px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">2 · Tap “Check again”</span>
-                    <span className="px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">3 · Punch in</span>
-                  </div>
-                  {onRecheckNetwork && (
-                    <button
-                      type="button"
-                      onClick={recheckNow}
-                      disabled={rechecking}
-                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-600/20 disabled:opacity-70 cursor-pointer"
-                    >
-                      <Wifi className={`w-4 h-4 ${rechecking ? 'animate-pulse' : ''}`} />
-                      <span>{rechecking ? 'Checking your network…' : 'Check again'}</span>
-                    </button>
-                  )}
-                  <p className="text-[11px] text-slate-400">We re-check automatically every few seconds.</p>
-                </div>
-              ) : (
-              <button
-                onClick={handleTimeInClick}
-                disabled={isPunchBlocked}
-                className={`w-full py-4 px-6 rounded-xl font-semibold text-base transition-all flex items-center justify-center gap-3 shadow-md ${
-                  isPunchBlocked
-                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shadow-none'
-                    : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-emerald-600/20 cursor-pointer'
-                }`}
-              >
-                <LogIn className="w-5 h-5" />
-                <span>
-                  {isPunchBlockedByIp
-                    ? 'Connect to Office Wi-Fi to Punch In'
-                    : 'Punch Time In (Once Daily)'}
-                </span>
-              </button>
-              )
-            ) : !todayRecord.timeOut ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <button
-                  onClick={handleBreakToggle}
-                  disabled={isPunchBlocked}
-                  className={`py-3.5 px-5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2.5 shadow-xs ${
-                    isPunchBlocked
-                      ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
-                      : isOnBreak
-                      ? 'bg-amber-600 hover:bg-amber-700 text-white cursor-pointer'
-                      : 'bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 dark:hover:bg-amber-900/60 border border-amber-300 dark:border-amber-800 cursor-pointer'
-                  }`}
-                >
-                  <Coffee className="w-4 h-4" />
-                  <span>{isOnBreak ? 'End Lunch Break' : 'Start Lunch Break'}</span>
-                </button>
-
-                <button
-                  onClick={handleTimeOutClick}
-                  disabled={isOnBreak || isPunchBlocked}
-                  className={`py-3.5 px-5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2.5 shadow-xs ${
-                    isOnBreak || isPunchBlocked
-                      ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 cursor-not-allowed'
-                      : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20 cursor-pointer'
-                  }`}
-                  title={
-                    isPunchBlockedByIp
-                      ? 'Connect to Office Wi-Fi to clock out'
-                      : isOnBreak
-                      ? 'Please end break before clocking out'
-                      : 'Record Time Out for today'
-                  }
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Punch Time Out</span>
-                </button>
-              </div>
-            ) : (
-              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl border border-emerald-200 dark:border-emerald-800/50 text-center space-y-1">
-                <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
-                  Daily Attendance Completed
-                </p>
-                <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                  Time In: {formatTime12h(todayRecord.timeIn)} · Time Out: {formatTime12h(todayRecord.timeOut)} · Total Worked: {formatMinutesToHoursMinutes(todayRecord.totalWorkedMinutes)}
-                  {(todayRecord.overtimeMinutes || 0) > 0 ? ` · Overtime: ${formatMinutesToHoursMinutes(todayRecord.overtimeMinutes)}` : ''}
-                </p>
-                {todayRecord.isAutoPunchedOut && (
-                  <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
-                    {`System Notice: Auto punched out ${settings.autoPunchOutOnInactiveHours ?? 2}h after shift ended · Overtime counted in remarks: ${formatMinutesToHoursMinutes(todayRecord.overtimeMinutes || 0)}`}
-                  </p>
-                )}
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1">
-                  Employees are permitted ONE attendance punch cycle per day. For any manual adjustments, please contact the Administrator.
-                </p>
-              </div>
-            )}
-
-            {/* Real-Time Punch Note / Remark Section: staff only see it when a Work From Home reason is required */}
-            {(isAdminUser || isRemoteWfhPunch) && (
-            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
-                  <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{isRemoteWfhPunch ? 'Note: Reason for Working from Home (required)' : 'Punch Note / Daily Remark'}</span>
-                </div>
-                {noteSavedFeedback && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 animate-in fade-in">
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Saved in Real-Time!</span>
-                  </span>
-                )}
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                <input
-                  type="text"
-                  value={actionNotes}
-                  onChange={(e) => setActionNotes(e.target.value)}
-                  placeholder={isRemoteWfhPunch ? 'Why are you working from home today? (required before Time In)' : 'e.g. Working from client branch in morning / Doctor appointment'}
-                  className={`flex-1 text-xs px-3 py-2 bg-white dark:bg-slate-900 border rounded-lg ${wfhReasonMissing ? 'border-amber-500 ring-1 ring-amber-400' : 'border-slate-300 dark:border-slate-700'} text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-blue-500`}
-                />
-
-                {todayRecord ? (
-                  <button
-                    type="button"
-                    onClick={handleSaveNoteRealTime}
-                    className="px-3.5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
-                    title="Save remark to database immediately"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    <span>Save Remark</span>
-                  </button>
-                ) : (
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 self-center px-1">
-                    Will save automatically with Time In
-                  </span>
-                )}
-              </div>
-
-              {todayRecord?.notes && !noteSavedFeedback && (
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Current Saved Note: <strong className="text-slate-700 dark:text-slate-300">{todayRecord.notes}</strong>
-                </p>
-              )}
-            </div>
-            )}
-          </div>
         </div>
 
         {/* Right Col: Today's Timeline Card */}
@@ -988,6 +864,133 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
               <span className="font-medium text-blue-600 dark:text-blue-400">1 Punch Cycle / Day</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Friendly greeting */}
+      <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-lg sm:text-xl font-bold leading-tight">{greetingWord}, {firstName}!</h2>
+          <p className="text-xs sm:text-sm text-blue-100 mt-0.5">{greetingLine}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
+          <StreakChip streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr)} />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
+            <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+            {coworkerCounts.in} online now
+          </span>
+          {coworkerCounts.offline > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
+              <span className="w-2 h-2 rounded-full bg-slate-300" />
+              {coworkerCounts.offline} offline
+            </span>
+          )}
+        </div>
+      </div>
+
+      <MomentCards employees={allEmployees.length ? allEmployees : [currentUser]} currentUserId={currentUser.id} todayStr={todayStr} />
+      {celebrate && (
+        <PunchCelebration
+          name={firstName}
+          late={celebrate.late}
+          streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr) + (todayRecord?.timeIn ? 0 : 1)}
+          timeLabel={celebrate.timeLabel}
+          onDone={() => setCelebrate(null)}
+        />
+      )}
+
+      {/* Unread Executive Directives Banner */}
+      {myDirectives.length > 0 && (
+        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold text-xs">
+              <Crown className="w-4 h-4 text-amber-600" />
+              <span>Executive Directives & Mentions ({myDirectives.length})</span>
+            </div>
+            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium uppercase tracking-wider">
+              Immediate Action
+            </span>
+          </div>
+          <div className="space-y-2">
+            {myDirectives.map((comment) => (
+              <div
+                key={comment.id}
+                className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 flex items-start justify-between gap-3 shadow-2xs"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                      {comment.fromName} ({comment.fromRole.toUpperCase()})
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    "{comment.message}"
+                  </p>
+                </div>
+                {onMarkCeoCommentRead && (
+                  <button
+                    onClick={() => onMarkCeoCommentRead(comment.id)}
+                    className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 text-xs font-bold transition-colors cursor-pointer"
+                    title="Acknowledge directive"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Acknowledge</span>
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Top Banner: Welcome & Live Windows Clock */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-100/90 dark:bg-emerald-950/80 border-2 border-emerald-400 dark:border-emerald-600 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs font-black text-emerald-900 dark:text-emerald-200">
+              {formattedDate}
+            </span>
+            <span className="text-emerald-500 font-bold">•</span>
+            <span className="text-xs font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">
+              {dayName}
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
+            Welcome back, {currentUser.name}
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Assigned Shift: <strong className="text-slate-700 dark:text-slate-300">{userShift.name}</strong>
+            {userShift.isNoRestriction ? (
+              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                24/7 Flexible · No Shift Restriction
+              </span>
+            ) : (
+              <span> ({formatTime12h(userShift.startTime)} – {formatTime12h(userShift.endTime)}) · {userShift.graceMinutes}m grace period</span>
+            )}
+          </p>
+          {isAdminUser && currentUser.allowWorkFromHome && (
+            <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700/70 text-emerald-800 dark:text-emerald-200 text-xs font-semibold shadow-2xs">
+              <Home className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>{isRemoteWfhPunch ? 'Work From Home shift · Reason note required' : 'Work From Home allowed · counted separately when you are off the office network'}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Big Live Digital Clock Display */}
+        <div className="bg-slate-950 text-white dark:bg-black rounded-xl px-6 py-4 border border-slate-800 shadow-inner flex flex-col items-center">
+          <span className="text-[10px] font-mono tracking-widest text-slate-400 uppercase">
+            Office Server Time
+          </span>
+          <div className="text-3xl sm:text-4xl font-mono font-bold tracking-wider text-blue-400 mt-0.5 tabular-nums">
+            {formattedDigitalClock}
+          </div>
+          <span className="text-[11px] text-emerald-400 font-bold mt-1 tracking-wide">
+            {dayName} · Live Sync
+          </span>
         </div>
       </div>
 
