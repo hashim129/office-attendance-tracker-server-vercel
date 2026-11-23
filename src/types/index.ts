@@ -143,6 +143,7 @@ export interface Employee {
   customerPortalAccess?: boolean; // Admin-selected: may see the Customer Portal (Beta) link and its live queries
   salesAccess?: boolean; // Admin-selected: may open the Sales section
   liveDashboardAccess?: boolean; // Admin-selected: may open the Live Dashboard
+  teamPresenceAccess?: boolean; // Admin-selected: may view Team Presence; hidden for employees by default
   leaderboardAccess?: boolean; // Admin-selected: may see the sales leaderboard
   payablesAccess?: boolean; // Admin-selected: may see the payables-due calendar
   birthday?: string; // YYYY-MM-DD, optional (used for birthday cards)
@@ -207,6 +208,7 @@ export interface OfficeSettings {
   disconnectThresholdMinutes?: number; // Minutes without heartbeat before marking "No Internet" (default 3)
   customerPortalBetaEnabled?: boolean; // Beta toggle for public /customers portal & invoice Visa tracking (default false)
   redesignedUiBetaEnabled?: boolean; // Admin-approved, reversible redesigned workspace rollout (default false)
+  headerBetaEnabled?: boolean; // Independent administrator-controlled top header redesign (default false)
   settingsUpdatedAt?: string;
 }
 

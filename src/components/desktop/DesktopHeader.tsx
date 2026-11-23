@@ -44,6 +44,7 @@ interface DesktopHeaderProps {
   isDark?: boolean;
   onToggleTheme?: () => void;
   redesignedUiBetaEnabled?: boolean;
+  headerBetaEnabled?: boolean;
 }
 
 export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
@@ -65,6 +66,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   isDark = false,
   onToggleTheme,
   redesignedUiBetaEnabled = false,
+  headerBetaEnabled = false,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCrmBell, setShowCrmBell] = useState(false);
@@ -146,7 +148,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
 
   return (
     <div className={`min-h-[72px] px-3 sm:px-5 lg:px-7 py-2.5 border-b flex items-center justify-between gap-3 shrink-0 relative z-30 transition-colors duration-200 ${
-      redesignedUiBetaEnabled
+      headerBetaEnabled
         ? 'border-slate-200/80 dark:border-slate-700/80 bg-[linear-gradient(105deg,rgba(255,255,255,0.98),rgba(239,246,255,0.94),rgba(255,255,255,0.98))] dark:bg-[linear-gradient(105deg,rgba(15,23,42,0.98),rgba(23,37,64,0.96),rgba(15,23,42,0.98))] shadow-[0_8px_28px_rgba(15,23,42,0.07)]'
         : 'border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-[0_4px_18px_rgba(15,23,42,0.035)]'
     }`}>
@@ -163,10 +165,10 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             <Menu className="w-5 h-5" />
           </button>
         )}
-        {redesignedUiBetaEnabled ? (
+        {headerBetaEnabled ? (
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-12 items-center rounded-xl border border-slate-200/80 bg-white/90 px-2.5 shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
-              <img src="/bahaar-logo.png" alt="Bahaar Journeys" className="h-9 w-auto max-w-[190px] object-contain object-left shrink-0" />
+            <div className="flex h-14 sm:h-16 items-center rounded-xl bg-white px-3 sm:px-4 dark:bg-slate-900 shrink-0">
+              <img src="/bahaar-logo.png" alt="Bahaar Journeys" className="h-12 sm:h-14 w-auto max-w-[230px] object-contain object-left shrink-0" />
             </div>
             <div className="hidden sm:block min-w-0 border-l border-slate-200 dark:border-slate-700 pl-3">
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600 dark:text-blue-400">Bahaar Journeys</p>
@@ -228,7 +230,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
           <button
             type="button"
             onClick={() => { setShowNotifications((v) => !v); setShowCrmBell(false); }}
-            className="relative rounded-xl p-2.5 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-300"
+            className={`relative rounded-xl p-2.5 transition-all hover:-translate-y-0.5 hover:shadow-sm ${headerBetaEnabled ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/20 hover:from-blue-700 hover:to-indigo-700' : 'text-slate-500 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-300'}`}
             title="Smart notification center"
             aria-label={`Notifications, ${unreadCount + crmUnread} unread`}
             aria-expanded={showNotifications}
@@ -282,7 +284,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         {currentUser.role === 'admin' && (
           <button
             onClick={onSwitchToKiosk}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+            className={`hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer ${headerBetaEnabled ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-blue-600/20 hover:from-indigo-700 hover:to-blue-700' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'}`}
             title="Switch to Lobby Punch-Clock Terminal"
           >
             <Monitor className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
@@ -329,7 +331,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
           {onOpenChangePassword && (
             <button
               onClick={onOpenChangePassword}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-blue-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-slate-800 transition-colors cursor-pointer border border-slate-200 dark:border-slate-700"
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all hover:-translate-y-0.5 hover:shadow-sm cursor-pointer border ${headerBetaEnabled ? 'border-blue-200 bg-gradient-to-r from-white to-blue-50 text-blue-700 shadow-sm dark:border-slate-700 dark:from-slate-800 dark:to-slate-900 dark:text-blue-300' : 'border-slate-200 text-slate-600 hover:text-blue-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-slate-800'}`}
               title="Change your portal password / PIN"
             >
               <KeyRound className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />

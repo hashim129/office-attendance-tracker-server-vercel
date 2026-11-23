@@ -161,19 +161,21 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               <span>My Attendance & Stats</span>
             </button>
 
-            <button
-              onClick={() => handleTabClick('team-attendance', 'workspace')}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
-                activeTab === 'team-attendance' && activeTeamSource === 'workspace'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
-              }`}
-              data-active={activeTab === 'team-attendance' && activeTeamSource === 'workspace' ? 'true' : undefined}
-              title="View all employees' time in and presence status"
-            >
-              <UserCheck className="w-4 h-4 shrink-0" />
-              <span>Team Presence (P/A)</span>
-            </button>
+            {(['admin', 'ceo'].includes(currentUser.role) || currentUser.teamPresenceAccess === true) && (
+              <button
+                onClick={() => handleTabClick('team-attendance', 'workspace')}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
+                  activeTab === 'team-attendance' && activeTeamSource === 'workspace'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                }`}
+                data-active={activeTab === 'team-attendance' && activeTeamSource === 'workspace' ? 'true' : undefined}
+                title="View all employees' time in and presence status"
+              >
+                <UserCheck className="w-4 h-4 shrink-0" />
+                <span>Team Presence (P/A)</span>
+              </button>
+            )}
 
             <button
               onClick={() => onSelectTab('leaves')}
