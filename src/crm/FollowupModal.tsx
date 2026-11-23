@@ -36,6 +36,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
   const [newDest, setNewDest] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [kind, setKind] = useState<FollowupKind>('meeting');
+  const [subject, setSubject] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [participants, setParticipants] = useState<string[]>([]);
   const [dueAt, setDueAt] = useState('');
@@ -57,6 +58,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
       setMode(editing.customerId ? 'existing' : 'none');
       setCustomerId(editing.customerId || '');
       setKind(editing.kind);
+      setSubject(editing.subject || '');
       setAssignedTo(editing.assignedTo);
       setParticipants(editing.participantIds || []);
       setDueAt(editing.dueAt ? toLocalInput(editing.dueAt) : '');
@@ -65,6 +67,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
       setMode(presetCustomerId ? 'existing' : 'none');
       setCustomerId(presetCustomerId || '');
       setKind('meeting');
+      setSubject('');
       setAssignedTo(currentUser.id);
       setParticipants([]);
       setDueAt('');
@@ -88,6 +91,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
       const followup: Record<string, unknown> = {
         id: editing?.id,
         kind,
+        subject: kind === 'internal' ? subject : '',
         assignedTo,
         participantIds: participants.filter((p) => p !== assignedTo),
         remarks,
@@ -125,6 +129,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
   return (
     <Modal isOpen={open} onClose={onClose} title={editing ? 'Edit follow-up' : 'New follow-up'} subtitle="Chosen employees are notified." maxWidth="lg">
       <form onSubmit={submit} className="space-y-4">
+        {kind === 'internal' && <Field label="Subject *"><input className={inputCls} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={180} required placeholder="What needs to be done?" /></Field>}
         <div>
           <span className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Customer (optional)</span>
           <div className="flex flex-wrap gap-1.5 mb-2">
