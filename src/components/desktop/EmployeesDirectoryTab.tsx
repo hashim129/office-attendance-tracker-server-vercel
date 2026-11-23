@@ -83,6 +83,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     salesAccess: false,
     customerPortalAccess: false,
     liveDashboardAccess: false,
+    teamPresenceAccess: false,
     leaderboardAccess: false,
     payablesAccess: false,
     birthday: '',
@@ -123,6 +124,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       salesAccess: false,
       customerPortalAccess: false,
       liveDashboardAccess: false,
+      teamPresenceAccess: false,
       leaderboardAccess: false,
       payablesAccess: false,
       birthday: '',
@@ -148,6 +150,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       salesAccess: Boolean(emp.salesAccess),
       customerPortalAccess: Boolean(emp.customerPortalAccess),
       liveDashboardAccess: Boolean(emp.liveDashboardAccess),
+      teamPresenceAccess: Boolean(emp.teamPresenceAccess),
       leaderboardAccess: Boolean(emp.leaderboardAccess),
       payablesAccess: Boolean(emp.payablesAccess),
       birthday: emp.birthday || '',
@@ -728,7 +731,8 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
             <div className="p-3.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/60 space-y-3">
               <p className="text-xs font-bold text-slate-900 dark:text-slate-100">Extra access switches</p>
               {([
-                ['liveDashboardAccess', 'Can open the Live Dashboard', 'Shows who is in, late, absent or on leave today. Admin and CEO always have it.'],
+                ['liveDashboardAccess', 'Can open the Live Dashboard', 'Shows attendance statistics and operations tasks. Admin and CEO always have it.'],
+                ['teamPresenceAccess', 'Can view Team Presence (P/A)', 'Allows this employee to open the live team roster. Hidden for employees unless explicitly enabled by an administrator.'],
                 ['leaderboardAccess', 'Can see the sales leaderboard and targets', 'Shows every salesperson\'s monthly totals (never cost or profit). Admin, CEO and Accounts always see it.'],
                 ['payablesAccess', 'Can see the payables-due calendar', 'Shows unpaid vendor bills and their due dates. Admin, CEO and Accounts always see it.'],
               ] as const).map(([key, title, hint]) => (
