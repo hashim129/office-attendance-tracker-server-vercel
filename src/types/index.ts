@@ -143,6 +143,7 @@ export interface Employee {
   customerPortalAccess?: boolean; // Admin-selected: may see the Customer Portal (Beta) link and its live queries
   salesAccess?: boolean; // Admin-selected: may open the Sales section
   liveDashboardAccess?: boolean; // Admin-selected: may open the Live Dashboard
+  teamAttendanceAccess?: boolean; // Admin-selected: may view the read-only Team Presence page
   leaderboardAccess?: boolean; // Admin-selected: may see the sales leaderboard
   payablesAccess?: boolean; // Admin-selected: may see the payables-due calendar
   birthday?: string; // YYYY-MM-DD, optional (used for birthday cards)

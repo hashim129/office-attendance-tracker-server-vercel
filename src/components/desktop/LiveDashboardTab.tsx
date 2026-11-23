@@ -130,6 +130,16 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
     { key: 'leave', title: 'On leave', tone: 'bg-violet-500', items: rows.filter((r) => r.state === 'leave') },
     { key: 'out', title: 'Finished for the day', tone: 'bg-slate-400', items: rows.filter((r) => r.state === 'out') },
   ];
+  const [presenceFilter, setPresenceFilter] = useState<string>('all');
+  const presenceTiles = [
+    { key: 'in', label: 'Working now', emoji: '🟢', value: inNow, color: 'from-emerald-500/15 to-teal-500/5 border-emerald-200 dark:border-emerald-900/60' },
+    { key: 'late', label: 'Arrived late', emoji: '⏰', value: late, color: 'from-amber-500/15 to-orange-500/5 border-amber-200 dark:border-amber-900/60' },
+    { key: 'absent', label: 'Not in yet', emoji: '👀', value: absent, color: 'from-rose-500/15 to-pink-500/5 border-rose-200 dark:border-rose-900/60' },
+    { key: 'leave', label: 'On leave', emoji: '🌴', value: onLeave, color: 'from-violet-500/15 to-fuchsia-500/5 border-violet-200 dark:border-violet-900/60' },
+    { key: 'out', label: 'Finished', emoji: '🏁', value: done, color: 'from-slate-500/10 to-slate-400/5 border-slate-200 dark:border-slate-800' },
+  ];
+  const visiblePresenceRows = presenceFilter === 'all' ? rows : rows.filter((r) => presenceFilter === 'late' ? r.late : r.state === presenceFilter);
+  const statusSticker = (r: Row) => r.offline ? '📡' : r.wfh ? '🏡' : r.state === 'in' ? '🟢' : r.late ? '⏰' : r.state === 'leave' ? '🌴' : r.state === 'absent' ? '👀' : r.state === 'out' ? '🏁' : r.state === 'off' ? '🌙' : '⌛';
 
   const biz = crm.data.business;
   const cur = biz?.targets?.currency || 'PKR';
@@ -241,30 +251,22 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <Card title="Who is where today" icon={<Users className="w-4 h-4 text-blue-600" />}>
-          <div className="space-y-3">
-            {groups.map((g) => (
-              <div key={g.key}>
-                <p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  <span className={`w-2 h-2 rounded-full ${g.tone}`} /> {g.title} <span className="text-slate-400">({g.items.length})</span>
-                </p>
-                {g.items.length === 0 ? (
-                  <p className="mt-1 text-xs text-slate-400">Nobody.</p>
-                ) : (
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {g.items.map((r) => (
-                      <span key={r.e.id} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200">
-                        {r.e.name.split(' ')[0]}
-                        {r.timeIn && <span className="text-slate-400">{clock12(r.timeIn)}</span>}
-                        {r.wfh && <Home className="w-3 h-3 text-sky-500" aria-label="Working from home" />}
-                        {r.offline && <WifiOff className="w-3 h-3 text-rose-500" aria-label="No internet" />}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+        <Card title="Team pulse · live presence" icon={<Users className="w-4 h-4 text-blue-600" />} right={<span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/> LIVE</span>}>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {presenceTiles.map((tile) => <button key={tile.key} type="button" onClick={() => setPresenceFilter(presenceFilter === tile.key ? 'all' : tile.key)} aria-pressed={presenceFilter === tile.key} className={`rounded-2xl border bg-gradient-to-br p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${tile.color} ${presenceFilter === tile.key ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-slate-900' : ''}`}>
+              <span className="text-xl">{tile.emoji}</span><strong className="block mt-1 text-2xl font-black text-slate-900 dark:text-slate-100"><CountUp value={tile.value}/></strong><span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">{tile.label}</span>
+            </button>)}
           </div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-bold text-slate-900 dark:text-slate-100">{presenceFilter === 'all' ? 'Everyone on the roster' : presenceTiles.find(t => t.key === presenceFilter)?.label}</p><p className="text-[10px] text-slate-500 dark:text-slate-400">Tap a status tile to filter the team cards</p></div>{presenceFilter !== 'all' && <button type="button" onClick={() => setPresenceFilter('all')} className="text-[10px] font-bold text-blue-600 hover:underline">Show everyone</button>}</div>
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+            {visiblePresenceRows.map((r) => <div key={r.e.id} className="group flex items-center gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 p-3 transition-all hover:-translate-y-0.5 hover:border-blue-300 dark:hover:border-blue-800 hover:shadow-sm">
+              <div className={`relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-sm font-black text-white shadow-sm ${r.state === 'in' ? 'bg-gradient-to-br from-emerald-400 to-teal-600' : r.state === 'leave' ? 'bg-gradient-to-br from-violet-400 to-fuchsia-600' : r.state === 'absent' ? 'bg-gradient-to-br from-rose-400 to-red-600' : 'bg-gradient-to-br from-slate-400 to-slate-600'}`}>{r.e.name.split(' ').map(x=>x[0]).slice(0,2).join('').toUpperCase()}<span className="absolute -right-1 -bottom-1 rounded-full border-2 border-white dark:border-slate-900 bg-white dark:bg-slate-900 text-sm leading-none">{statusSticker(r)}</span></div>
+              <div className="min-w-0 flex-1"><p className="truncate text-xs font-extrabold text-slate-900 dark:text-slate-100">{r.e.name}</p><p className="truncate text-[10px] text-slate-500 dark:text-slate-400">{r.e.designation || r.e.department || 'Team member'}</p><p className="mt-1 text-[10px] font-semibold text-slate-600 dark:text-slate-300">{r.timeIn ? `Punched in ${clock12(r.timeIn)}` : r.state === 'leave' ? 'Approved leave' : r.state === 'absent' ? 'Shift started · not clocked in' : r.state === 'off' ? 'Scheduled day off' : 'Shift not started'}</p></div>
+              {r.wfh && <span title="Working from home" className="text-base">🏡</span>}{r.offline && <span title="Connection lost" className="text-base">📡</span>}
+            </div>)}
+            {visiblePresenceRows.length === 0 && <div className="sm:col-span-2 xl:col-span-3 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-6 text-center"><span className="text-3xl">🎉</span><p className="mt-2 text-xs font-bold text-slate-700 dark:text-slate-300">No team members in this category</p></div>}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400"><span>🟢 Working</span><span>⏰ Late</span><span>👀 Not in yet</span><span>🌴 Leave</span><span>🏁 Finished</span><span>🏡 Remote</span><span>📡 Offline</span></div>
         </Card>
 
         <Card title="Last 14 days" icon={<CalendarClock className="w-4 h-4 text-indigo-600" />} right={<span className="text-[11px] text-slate-400">People who punched in</span>}>

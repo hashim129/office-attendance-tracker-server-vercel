@@ -161,7 +161,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               <span>My Attendance & Stats</span>
             </button>
 
-            <button
+            {(['admin', 'ceo'].includes(currentUser.role) || currentUser.teamAttendanceAccess) && <button
               onClick={() => handleTabClick('team-attendance', 'workspace')}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                 activeTab === 'team-attendance' && activeTeamSource === 'workspace'
@@ -173,7 +173,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             >
               <UserCheck className="w-4 h-4 shrink-0" />
               <span>Team Presence (P/A)</span>
-            </button>
+            </button>}
 
             <button
               onClick={() => onSelectTab('leaves')}
