@@ -63,6 +63,7 @@ import { useCrm } from './crm/useCrm';
 import { PageHero } from './components/common/PageHero';
 import { DirectivePopup } from './components/common/DirectivePopup';
 import { LiveAlerts } from './crm/LiveAlerts';
+import { EmployeeUniverse } from './components/desktop/EmployeeUniverse';
 
 const IS_VERCEL_PREVIEW = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && window.location.hostname !== 'office-attendance-tracker-server-vercel-hashim129.vercel.app';
 
@@ -1122,6 +1123,8 @@ export default function App() {
                 <PageHero
                   tab={activeTab}
                   name={currentUser?.name || ''}
+                  characterId={currentUser?.gameCharacterId}
+                  petId={currentUser?.gamePetId}
                   isAdmin={currentUser?.role === 'admin' || currentUser?.role === 'ceo'}
                   crm={crm}
                   todayRecord={records.find((r) => r.employeeId === currentUser?.id && r.date === getTodayDateString())}
@@ -1287,6 +1290,16 @@ export default function App() {
               {CRM_ENABLED && <LiveAlerts crm={crm} onOpen={setActiveTab} />}
               {currentUser && <DirectivePopup comments={ceoComments} userId={currentUser.id} onRead={handleMarkCeoCommentRead} />}
       <QuickJump currentUser={currentUser} crmEnabled={CRM_ENABLED} onSelectTab={setActiveTab} />
+      {currentUser && settings.employeeUniverseBetaEnabled === true && (
+        <EmployeeUniverse
+          currentUser={currentUser}
+          employees={employees}
+          onProfileSaved={(gameCharacterId, gamePetId) => {
+            setCurrentUser((user) => user ? { ...user, gameCharacterId, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : user);
+            setEmployees((list) => list.map((employee) => employee.id === currentUser.id ? { ...employee, gameCharacterId, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : employee));
+          }}
+        />
+      )}
             </div>
             </main>
           </div>
