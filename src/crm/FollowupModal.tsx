@@ -58,7 +58,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
       setMode(editing.customerId ? 'existing' : 'none');
       setCustomerId(editing.customerId || '');
       setKind(editing.kind);
-      setSubject(editing.subject || '');
+      setSubject(editing.subject || editing.remarks || '');
       setAssignedTo(editing.assignedTo);
       setParticipants(editing.participantIds || []);
       setDueAt(editing.dueAt ? toLocalInput(editing.dueAt) : '');
