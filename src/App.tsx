@@ -145,6 +145,10 @@ export default function App() {
   useEffect(() => {
     currentUserRef.current = currentUser;
   }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser && activeTab === 'team-attendance' && !['admin', 'ceo'].includes(currentUser.role) && currentUser.teamPresenceAccess !== true) setActiveTab('clock');
+  }, [currentUser, activeTab]);
   useEffect(() => {
     employeesRef.current = employees;
   }, [employees]);
@@ -1095,6 +1099,7 @@ export default function App() {
             isDark={isDark}
             onToggleTheme={handleToggleTheme}
             redesignedUiBetaEnabled={betaEnabled}
+            headerBetaEnabled={settings.headerBetaEnabled === true}
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
@@ -1192,7 +1197,7 @@ export default function App() {
               )}
 
               {/* Team Attendance & Office Presence (P/A) - Accessible by All Employees */}
-              {activeTab === 'team-attendance' && (
+              {activeTab === 'team-attendance' && (['admin', 'ceo'].includes(currentUser.role) || currentUser.teamPresenceAccess === true) && (
                 <TeamAttendanceTab
                   employees={statEmployees}
                   records={records}
