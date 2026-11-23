@@ -152,6 +152,8 @@ function mapDbEmployee(r) {
     leaderboardAccess,
     payablesAccess,
     birthday,
+    gameCharacterId: ['astro','fox','tiger','panda','robot','wizard','ranger','dragon','koala','ninja','captain','unicorn'].includes(pendingObj?.gameCharacterId) ? pendingObj.gameCharacterId : undefined,
+    gamePetId: ['cat','dog','rabbit','owl','hamster','parrot','turtle'].includes(pendingObj?.gamePetId) ? pendingObj.gamePetId : undefined,
     registeredDeviceId: r.registered_device_id || undefined,
     registeredDeviceName: r.registered_device_name || undefined,
     registeredAt: r.registered_at || undefined,
@@ -179,6 +181,8 @@ function mapAppEmployeeToDb(e) {
     leaderboardAccess: Boolean(e.leaderboardAccess),
     payablesAccess: Boolean(e.payablesAccess),
     birthday: /^\d{4}-\d{2}-\d{2}$/.test(String(e.birthday || '')) ? String(e.birthday) : '',
+    gameCharacterId: e.gameCharacterId || existingPending.gameCharacterId || null,
+    gamePetId: e.gamePetId || existingPending.gamePetId || 'none',
   };
 
   return {
