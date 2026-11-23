@@ -142,6 +142,10 @@ export interface Employee {
   crmCustomerAccess?: boolean; // (no longer used: every employee has Customers, see own + shared)
   customerPortalAccess?: boolean; // Admin-selected: may see the Customer Portal (Beta) link and its live queries
   salesAccess?: boolean; // Admin-selected: may open the Sales section
+  liveDashboardAccess?: boolean; // Admin-selected: may open the Live Dashboard
+  leaderboardAccess?: boolean; // Admin-selected: may see the sales leaderboard
+  payablesAccess?: boolean; // Admin-selected: may see the payables-due calendar
+  birthday?: string; // YYYY-MM-DD, optional (used for birthday cards)
   allowWorkFromHome?: boolean; // When true, attendance punch in/out has NO IP restriction
   registeredDeviceId?: string; // Persistent device UUID bound to this employee
   registeredDeviceName?: string; // e.g. "Ahmed's Samsung Galaxy A54 (Android)"
@@ -227,4 +231,5 @@ export type ActiveDesktopTab =
   | 'crm-invoices'
   | 'crm-receipts'
   | 'crm-portal'
-  | 'crm-notifications';
+  | 'crm-notifications'
+  | 'live-dashboard';

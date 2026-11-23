@@ -82,6 +82,10 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     allowWorkFromHome: false,
     salesAccess: false,
     customerPortalAccess: false,
+    liveDashboardAccess: false,
+    leaderboardAccess: false,
+    payablesAccess: false,
+    birthday: '',
   });
 
   const departments = Array.from(new Set(employees.map((e) => e.department))).sort();
@@ -118,6 +122,10 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       allowWorkFromHome: false,
       salesAccess: false,
       customerPortalAccess: false,
+      liveDashboardAccess: false,
+      leaderboardAccess: false,
+      payablesAccess: false,
+      birthday: '',
     });
     setIsAddModalOpen(true);
   };
@@ -139,6 +147,10 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       allowWorkFromHome: Boolean(emp.allowWorkFromHome),
       salesAccess: Boolean(emp.salesAccess),
       customerPortalAccess: Boolean(emp.customerPortalAccess),
+      liveDashboardAccess: Boolean(emp.liveDashboardAccess),
+      leaderboardAccess: Boolean(emp.leaderboardAccess),
+      payablesAccess: Boolean(emp.payablesAccess),
+      birthday: emp.birthday || '',
     });
   };
 
@@ -710,6 +722,38 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   onChange={(e) => setFormData({ ...formData, customerPortalAccess: e.target.checked })}
                   className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
+              </label>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/60 space-y-3">
+              <p className="text-xs font-bold text-slate-900 dark:text-slate-100">Extra access switches</p>
+              {([
+                ['liveDashboardAccess', 'Can open the Live Dashboard', 'Shows who is in, late, absent or on leave today. Admin and CEO always have it.'],
+                ['leaderboardAccess', 'Can see the sales leaderboard and targets', 'Shows every salesperson\'s monthly totals (never cost or profit). Admin, CEO and Accounts always see it.'],
+                ['payablesAccess', 'Can see the payables-due calendar', 'Shows unpaid vendor bills and their due dates. Admin, CEO and Accounts always see it.'],
+              ] as const).map(([key, title, hint]) => (
+                <label key={key} className="flex items-start justify-between gap-3 cursor-pointer select-none">
+                  <div className="flex-1">
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{title}</span>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">{hint} Off by default.</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(formData[key])}
+                    onChange={(e) => setFormData({ ...formData, [key]: e.target.checked })}
+                    className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                </label>
+              ))}
+              <label className="block text-xs font-bold text-slate-900 dark:text-slate-100">
+                Birthday (optional)
+                <input
+                  type="date"
+                  value={formData.birthday}
+                  onChange={(e) => setFormData({ ...formData, birthday: e.target.value })}
+                  className="mt-1 block w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-normal"
+                />
+                <span className="block mt-1 text-[11px] font-normal text-slate-500 dark:text-slate-400">Used only for the birthday card shown to the team on that day.</span>
               </label>
             </div>
 

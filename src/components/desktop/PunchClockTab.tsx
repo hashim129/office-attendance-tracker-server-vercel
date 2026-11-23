@@ -44,6 +44,7 @@ import {
   playPunchSound,
 } from '../../lib/attendanceCalculations';
 import { crmCall } from '../../crm/crmApi';
+import { MomentCards, PunchCelebration, StreakChip, computeStreak } from './StaffDelights';
 import { verifyOfficeIpAccess } from '../../lib/ipSecurity';
 import {
   canEmployeeAutoPunch,
@@ -105,6 +106,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   const [batDownloaded, setBatDownloaded] = useState<boolean>(false);
   const [verifyingWork, setVerifyingWork] = useState<boolean>(false);
   const [workVerifiedAt, setWorkVerifiedAt] = useState<string | null>(null);
+  const [celebrate, setCelebrate] = useState<{ late: boolean; timeLabel: string } | null>(null);
 
   const canPersonalAutoStart = canEmployeeAutoPunch(currentUser, settings);
 
@@ -333,6 +335,8 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     playPunchSound('in');
     onTimeIn(currentUser.id, actionNotes.trim() || undefined);
     setShowNoteInput(false);
+    const nowStamp = `${String(currentTime.getHours()).padStart(2, '0')}:${String(currentTime.getMinutes()).padStart(2, '0')}:${String(currentTime.getSeconds()).padStart(2, '0')}`;
+    setCelebrate({ late: Boolean(userShift && isLateArrival(nowStamp, userShift)), timeLabel: formatTime12h(nowStamp) });
   };
 
   const handleTimeOutClick = () => {
@@ -405,6 +409,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
           <p className="text-xs sm:text-sm text-blue-100 mt-0.5">{greetingLine}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
+          <StreakChip streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr)} />
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
             <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
             {coworkerCounts.in} online now
@@ -417,6 +422,17 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
           )}
         </div>
       </div>
+
+      <MomentCards employees={allEmployees.length ? allEmployees : [currentUser]} currentUserId={currentUser.id} todayStr={todayStr} />
+      {celebrate && (
+        <PunchCelebration
+          name={firstName}
+          late={celebrate.late}
+          streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr) + (todayRecord?.timeIn ? 0 : 1)}
+          timeLabel={celebrate.timeLabel}
+          onDone={() => setCelebrate(null)}
+        />
+      )}
 
       {/* Unread Executive Directives Banner */}
       {myDirectives.length > 0 && (

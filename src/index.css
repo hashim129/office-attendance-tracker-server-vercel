@@ -721,3 +721,29 @@ button:not(:disabled):active { transform: scale(0.97); }
 @keyframes plane-trail { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .theme-lantern, .theme-moon, .theme-sun, .theme-flake, .img-shimmer { animation: none; } }
 @media print { .theme-layer, .plane-swoop { display: none !important; } }
+
+/* ---- Staff delights (punch-in celebration, streak flame, birthday / anniversary cards) ---- */
+.streak-flame { animation: flameFlick 1.4s ease-in-out infinite; transform-origin: 50% 90%; }
+@keyframes flameFlick { 0%,100% { transform: scale(1) rotate(-3deg); } 50% { transform: scale(1.18) rotate(3deg); } }
+.pc-fade { animation: pcFade .25s ease-out both; }
+@keyframes pcFade { from { opacity: 0; } to { opacity: 1; } }
+.pc-pop { animation: pcPop .45s cubic-bezier(.2,1.3,.4,1) both; }
+@keyframes pcPop { from { opacity: 0; transform: translateY(14px) scale(.85); } to { opacity: 1; transform: none; } }
+.pc-ring { stroke-dasharray: 145; stroke-dashoffset: 145; animation: pcDraw .7s .1s ease-out forwards; }
+.pc-tick { stroke-dasharray: 40; stroke-dashoffset: 40; animation: pcDraw .45s .7s ease-out forwards; }
+@keyframes pcDraw { to { stroke-dashoffset: 0; } }
+.pc-bits { position: absolute; left: 50%; top: 3.2rem; width: 0; height: 0; pointer-events: none; }
+.pc-bits span { position: absolute; border-radius: 2px; opacity: 0; animation: pcBit 1.1s .75s ease-out forwards; }
+@keyframes pcBit { 0% { opacity: 1; transform: rotate(var(--a)) translateY(0); } 100% { opacity: 0; transform: rotate(var(--a)) translateY(calc(var(--d) * -1)) rotate(180deg); } }
+.moment-card { animation: pcPop .5s cubic-bezier(.2,1.2,.4,1) both; }
+.moment-bob { animation: momentBob 2.2s ease-in-out infinite; }
+@keyframes momentBob { 0%,100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-3px) rotate(4deg); } }
+.moment-spark { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.28) 48%, transparent 66%); background-size: 220% 100%; animation: momentShine 3.6s ease-in-out infinite; }
+@keyframes momentShine { 0% { background-position: 160% 0; } 60%,100% { background-position: -60% 0; } }
+.dash-bar { transform-origin: bottom; animation: dashGrow .8s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes dashGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .streak-flame, .moment-bob, .moment-spark, .dash-bar, .pc-pop, .moment-card { animation: none !important; }
+  .pc-ring, .pc-tick { animation-duration: .01s !important; animation-delay: 0s !important; }
+  .pc-bits { display: none; }
+}

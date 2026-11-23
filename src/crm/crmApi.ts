@@ -404,6 +404,14 @@ export interface PortalInvoiceSettings {
   noteAt?: string;
 }
 
+export interface CrmBusiness {
+  monthKey: string;
+  targets: { currency: string; team: number; people: Record<string, number> } | null;
+  me: { count: number; amount: number; target: number } | null;
+  leaderboard: { id: string; name: string; count: number; amount: number; target: number }[] | null;
+  payables: { id: string; invoiceNo: string; vendor: string; dueDate: string | null; currency: string; total: number }[] | null;
+}
+
 export interface CrmData {
   customers: CrmCustomer[];
   followups: CrmFollowup[];
@@ -427,6 +435,7 @@ export interface CrmData {
   saleTypes: Record<string, string>;
   currencies: string[];
   badges: CrmBadges;
+  business?: CrmBusiness | null;
 }
 
 export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0, salesNew: 0, invoiceNew: 0, receiptNew: 0, customersNew: 0, salesPending: 0, unreadTotal: 0, upcoming: [], unreadLatest: [] };
