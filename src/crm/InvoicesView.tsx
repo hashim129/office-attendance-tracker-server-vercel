@@ -676,7 +676,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
     return {
       ...rest,
       paymentReceived: Boolean(paymentReceived),
-      travelers: travelerNames.split(/\\r?\\n/).map((name) => name.trim()).filter(Boolean).slice(0, 100),
+      travelers: travelerNames.split(/\r?\n/).map((name) => name.trim()).filter(Boolean).slice(0, 100),
       vendors: (form!.vendors || []).filter((v) => v.name.trim() || v.description.trim() || v.unitPrice.trim() || v.units.trim() || v.amount.trim() || v.bank.trim()),
       sections: form!.sections.map((s, si) => {
         const lockThis = si === lockIdx;
