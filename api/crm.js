@@ -1429,6 +1429,7 @@ export default async function handler(req, res) {
         const amount = hasAmount ? money(v.amount, `Payable to ${name}`) : computedAmt;
         return { name, description, unitPrice, units, amount, currency: vCur, bank };
       }).filter(Boolean);
+      const at = nowIso();
       const base = {
         customer_name: str(x.customerName, 160, { required: true, name: vendorBill ? 'Vendor name' : 'Customer name' }), customer_phone: str(x.customerPhone, 60, { name: 'Phone' }),
         customer_address: str(x.customerAddress, 400, { name: 'Address' }), customer_ntn: str(x.customerNtn, 60, { name: 'Customer NTN' }),
@@ -1442,7 +1443,6 @@ export default async function handler(req, res) {
         payment_received_by: existing ? (existing.created_by === me.id && existing.status === 'unpaid' ? (x.paymentReceived ? me.id : null) : existing.payment_received_by) : (x.paymentReceived ? me.id : null),
         payment_received_auto: existing ? Boolean(existing.payment_received_auto) : false,
       };
-      const at = nowIso();
       if (existing && !isAdmin && !(existing.created_by === me.id && existing.status === 'unpaid')) {
         throw forbidden('You can only edit your own unpaid invoices.');
       }
