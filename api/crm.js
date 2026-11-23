@@ -900,6 +900,7 @@ export default async function handler(req, res) {
         subject: str(f.subject, 180, { name: 'Subject' }), remarks: str(f.remarks, 4000, { name: 'Remarks' }), due_at: isoOrNull(f.dueAt, 'Due date'), updated_at: nowIso(),
       };
       if (!customer && !fields.remarks) throw bad('Without a customer, please type the follow-up remarks so it can be identified.');
+      if (kind === 'internal' && !str(f.subject, 180, { required: true, name: 'Subject' })) throw bad('Enter a subject for this internal follow-up.');
       const label = KIND_LABEL[kind];
       const forWhom = customer ? ` for ${customer.customer_name}` : '';
       if (newCustomerRow) await upsert('crm_customers', newCustomerRow);
