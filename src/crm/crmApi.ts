@@ -59,6 +59,7 @@ export interface CrmMeeting {
   endAt: string;
   location: string;
   notes: string;
+  noteLog?: { id: string; at: string; by: string; text: string }[];
   status: MeetingStatus;
   requestedBy: string | null;
   decidedBy: string | null;
@@ -230,6 +231,14 @@ export interface CrmInvoice {
   balance: number;
   notes: string;
   status: 'unpaid' | 'paid' | 'cancelled';
+  paymentReceived?: boolean;
+  paymentReceivedAt?: string | null;
+  paymentReceivedBy?: string | null;
+  paymentReceivedAuto?: boolean;
+  travelers?: string[];
+  vendorPosted?: boolean;
+  vendorPostedAt?: string | null;
+  vendorPostedBy?: string | null;
   /** Paid state of the vendor side (what we owe the vendors listed on this invoice), separate from the customer side */
   vendorStatus?: 'unpaid' | 'paid';
   vendorPaidAt?: string | null;
