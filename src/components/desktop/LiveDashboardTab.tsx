@@ -52,9 +52,10 @@ interface Props {
   leaves: LeaveRequest[];
   crm: CrmState;
   onNavigate: (tab: ActiveDesktopTab) => void;
+  redesignedUiBetaEnabled?: boolean;
 }
 
-export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, records, shifts, leaves, crm, onNavigate }) => {
+export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, records, shifts, leaves, crm, onNavigate, redesignedUiBetaEnabled = false }) => {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 30000);
@@ -387,7 +388,7 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
         </Card>
       )}
 
-      <Card title="Upcoming tasks & required actions" icon={<CalendarClock className="w-4 h-4 text-blue-600" />} right={<span className="text-[11px] text-slate-400">Live CRM items</span>}>
+      {redesignedUiBetaEnabled && <Card title="Upcoming tasks & required actions" icon={<CalendarClock className="w-4 h-4 text-blue-600" />} right={<span className="text-[11px] text-slate-400">Live CRM items</span>}>
         {(() => {
           const upcomingTasks = crm.data.followups
             .filter((f) => (f.status === 'pending' || f.status === 'rescheduled') && f.dueAt)
@@ -415,7 +416,7 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
             </div>
           );
         })()}
-      </Card>
+      </Card>}
     </div>
   );
 };
