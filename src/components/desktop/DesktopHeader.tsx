@@ -145,7 +145,11 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   };
 
   return (
-    <div className="min-h-[68px] px-3 sm:px-6 lg:px-8 py-2.5 border-b border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl flex items-center justify-between gap-3 shrink-0 relative z-30 shadow-[0_4px_18px_rgba(15,23,42,0.035)]">
+    <div className={`min-h-[72px] px-3 sm:px-5 lg:px-7 py-2.5 border-b flex items-center justify-between gap-3 shrink-0 relative z-30 transition-colors duration-200 ${
+      redesignedUiBetaEnabled
+        ? 'border-slate-200/80 dark:border-slate-700/80 bg-[linear-gradient(105deg,rgba(255,255,255,0.98),rgba(239,246,255,0.94),rgba(255,255,255,0.98))] dark:bg-[linear-gradient(105deg,rgba(15,23,42,0.98),rgba(23,37,64,0.96),rgba(15,23,42,0.98))] shadow-[0_8px_28px_rgba(15,23,42,0.07)]'
+        : 'border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-[0_4px_18px_rgba(15,23,42,0.035)]'
+    }`}>
       {/* Left: Mobile Nav Toggle + Breadcrumb */}
       <div className="flex items-center gap-2.5 text-xs min-w-0 flex-1">
         {onOpenMobileNav && (
@@ -159,7 +163,23 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             <Menu className="w-5 h-5" />
           </button>
         )}
-        {redesignedUiBetaEnabled ? <><img src="/bahaar-logo.png" alt="Bahaar Journeys" className="h-9 w-auto max-w-[190px] object-contain object-left shrink-0" /><span className="hidden lg:inline text-xs text-slate-400 dark:text-slate-500 border-l border-slate-200 dark:border-slate-700 pl-3">Office Attendance Hub</span></> : <><span className="hidden sm:inline text-[11px] uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500 font-bold">Workspace</span><span className="hidden sm:inline text-slate-300 dark:text-slate-700">/</span><h2 className="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate border-l-2 border-blue-500 pl-3">{getTabLabel(activeTab)}</h2></>}
+        {redesignedUiBetaEnabled ? (
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-12 items-center rounded-xl border border-slate-200/80 bg-white/90 px-2.5 shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
+              <img src="/bahaar-logo.png" alt="Bahaar Journeys" className="h-9 w-auto max-w-[190px] object-contain object-left shrink-0" />
+            </div>
+            <div className="hidden sm:block min-w-0 border-l border-slate-200 dark:border-slate-700 pl-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600 dark:text-blue-400">Bahaar Journeys</p>
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Office Attendance Hub</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <span className="hidden sm:inline text-[11px] uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500 font-bold">Workspace</span>
+            <span className="hidden sm:inline text-slate-300 dark:text-slate-700">/</span>
+            <h2 className="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate border-l-2 border-blue-500 pl-3">{getTabLabel(activeTab)}</h2>
+          </>
+        )}
       </div>
 
       {/* Right Controls: Cloud Sync, Connection State, Notifications, Kiosk Mode Shortcut & User Profile */}

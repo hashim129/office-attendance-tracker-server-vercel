@@ -131,11 +131,26 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               }`}
             >
               <Clock className="w-4 h-4 shrink-0" />
-              <span>{redesignedUiBetaEnabled ? 'Live Dashboard & Punch Clock' : 'Punch Clock'}</span>
+              <span>Punch Clock</span>
             </button>
 
+            {(['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
+              <button
+                onClick={() => handleTabClick('live-dashboard')}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
+                  activeTab === 'live-dashboard'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                }`}
+                title="Open attendance statistics, upcoming tasks and required actions"
+              >
+                <Gauge className="w-4 h-4 shrink-0" />
+                <span>Live Dashboard</span>
+              </button>
+            )}
+
             <button
-              onClick={() => onSelectTab('my-attendance')}
+              onClick={() => handleTabClick('my-attendance')}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                 activeTab === 'my-attendance'
                   ? 'bg-blue-600 text-white shadow-xs'
@@ -178,12 +193,6 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 </span>
               )}
             </button>
-
-            {(!redesignedUiBetaEnabled && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess)) && (
-              <button onClick={() => onSelectTab('live-dashboard')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${activeTab === 'live-dashboard' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'}`}>
-                <Gauge className="w-4 h-4 shrink-0" /><span>Live Dashboard</span>
-              </button>
-            )}
 
           </div>
         </div>
