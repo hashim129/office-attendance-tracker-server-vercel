@@ -1191,8 +1191,8 @@ export default function App() {
                 />
               )}
 
-              {/* Team Attendance & Office Presence (P/A) - Accessible by All Employees */}
-              {activeTab === 'team-attendance' && (
+              {/* Team Presence is hidden by default; employees require explicit admin permission. */}
+              {activeTab === 'team-attendance' && currentUser && (['admin', 'ceo'].includes(currentUser.role) || currentUser.teamAttendanceAccess) && (
                 <TeamAttendanceTab
                   employees={statEmployees}
                   records={records}
