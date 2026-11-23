@@ -64,6 +64,8 @@ import { PageHero } from './components/common/PageHero';
 import { DirectivePopup } from './components/common/DirectivePopup';
 import { LiveAlerts } from './crm/LiveAlerts';
 
+const IS_VERCEL_PREVIEW = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && window.location.hostname !== 'office-attendance-tracker-server-vercel-hashim129.vercel.app';
+
 function TabLoader() {
   return (
     <div role="status" aria-label="Loading page" className="flex items-center justify-center py-24">
@@ -102,6 +104,12 @@ export default function App() {
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
   const [ceoComments, setCeoComments] = useState<CeoComment[]>([]);
   const [settings, setSettings] = useState<OfficeSettings>(loadSettings());
+  const [previewBetaEnabled, setPreviewBetaEnabled] = useState<boolean>(() => IS_VERCEL_PREVIEW && localStorage.getItem('office_preview_redesign_beta') === 'true');
+  const betaEnabled = IS_VERCEL_PREVIEW ? previewBetaEnabled : Boolean(settings.redesignedUiBetaEnabled);
+  const handlePreviewBetaChange = (enabled: boolean) => {
+    setPreviewBetaEnabled(enabled);
+    localStorage.setItem('office_preview_redesign_beta', enabled ? 'true' : 'false');
+  };
   const [currentClientIp, setCurrentClientIp] = useState<string>('Detecting...');
   const [currentClientIsp, setCurrentClientIsp] = useState<string>('Detecting...');
   const [alternateIp, setAlternateIp] = useState<string | undefined>(undefined);
@@ -121,7 +129,7 @@ export default function App() {
   const [faceRequest, setFaceRequest] = useState<{ employeeId: string; run: () => void } | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveDesktopTab>('clock');
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
-  const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-') || activeTab === 'live-dashboard' || (settings.redesignedUiBetaEnabled && activeTab === 'clock'));
+  const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-') || activeTab === 'live-dashboard' || (betaEnabled && activeTab === 'clock'));
 
   // Password Modal
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState<boolean>(false);
@@ -1032,9 +1040,9 @@ export default function App() {
   return (
     <div
       id="windows-window-frame"
-      className={`${settings.redesignedUiBetaEnabled ? 'min-h-screen' : 'min-h-[calc(100vh-2.5rem)]'} bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-all duration-200`}
+      className={`${betaEnabled ? 'min-h-screen' : 'min-h-[calc(100vh-2.5rem)]'} bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-all duration-200`}
     >
-      {!settings.redesignedUiBetaEnabled && <WindowsTitleBar isDark={isDark} onToggleTheme={handleToggleTheme} serverHost={settings.serverHostName} serverPort={settings.serverPort} />}
+      {!betaEnabled && <WindowsTitleBar isDark={isDark} onToggleTheme={handleToggleTheme} serverHost={settings.serverHostName} serverPort={settings.serverPort} />}
       {/* Screen Mode Render */}
       {appMode === 'kiosk' ? (
         <Suspense fallback={<TabLoader />}>
@@ -1066,7 +1074,7 @@ export default function App() {
           isSyncing={isInitialCloudSyncing}
         />
       ) : (
-        <div className={`app-reveal flex-1 flex flex-col ${settings.redesignedUiBetaEnabled ? 'min-h-screen workforce-redesign-beta' : 'min-h-[calc(100vh-2.5rem)]'} min-w-0 w-full overflow-x-clip`}>
+        <div className={`app-reveal flex-1 flex flex-col ${betaEnabled ? 'min-h-screen workforce-redesign-beta' : 'min-h-[calc(100vh-2.5rem)]'} min-w-0 w-full overflow-x-clip`}>
           {/* Header */}
           <DesktopHeader
             currentUser={currentUser}
@@ -1086,7 +1094,7 @@ export default function App() {
             onOpenCrmNotifications={CRM_ENABLED ? () => setActiveTab('crm-notifications') : undefined}
             isDark={isDark}
             onToggleTheme={handleToggleTheme}
-            redesignedUiBetaEnabled={settings.redesignedUiBetaEnabled}
+            redesignedUiBetaEnabled={betaEnabled}
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
@@ -1119,7 +1127,7 @@ export default function App() {
                   <Suspense fallback={<TabLoader />}>
                 {activeTab === 'clock' && (
                 <>
-                {settings.redesignedUiBetaEnabled && currentUser && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
+                {betaEnabled && currentUser && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
                   <LiveDashboardTab
                     currentUser={currentUser}
                     employees={statEmployees}
@@ -1270,6 +1278,9 @@ export default function App() {
 
               {currentUser.role === 'admin' && activeTab === 'settings' && (
                 <OfficeSettingsTab
+            previewDeployment={IS_VERCEL_PREVIEW}
+            previewBetaEnabled={betaEnabled}
+            onPreviewBetaChange={handlePreviewBetaChange}
                   settings={settings}
                   onUpdateSettings={handleUpdateSettings}
                   onReloadAllData={handleReloadAllData}
