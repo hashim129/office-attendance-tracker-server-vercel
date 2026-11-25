@@ -125,11 +125,11 @@ export const EmployeeUniverse: React.FC<Props> = ({ chatEnabled = true, currentU
       const response = await fetch('/api/universe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-session-token': token || '' },
-        body: JSON.stringify({ action: 'profile', characterId, petId, appearance }),
+        body: JSON.stringify({ action: 'profile', characterId, petId, appearance: { ...appearance, ...(currentUser.avatarAppearance?.photo ? { photo: currentUser.avatarAppearance.photo } : {}) } }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not save your profile.');
-      onProfileSaved(characterId, petId, appearance);
+      onProfileSaved(characterId, petId, { ...appearance, ...(currentUser.avatarAppearance?.photo ? { photo: currentUser.avatarAppearance.photo } : {}) });
       setProfileOpen(false);
     } catch (error) {
       setProfileError(error instanceof Error ? error.message : 'Could not save your profile.');

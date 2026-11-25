@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Download, FileText, Loader2 } from 'lucide-react';
 import { Employee } from '../types';
 import { PdfColumn, dayPk, downloadReportPdf, fmtDayText, safeFileName } from '../lib/reportPdf';
@@ -69,11 +70,13 @@ export function ExportPanel<T>(props: ExportPanelProps<T>) {
   const [error, setError] = useState('');
   const box = useRef<HTMLDivElement>(null);
 
+  // Opens as a centred popup (a bottom sheet on phones) above the sidebar and every other element.
+  // It does not close when tapping outside, so chosen filters are never lost; use Close or Esc.
   useEffect(() => {
     if (!open) return;
-    const away = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', away);
-    return () => document.removeEventListener('mousedown', away);
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
   }, [open]);
 
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
@@ -132,8 +135,9 @@ export function ExportPanel<T>(props: ExportPanelProps<T>) {
       <button type="button" className={btnGhost} onClick={() => setOpen((v) => !v)} aria-expanded={open} data-export-open>
         <Download className="w-3.5 h-3.5" /> {props.buttonLabel || 'Download PDF'}
       </button>
-      {open && (
-        <div role="dialog" aria-label={`Download ${title} as PDF`} className="absolute right-0 top-full mt-2 z-40 w-[min(22rem,88vw)] rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl p-4 space-y-3 text-left">
+      {open && createPortal(
+        <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-xs p-0 sm:p-4">
+        <div role="dialog" aria-modal="true" aria-label={`Download ${title} as PDF`} className="w-full sm:w-[24rem] max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3 text-left">
           <div>
             <p className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5"><FileText className="w-4 h-4 text-blue-600" /> {title} PDF</p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">Choose what goes into the PDF.</p>
@@ -179,6 +183,8 @@ export function ExportPanel<T>(props: ExportPanelProps<T>) {
             </button>
           </div>
         </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -46,7 +46,7 @@ export const Modal: React.FC<ModalProps> = ({
   return (
     <div
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-auto animate-in fade-in duration-150"
-      onClick={onClose}
+      // Tapping outside never closes a popup: forms would lose everything typed. Use Close / Back or Esc.
     >
       <div
         className={`w-full ${maxWidthClass} bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden max-h-[92vh] my-auto`}

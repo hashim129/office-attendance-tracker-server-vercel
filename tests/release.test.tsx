@@ -230,3 +230,26 @@ test('auto punch-out happens exactly at shift end + 2h, and an admin saving thei
   const other = mergeSupabaseAttendanceRecord({ ...rec }, { ...rec, breaks: [] }, { actorRole: 'admin', actorId: 'boss' });
   assert.ok(other.adminOverrideAt);
 });
+
+test('notifications open the page of the record they point at', async () => {
+  const { notificationDestination } = await import('../src/crm/notificationTarget');
+  assert.equal(notificationDestination('followup', 'cus-9f1610e5'), 'crm-customers'); // "shared customer with you"
+  assert.equal(notificationDestination('invoice', 'pur-123'), 'crm-purchases');      // vendor purchase
+  assert.equal(notificationDestination('invoice', 'inv-123'), 'crm-invoices');
+  assert.equal(notificationDestination('inventory', 'inv-123'), 'crm-inventory');
+  assert.equal(notificationDestination('reminder', 'leave-1'), 'leaves');
+  assert.equal(notificationDestination('followup', 'fup-1'), 'crm-tasks');
+  assert.equal(notificationDestination('meeting', 'mtg-1'), 'crm-meetings');
+});
+
+test('profile pictures are valid saved options and render as pictures', async () => {
+  const { validAppearance } = await import('../src/lib/avatarWardrobe.js');
+  const { PROFILE_PICTURE_IDS } = await import('../src/lib/profilePictures');
+  assert.equal(PROFILE_PICTURE_IDS.length, 24);
+  for (const id of PROFILE_PICTURE_IDS) {
+    assert.equal(validAppearance({ photo: id }), true);
+    const html = renderToStaticMarkup(<EmployeeAvatar name="Fixture" appearance={{ photo: id }} />);
+    assert.match(html, /<rect/);
+  }
+  assert.equal(validAppearance({ photo: 'pf-99' }), false);
+});

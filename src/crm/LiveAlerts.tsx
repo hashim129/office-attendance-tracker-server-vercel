@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { notificationDestination } from './notificationTarget';
 import { Bell, Clock, X } from 'lucide-react';
 import { installSoundUnlock, playAlertSound } from './sound';
 import { ActiveDesktopTab } from '../types';
@@ -77,7 +78,7 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
       ask: n.category === 'reminder' && isWorkPrompt(n.id),
       text: n.message,
       refId: n.refId,
-      tab: n.category === 'followup' ? 'crm-tasks' : n.category === 'meeting' ? 'crm-meetings' : n.category === 'sale' ? 'crm-sales' : n.category === 'invoice' ? 'crm-invoices' : n.category === 'receipt' ? 'crm-receipts' : n.category === 'customer' ? 'crm-customers' : n.category === 'reminder' ? 'clock' : 'crm-inventory',
+      tab: notificationDestination(n.category, n.refId),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest]);

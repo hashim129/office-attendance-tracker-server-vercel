@@ -35,12 +35,13 @@ export const CrmPage: React.FC<Props> = ({ section, crm, employees, currentUser,
       </div>
     );
   }
-  const source = { 'crm-customers': 'customers', 'crm-tasks': 'followups', 'crm-meetings': 'meetings', 'crm-inventory': 'inventory', 'crm-sales': 'sales', 'crm-invoices': 'invoices', 'crm-receipts': 'receipts' } as const;
+  const source = { 'crm-customers': 'customers', 'crm-tasks': 'followups', 'crm-meetings': 'meetings', 'crm-inventory': 'inventory', 'crm-sales': 'sales', 'crm-invoices': 'invoices', 'crm-receipts': 'receipts', 'crm-purchases': 'purchases' } as const;
   const key = source[section as keyof typeof source];
-  const found = focusId && key ? crm.data[key].some((item) => item.id === focusId) : false;
+  const list: { id: string }[] = (key && (crm.data as any)[key]) || [];
+  const found = focusId && key ? list.some((item) => item.id === focusId) : false;
   if (focusId && key) {
     if (!found) return <div className="rounded-xl border p-4 text-sm"><p>{crm.loading ? 'Loading record…' : 'This record is unavailable or you no longer have access.'}</p><button className="mt-2 font-bold text-blue-600" onClick={onClearFocus}>Back to all records</button></div>;
-    crm = { ...crm, data: { ...crm.data, [key]: crm.data[key].filter((item) => item.id === focusId) } };
+    crm = { ...crm, data: { ...crm.data, [key]: list.filter((item) => item.id === focusId) } };
   }
   return (
     <div className="space-y-4">

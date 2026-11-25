@@ -1171,6 +1171,7 @@ export default function App() {
                   tab={activeTab}
                   name={currentUser?.name || ''}
                   characterId={currentUser?.gameCharacterId}
+                  appearance={currentUser?.avatarAppearance}
                   petId={currentUser?.gamePetId}
                   employeeUniverseEnabled={settings.employeeUniverseBetaEnabled === true}
                   isAdmin={currentUser?.role === 'admin' || currentUser?.role === 'ceo'}

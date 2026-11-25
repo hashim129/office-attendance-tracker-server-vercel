@@ -5,7 +5,7 @@ import { ActiveDesktopTab } from '../types';
 import { CrmCategory, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { Pill, btnGhost, cardCls, fmtDateTime, isWorkPrompt } from './ui';
-import { notificationTarget } from './notificationTarget';
+import { notificationDestination } from './notificationTarget';
 
 const LABEL: Record<CrmCategory, string> = { followup: 'Follow-up / Task', meeting: 'Meeting', inventory: 'Inventory', sale: 'Sales', reminder: 'Reminder', invoice: 'Invoice', receipt: 'Receipt', customer: 'Customer' };
 
@@ -70,7 +70,7 @@ export const NotificationsView: React.FC<Props> = ({ crm, onOpen }) => {
           {history.map((h) => (
             <li key={h.id}>
               <button
-                onClick={() => onOpen(notificationTarget[h.category], h.refId)}
+                onClick={() => onOpen(notificationDestination(h.category, h.refId), h.refId)}
                 className={`${cardCls} w-full text-left p-3 flex items-start gap-3 cursor-pointer hover:border-blue-400 transition-colors ${h.read ? '' : 'border-l-4 border-l-blue-500'}`}
               >
                 <div className="min-w-0 flex-1">

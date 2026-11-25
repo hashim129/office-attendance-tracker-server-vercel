@@ -3328,7 +3328,6 @@ function PortalInner() {
             animate={{ opacity: 1 }}
             exit={prefersReducedMotion ? undefined : { opacity: 0 }}
             className="no-print fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
-            onClick={() => setQuoteModalOpen(false)}
           >
             <motion.div
               role="dialog"

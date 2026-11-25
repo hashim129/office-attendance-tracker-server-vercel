@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { hasProfilePicture } from '../../lib/profilePictures';
 import {
   Users,
   UserPlus,
@@ -289,7 +290,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                 {/* Header: Name, Code & Role */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-3">
-                    {employeeUniverseEnabled && emp.gameCharacterId ? <EmployeeAvatar characterId={emp.gameCharacterId} petId={emp.gamePetId} name={emp.name} size="sm" /> : <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-sm">{emp.name.charAt(0)}</div>}
+                    {(employeeUniverseEnabled && emp.gameCharacterId) || hasProfilePicture(emp.avatarAppearance) ? <EmployeeAvatar characterId={emp.gameCharacterId} petId={emp.gamePetId} appearance={emp.avatarAppearance} name={emp.name} size="sm" /> : <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 flex items-center justify-center font-bold text-sm">{emp.name.charAt(0)}</div>}
                     <div>
                       <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                         <span>{emp.name}</span>
