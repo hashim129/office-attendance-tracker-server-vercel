@@ -34,8 +34,8 @@ function publicEmployee(row) {
     id: row.id,
     name: row.name || 'Employee',
     role: row.role || 'employee',
-    characterId: CHARACTERS.has(pending.gameCharacterId) ? pending.gameCharacterId : null,
-    petId: PETS.has(pending.gamePetId) && pending.gamePetId !== 'none' ? pending.gamePetId : null,
+    characterId: CHARACTERS.has(row.game_character_id || pending.gameCharacterId) ? row.game_character_id || pending.gameCharacterId : null,
+    petId: PETS.has(row.game_pet_id || pending.gamePetId) && (row.game_pet_id || pending.gamePetId) !== 'none' ? row.game_pet_id || pending.gamePetId : null,
   };
 }
 
@@ -45,6 +45,20 @@ export default async function handler(req, res) {
     if (!actor) return response(res, 401, { error: 'Please sign in again.' });
     if (!(await requireBeta())) return response(res, 403, { error: 'Employee Universe Beta is currently disabled.' });
 
+    if (req.method === 'GET' && req.query?.view === 'presence') {
+      const profile = parseJson(actor.pending_device_request);
+      if (!['admin','ceo'].includes(actor.role) && !profile?.liveDashboardAccess) {
+        return response(res, 403, {error:'Live dashboard access required.'});
+      }
+      const since = new Date(Date.now() - 50000).toISOString();
+      const rows = await supabaseFetch('/employee_universe_presence?last_seen=gte.' + encodeURIComponent(since) + '&select=employee_id');
+      return response(res, 200, {online:rows.map(row => row.employee_id)});
+    }
+    if (req.method === 'GET' && req.query?.view === 'presence') {
+      const since = new Date(Date.now() - 50000).toISOString();
+      const presence = await supabaseFetch('/employee_universe_presence?last_seen=gte.' + encodeURIComponent(since) + '&select=employee_id');
+      return response(res, 200, {online:(presence || []).map(row=>row.employee_id)});
+    }
     if (req.method === 'GET') {
       const suffix = '&select=id,sender_id,body,mention_ids,reply_to,created_at&order=created_at.desc&limit=80';
       const [publicRows, ownRows, legacyPrivateRows, newOwnRows, newPrivateRows] = await Promise.all([
@@ -57,7 +71,7 @@ export default async function handler(req, res) {
       const rows = [...new Map([...(publicRows || []), ...(ownRows || []), ...(legacyPrivateRows || []), ...(newOwnRows || []), ...(newPrivateRows || [])].filter((m) => canSeeUniverseMessage(m, actor.id)).map((m) => [m.id, m])).values()].sort((a,b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0,80);
       const ids = [...new Set((rows || []).flatMap((m) => [m.sender_id, ...(Array.isArray(m.mention_ids) ? m.mention_ids : [])]).filter(Boolean))];
       const employees = ids.length
-        ? await supabaseFetch(`/employees?id=in.(${ids.map((id) => encodeURIComponent(id)).join(',')})&deleted_at=is.null&select=id,name,role,pending_device_request`)
+        ? await supabaseFetch(`/employees?id=in.(${ids.map((id) => encodeURIComponent(id)).join(',')})&deleted_at=is.null&select=id,name,role,pending_device_request,game_character_id,game_pet_id`)
         : [];
       const byId = new Map((employees || []).map((e) => [e.id, publicEmployee(e)]));
       return response(res, 200, {
@@ -72,22 +86,41 @@ export default async function handler(req, res) {
     if (req.method !== 'POST') return response(res, 405, { error: 'Method not allowed.' });
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
 
+    if(body.action==='presence'){
+      await supabaseFetch('/employee_universe_presence?on_conflict=employee_id',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({employee_id:actor.id,last_seen:new Date().toISOString()})});
+      return response(res,200,{ok:true});
+    }
+
+    if (body.action === 'presence') {
+      await supabaseFetch('/employee_universe_presence?on_conflict=employee_id', {
+        method:'POST', headers:{Prefer:'resolution=merge-duplicates,return=minimal'},
+        body:JSON.stringify({employee_id:actor.id,last_seen:new Date().toISOString()})
+      });
+      return response(res, 200, {ok:true});
+    }
     if (body.action === 'profile') {
       const characterId = String(body.characterId || '');
       const petId = String(body.petId || 'none');
       if (!CHARACTERS.has(characterId)) return response(res, 400, { error: 'Choose a character from the approved gallery.' });
       if (!PETS.has(petId)) return response(res, 400, { error: 'Choose a pet from the approved gallery.' });
-      const rows = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(actor.id)}&deleted_at=is.null&select=id,pending_device_request`);
-      const row = rows?.[0];
-      if (!row) return response(res, 404, { error: 'Employee profile not found.' });
-      const pending = parseJson(row.pending_device_request, {});
-      const nextPending = { ...pending, gameCharacterId: characterId, gamePetId: petId, gameProfileUpdatedAt: new Date().toISOString() };
+      const profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
+      const name = String(profile.name || actor.name || '').trim();
+      const email = String(profile.email || actor.email || '').trim();
+      const phone = String(profile.phone || actor.phone || '').trim();
+      const department = String(profile.department || actor.department || '').trim();
+      const designation = String(profile.designation || actor.designation || '').trim();
+      if (!name || name.length > 100 || email.length > 254 || phone.length > 40 || department.length > 100 || designation.length > 100) {
+        return response(res, 400, { error: 'Check the profile fields and try again.' });
+      }
+      const rows = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(actor.id)}&deleted_at=is.null&select=id`);
+      if (!rows?.[0]) return response(res, 404, { error: 'Employee profile not found.' });
+      const now = new Date().toISOString();
       await supabaseFetch(`/employees?id=eq.${encodeURIComponent(actor.id)}&deleted_at=is.null`, {
         method: 'PATCH',
         headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({ pending_device_request: nextPending, record_updated_at: new Date().toISOString() }),
+        body: JSON.stringify({name,email,phone,department,designation,game_character_id:characterId,game_pet_id:petId==='none'?null:petId,record_updated_at:now}),
       });
-      return response(res, 200, { ok: true, characterId, petId });
+      return response(res, 200, { ok: true, characterId, petId, profile:{name,email,phone,department,designation} });
     }
 
     if (body.action === 'message') {

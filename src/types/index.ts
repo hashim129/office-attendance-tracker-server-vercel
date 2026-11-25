@@ -219,6 +219,7 @@ export type AppMode = 'desktop' | 'kiosk';
 
 export type ActiveDesktopTab =
   | 'clock'
+  | 'employee-profile'
   | 'my-attendance'
   | 'team-attendance'
   | 'insights'
