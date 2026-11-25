@@ -529,6 +529,15 @@ async function getAllPurchases() {
   }
 }
 
+async function updatePurchaseRow(existingRow, data, at) {
+  const revision = existingRow.updated_at ? `eq.${encodeURIComponent(existingRow.updated_at)}` : 'is.null';
+  const changed = await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(existingRow.id)}&updated_at=${revision}`, {
+    method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ data, updated_at: at }),
+  });
+  if (!changed?.length) throw bad('Purchase changed. Refresh and try again.');
+  return { ...changed[0].data, id: changed[0].id, updatedAt: changed[0].updated_at || at };
+}
+
 async function getAllPortalQueries() {
   try {
     const rows = (await supabaseFetch(`/crm_company?id=like.pqr-*&order=updated_at.desc&limit=250&select=*`)) || [];
@@ -2061,14 +2070,14 @@ export default async function handler(req, res) {
           status,
           updatedAt: at,
         };
-        await upsert('crm_company', { id: existing.id, data: updatedPurchase, updated_at: at });
+        const saved = await updatePurchaseRow(existingRow, updatedPurchase, at);
         const what = changedBits([
           ['customer', existing.customerName, customerName], ['query code', existing.crmId, crmId], ['currency', existing.currency, currency],
           ['payable', existing.totalPayable, totalPayable], ['receivable', existing.totalReceivable, totalReceivable], ['items', asArray(existing.items).length, items.length],
           ['date', existing.purchaseDate, purchaseDate], ['notes', existing.notes, notes],
         ]);
         await notify(await salesStaffIds(), 'invoice', existing.id, `${me.name || 'Someone'} edited vendor purchase ${existing.purchaseNo}${what ? ` (${what})` : ' (details updated)'}.`, me.id);
-        return res.status(200).json({ ok: true, purchase: updatedPurchase });
+        return res.status(200).json({ ok: true, purchase: saved });
       }
 
       const existingPurchases = await getAllPurchases();
@@ -2097,6 +2106,17 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, purchase: newPurchase });
     }
 
+    if (action === 'purchase_posted') {
+      if (!(isAdmin || me.role === 'accounts')) throw forbidden('Only Accounts or Admin can post purchases.');
+      if (typeof body.id !== 'string' || !body.id.startsWith('pur-') || typeof body.posted !== 'boolean') throw bad('Choose a valid purchase and posting status.');
+      const existingRow = await getOne('crm_company', body.id);
+      if (!existingRow?.data?.purchaseNo || existingRow.id !== body.id) throw notFound('Purchase record not found.');
+      const at = nowIso();
+      const updated = { ...existingRow.data, posted: body.posted, postedAt: body.posted ? at : null, postedBy: body.posted ? me.id : null, updatedAt: at };
+      const saved = await updatePurchaseRow(existingRow, updated, at);
+      return res.status(200).json({ ok: true, purchase: saved });
+    }
+
     if (action === 'purchase_status') {
       const existingRow = await getOne('crm_company', body.id);
       if (!existingRow?.data) throw notFound('Purchase record not found.');
@@ -2106,8 +2126,8 @@ export default async function handler(req, res) {
       const status = ['unpaid', 'paid', 'partial'].includes(body.status) ? body.status : 'unpaid';
       const at = nowIso();
       const updated = { ...existingRow.data, status, updatedAt: at };
-      await upsert('crm_company', { id: existingRow.id, data: updated, updated_at: at });
-      return res.status(200).json({ ok: true, purchase: updated });
+      const saved = await updatePurchaseRow(existingRow, updated, at);
+      return res.status(200).json({ ok: true, purchase: saved });
     }
 
     if (action === 'purchase_delete') {
