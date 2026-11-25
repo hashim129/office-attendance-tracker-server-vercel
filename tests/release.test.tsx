@@ -8,8 +8,10 @@ import { EmployeeAvatar, GAME_CHARACTERS, GAME_PETS } from '../src/components/co
 import { getPunchNotes } from '../src/lib/punchNotes';
 import { updateVendorPosting } from '../api/_vendorLines.js';
 import crmHandler from '../api/crm.js';
-import universeHandler from '../api/universe.js';
+import universeHandler, { canSeeUniverseMessage } from '../api/universe.js';
 import { issueSession } from '../api/_session.js';
+import { canEditFinancialRecord } from '../src/lib/financePermissions.js';
+import { CHARACTER_IDS, HUMAN_CHARACTERS } from '../src/lib/universeCharacters.js';
 
 test('optional clock-in remark is retained with its action, without duplicate retry', () => {
   const initial = { employeeId: 'fixture', timeIn: '09:00', notes: 'Client visit', actorAction: 'time_in', recordUpdatedAt: '2026-11-25T04:00:00Z' };
@@ -45,6 +47,30 @@ test('all character and pet choices render vector art, not emoji placeholders', 
   }
 });
 
+test('54 new avatars are unique, accepted by the shared catalog, and distinct in appearance', () => {
+  assert.equal(HUMAN_CHARACTERS.length, 54);
+  assert.equal(CHARACTER_IDS.size, 66);
+  assert.equal(new Set(HUMAN_CHARACTERS.map((x) => renderToStaticMarkup(<EmployeeAvatar characterId={x.id} />))).size, 54);
+});
+
+test('Accounts and Admin have matching record-edit rights, without broadening employee access', () => {
+  for (const kind of ['invoice','receipt','purchase']) for (const status of ['paid','unpaid','cancelled']) {
+    assert.equal(canEditFinancialRecord('accounts','accounts-user','owner',kind,status), true);
+    assert.equal(canEditFinancialRecord('admin','admin-user','owner',kind,status), true);
+    assert.equal(canEditFinancialRecord('employee','other','owner',kind,status), false);
+  }
+  assert.equal(canEditFinancialRecord('employee','owner','owner','invoice','paid'), false);
+  assert.equal(canEditFinancialRecord('employee','owner','owner','invoice','unpaid'), true);
+});
+
+test('private chat is visible exclusively to sender and tagged employees, even for administrators', () => {
+  const publicRow = { sender_id: 'sender', mention_ids: [] };
+  const privateRow = { sender_id: 'sender', mention_ids: ['recipient','second'] };
+  assert.equal(canSeeUniverseMessage(publicRow,'other'), true);
+  for (const id of ['sender','recipient','second']) assert.equal(canSeeUniverseMessage(privateRow,id), true);
+  for (const id of ['other','admin']) assert.equal(canSeeUniverseMessage(privateRow,id), false);
+});
+
 test('posting and unposting one vendor preserves every other financial line', () => {
   const lines = [{ name: 'Vendor A', amount: 100 }, { name: 'Vendor B', amount: 200 }];
   const posted = updateVendorPosting(lines, 'legacy-1', true, 'accounts', '2026-11-25', () => 'fixture-id');
@@ -65,17 +91,27 @@ test('fixture server enforces posting role and independent Beta gate', async () 
   let role = 'employee';
   let beta = false;
   let writes = 0;
+  let sentTable = '';
   const row = { id: 'inv-fixture', kind: 'customer', status: 'unpaid', updated_at: '2026-11-25', vendors: [{ name: 'A', amount: 100 }, { name: 'B', amount: 200 }] };
   globalThis.fetch = (async (input, options) => {
     const url = new URL(String(input));
     assert.equal(url.hostname, 'fixture.invalid');
-    if (url.pathname.endsWith('/employees')) return Response.json([{ id: 'emp-fixture', role, name: 'Fixture', is_active: true }]);
+    if (url.pathname.endsWith('/employees')) return Response.json([{ id: url.searchParams.get('id')?.startsWith('in.') ? 'recipient' : 'emp-fixture', role, name: 'Fixture', is_active: true }]);
     if (url.pathname.endsWith('/settings')) return Response.json([{ data: { employeeUniverseBetaEnabled: beta } }]);
     if (url.pathname.endsWith('/crm_invoices')) {
       if (options?.method === 'PATCH') { writes++; return Response.json([{ ...row, ...JSON.parse(String(options.body)) }]); }
       return Response.json([row]);
     }
-    if (url.pathname.endsWith('/employee_universe_messages')) return Response.json([]);
+    if (url.pathname.endsWith('/employee_universe_messages') || url.pathname.endsWith('/employee_universe_private_messages')) {
+      if (options?.method === 'POST') { sentTable = url.pathname.split('/').pop()!; return Response.json([{ id: 'sent', ...JSON.parse(String(options.body)) }]); }
+      if (url.searchParams.has('sender_id') && url.searchParams.has('created_at')) return Response.json([]);
+    }
+    if (url.pathname.endsWith('/employee_universe_private_messages')) return Response.json([]);
+    if (url.pathname.endsWith('/employee_universe_messages')) return Response.json([
+      { id: 'public', sender_id: 'emp-fixture', body: 'Public', mention_ids: [], created_at: '2026-11-25T04:00:00Z' },
+      { id: 'mine', sender_id: 'someone', body: 'Private to me', mention_ids: ['emp-fixture'], created_at: '2026-11-25T04:01:00Z' },
+      { id: 'hidden', sender_id: 'someone', body: 'Not for me', mention_ids: ['other'], created_at: '2026-11-25T04:02:00Z' },
+    ]);
     throw new Error(`Unexpected fixture request: ${url.pathname}`);
   }) as typeof fetch;
   const invoke = async (handler: Function, req: object) => {
@@ -97,7 +133,15 @@ test('fixture server enforces posting role and independent Beta gate', async () 
     const universeReq = { method: 'GET', headers: { 'x-session-token': sessionToken } };
     assert.equal((await invoke(universeHandler, universeReq)).status, 403);
     beta = true;
-    assert.deepEqual((await invoke(universeHandler, universeReq)).data.messages, []);
+    const messages = (await invoke(universeHandler, universeReq)).data.messages;
+    assert.deepEqual(messages.map((m: { id: string }) => m.id), ['public','mine']);
+    assert.equal(messages[1].private, true);
+    const send = (mentionIds: string[]) => invoke(universeHandler, { method: 'POST', headers: universeReq.headers, body: { action:'message', message:'Fixture only', mentionIds } });
+    assert.equal((await send(['recipient'])).status, 201);
+    assert.equal(sentTable, 'employee_universe_private_messages');
+    assert.equal((await send([])).status, 201);
+    assert.equal(sentTable, 'employee_universe_messages');
+    assert.equal((await send(['invalid'])).status, 400);
   } finally {
     globalThis.fetch = oldFetch;
     for (const [k, v] of Object.entries({ SUPABASE_URL: oldEnv.url, SUPABASE_SERVICE_ROLE_KEY: oldEnv.key, SESSION_SECRET: oldEnv.secret })) {

@@ -1,5 +1,6 @@
 import { checkOfficeNetwork } from './_netmatch.js';
 import { verifyFacePass } from './_face.js';
+import { CHARACTER_IDS } from '../src/lib/universeCharacters.js';
 /**
  * Supabase (PostgreSQL) REST Adapter
  * Provides zero-dependency, atomic cloud database persistence via Supabase PostgREST API.
@@ -152,7 +153,7 @@ function mapDbEmployee(r) {
     leaderboardAccess,
     payablesAccess,
     birthday,
-    gameCharacterId: ['astro','fox','tiger','panda','robot','wizard','ranger','dragon','koala','ninja','captain','unicorn'].includes(pendingObj?.gameCharacterId) ? pendingObj.gameCharacterId : undefined,
+    gameCharacterId: CHARACTER_IDS.has(pendingObj?.gameCharacterId) ? pendingObj.gameCharacterId : undefined,
     gamePetId: ['cat','dog','rabbit','owl','hamster','parrot','turtle'].includes(pendingObj?.gamePetId) ? pendingObj.gamePetId : undefined,
     registeredDeviceId: r.registered_device_id || undefined,
     registeredDeviceName: r.registered_device_name || undefined,

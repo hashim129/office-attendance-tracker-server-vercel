@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { canEditFinancialRecord } from '../lib/financePermissions.js';
 import { Plus, Trash2, FileDown, Share2, Eye, Pencil, ReceiptText, Upload, X } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
@@ -123,7 +124,7 @@ export const ReceiptsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
   }, [receipts, query, empName]);
 
   const patch = (p: Partial<FormState>) => { setForm((f) => (f ? { ...f, ...p } : f)); setError(''); };
-  const canEdit = (r: CrmReceipt) => isStaff || r.createdBy === currentUser.id;
+  const canEdit = (r: CrmReceipt) => canEditFinancialRecord(currentUser.role, currentUser.id, r.createdBy, 'receipt');
   const by = (r: CrmReceipt) => empName.get(r.createdBy) || '';
 
   const pickImage = async (file: File | undefined) => {

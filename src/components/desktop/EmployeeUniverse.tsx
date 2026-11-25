@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AtSign, MessageCircle, PawPrint, Reply, Send, Sparkles, X } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { AtSign, Bell, MessageCircle, PawPrint, Reply, Send, Sparkles, Volume2, VolumeX, X } from 'lucide-react';
 import { Employee } from '../../types';
 import { getSessionToken } from '../../lib/storage';
 import { EmployeeAvatar, GAME_CHARACTERS, GAME_PETS, UniverseIllustration } from '../common/EmployeeIdentity';
+import { installSoundUnlock, isSoundOn, playAlertSound, setSoundOn } from '../../crm/sound';
 
 type PublicPerson = { id: string; name: string; role?: string; characterId?: string | null; petId?: string | null };
-type ChatMessage = { id: string; body: string; sender: PublicPerson; mentions: PublicPerson[]; replyTo: string | null; createdAt: string };
+type ChatMessage = { id: string; body: string; sender: PublicPerson; mentions: PublicPerson[]; private?: boolean; recipientIds?: string[]; replyTo: string | null; createdAt: string };
 interface Props {
   currentUser: Employee;
   employees: Employee[];
@@ -30,9 +31,17 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [sending, setSending] = useState(false);
   const [chatError, setChatError] = useState('');
-  const [lastOpenedAt, setLastOpenedAt] = useState(Date.now());
+  const [unread, setUnread] = useState(0);
+  const [alertMessage, setAlertMessage] = useState('');
+  const [sound, setSound] = useState(isSoundOn());
+  const seen = useRef<Set<string> | null>(null);
+  const chatOpenRef = useRef(false);
+  const polling = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const token = getSessionToken();
+  useEffect(() => { installSoundUnlock(); }, []);
+  useEffect(() => { chatOpenRef.current = chatOpen; if (chatOpen) { setUnread(0); setAlertMessage(''); } }, [chatOpen]);
+  useEffect(() => { const clear = () => { if (!document.hidden && chatOpenRef.current) { setUnread(0); setAlertMessage(''); } }; document.addEventListener('visibilitychange', clear); return () => document.removeEventListener('visibilitychange', clear); }, []);
 
   useEffect(() => {
     if (!currentUser.gameCharacterId) {
@@ -42,17 +51,35 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
   }, [currentUser.id, currentUser.gameCharacterId, currentUser.gamePetId]);
 
   const refreshMessages = useCallback(async () => {
-    if (!token) return;
+    if (!token || polling.current) return;
+    polling.current = true;
     try {
       const response = await fetch('/api/universe', { headers: { 'x-session-token': token }, cache: 'no-store' });
       if (!response.ok) { setChatError('Employee Universe is unavailable. Please retry shortly.'); return; }
       const data = await response.json();
-      if (Array.isArray(data.messages)) setMessages(data.messages);
+      if (Array.isArray(data.messages)) {
+        const incoming: ChatMessage[] = data.messages;
+        if (seen.current) {
+          const fresh = incoming.filter((m) => !seen.current!.has(m.id) && m.sender.id !== currentUser.id);
+          if (fresh.length) {
+            playAlertSound('notice');
+            if (!chatOpenRef.current || document.hidden) {
+              setUnread((n) => n + fresh.length);
+              setAlertMessage(`${fresh.length === 1 ? 'New message' : `${fresh.length} new messages`} in Employee Universe`);
+              if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) {
+                try { new Notification('Employee Universe', { body: 'You have a new chat message.', tag: 'employee-universe' }); } catch { /* optional notification */ }
+              }
+            }
+          }
+        }
+        seen.current = new Set([...(seen.current || []), ...incoming.map((m) => m.id)].slice(-500));
+        setMessages(incoming);
+      }
       setChatError('');
     } catch {
       setChatError('Connection paused. Messages will retry automatically.');
-    }
-  }, [token]);
+    } finally { polling.current = false; }
+  }, [token, currentUser.id]);
 
   useEffect(() => {
     void refreshMessages();
@@ -62,14 +89,15 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
 
   useEffect(() => {
     if (chatOpen) {
-      setLastOpenedAt(Date.now());
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [chatOpen, messages.length]);
 
-  const unreadMentions = useMemo(() => messages.filter((m) =>
-    Date.parse(m.createdAt) > lastOpenedAt && m.mentions.some((person) => person.id === currentUser.id)
-  ).length, [messages, currentUser.id, lastOpenedAt]);
+  const unreadMentions = unread;
+  const replyPrivately = (item: ChatMessage) => {
+    setReplyTo(item);
+    setMentionIds(item.private ? [...new Set([item.sender.id, ...(item.recipientIds || item.mentions.map((p) => p.id))])].filter((id) => id !== currentUser.id) : []);
+  };
 
   const saveProfile = async () => {
     if (!characterId) { setProfileError('Choose your character first.'); return; }
@@ -132,6 +160,7 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
 
   return (
     <>
+      {alertMessage && !chatOpen && <button className="fixed bottom-24 right-5 z-[71] rounded-xl bg-violet-700 px-4 py-3 text-white text-xs shadow-xl" onClick={() => setChatOpen(true)} role="status">🔔 {alertMessage}</button>}
       <button type="button" onClick={() => setChatOpen((v) => !v)} className="fixed bottom-5 right-5 z-[70] flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-600 to-blue-600 px-4 py-3 text-sm font-bold text-white shadow-xl shadow-violet-900/25 transition hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-fuchsia-300/60" aria-label="Open Employee Universe chat">
         <span className="relative"><MessageCircle className="h-5 w-5" />{unreadMentions > 0 && <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-300 px-1 text-[9px] font-black text-slate-900">{unreadMentions}</span>}</span>
         <span className="hidden sm:inline">Employee Universe 2.0</span>
@@ -156,7 +185,7 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
                 {quoted && <div className="mb-2 rounded-lg border-l-2 border-violet-400 bg-violet-50 px-2 py-1 text-[10px] text-slate-500 dark:bg-violet-950/30">↪ {quoted.sender.name}: {quoted.body.slice(0, 90)}</div>}
                 <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-700 dark:text-slate-200">{formatMessage(item)}</p>
                 {item.mentions.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{item.mentions.map((person) => <span key={person.id} className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-1 text-[9px] font-bold text-violet-700 dark:bg-violet-900/40 dark:text-violet-200"><EmployeeAvatar characterId={person.characterId || undefined} petId={person.petId || undefined} name={person.name} size="xs" />{person.name}</span>)}</div>}
-                <div className="mt-2 flex justify-end"><button type="button" onClick={() => setReplyTo(item)} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold text-slate-400 hover:bg-slate-100 hover:text-violet-600 dark:hover:bg-slate-800"><Reply className="h-3 w-3" /> Reply</button></div>
+                <div className="mt-2 flex justify-between items-center"><span className="text-[10px] font-bold text-violet-600">{item.private ? '🔒 Private' : '🌐 Everyone'}</span><button type="button" onClick={() => replyPrivately(item)} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold text-slate-400 hover:bg-slate-100 hover:text-violet-600 dark:hover:bg-slate-800"><Reply className="h-3 w-3" /> Reply</button></div>
               </article>;
             })}
             <div ref={bottomRef} />
@@ -165,6 +194,7 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
           {replyTo && <div className="flex items-center justify-between border-t border-slate-100 bg-violet-50 px-3 py-2 text-[10px] dark:border-slate-800 dark:bg-violet-950/20"><span className="truncate">Replying to <b>{replyTo.sender.name}</b>: {replyTo.body.slice(0, 60)}</span><button onClick={() => setReplyTo(null)} className="p-1" aria-label="Cancel reply"><X className="h-3 w-3" /></button></div>}
           {mentionPickerOpen && <div className="max-h-36 overflow-y-auto border-t border-slate-100 bg-white p-2 dark:border-slate-800 dark:bg-slate-900"><p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">Mention a teammate</p>{employees.filter((e) => e.isActive !== false && e.id !== currentUser.id).map((person) => <button key={person.id} onClick={() => addMention(person)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-violet-50 dark:hover:bg-slate-800"><EmployeeAvatar characterId={person.gameCharacterId} petId={person.gamePetId} name={person.name} size="xs" /><span>{person.name}</span></button>)}</div>}
           <footer className="border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
+            <div className="mb-2 flex flex-wrap items-center gap-2 text-xs"><b className="text-violet-700 dark:text-violet-300">{mentionIds.length ? '🔒 Private message' : '🌐 Everyone can see this'}</b>{mentionIds.map((id) => <button key={id} type="button" className="rounded-full bg-violet-100 px-2 py-1 text-violet-800" onClick={() => setMentionIds((ids) => ids.filter((x) => x !== id))}>{employees.find((e) => e.id === id)?.name || 'Recipient'} ×</button>)}<button type="button" className="ml-auto flex items-center gap-1" onClick={() => { setSoundOn(!sound); setSound(!sound); if (!sound) playAlertSound(); }}>{sound ? <Volume2 size={14}/> : <VolumeX size={14}/>} Sound</button>{typeof Notification !== 'undefined' && Notification.permission === 'default' && <button type="button" className="flex items-center gap-1" onClick={() => void Notification.requestPermission()}><Bell size={14}/> Desktop alerts</button>}</div>
             <div className="flex items-end gap-2"><button type="button" onClick={() => setMentionPickerOpen((v) => !v)} className="rounded-xl border border-violet-200 p-2.5 text-violet-600 hover:bg-violet-50 dark:border-violet-900 dark:hover:bg-violet-950" aria-label="Mention someone"><AtSign className="h-4 w-4" /></button><textarea value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }} rows={2} maxLength={1500} placeholder="Message the team… (Enter to send)" className="max-h-24 min-h-11 flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /><button type="button" onClick={() => void sendMessage()} disabled={!message.trim() || sending} className="rounded-xl bg-gradient-to-br from-violet-600 to-blue-600 p-3 text-white shadow-md transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Send message"><Send className="h-4 w-4" /></button></div>
             <div className="mt-1 flex items-center justify-between text-[9px] text-slate-400"><span>{mentionIds.length} teammates mentioned</span><span>{message.length}/1500</span></div>
           </footer>

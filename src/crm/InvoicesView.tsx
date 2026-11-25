@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { canEditFinancialRecord } from '../lib/financePermissions.js';
 import { Plus, Trash2, FileDown, Share2, Eye, Pencil, Building2, FileText, X, Lock, Info, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
@@ -463,7 +464,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
     return invoices.filter((i) => (filter === 'all' ? !fullyPaid(i) : filter === 'paid' ? fullyPaid(i) : filter === 'unpaid' ? (i.status === 'unpaid' || (i.status === 'paid' && !fullyPaid(i))) : i.status === filter) && (!q || [i.invoiceNo, i.customerName, i.reference, i.crmId || '', i.queryCode || '', i.customerPhone, empName.get(i.createdBy) || '', ...(i.vendors || []).flatMap((v) => [v.name, v.description || ''])].some((v) => v.toLowerCase().includes(q))));
   }, [invoices, filter, query, empName]);
 
-  const canEdit = (i: CrmInvoice) => isAdmin || (i.createdBy === currentUser.id && i.status === 'unpaid');
+  const canEdit = (i: CrmInvoice) => canEditFinancialRecord(currentUser.role, currentUser.id, i.createdBy, 'invoice', i.status);
   const canUpdateVisa = (i: CrmInvoice) => (i.kind || 'customer') !== 'vendor' && (isAdmin || i.createdBy === currentUser.id);
   const calc = form ? compute(form) : null;
   const draft: CrmInvoice | null = form && calc ? {

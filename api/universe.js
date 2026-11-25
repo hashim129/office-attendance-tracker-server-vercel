@@ -1,8 +1,11 @@
 import { getSessionEmployee } from './_session.js';
 import { supabaseFetch } from './_supabase.js';
+import { CHARACTER_IDS as CHARACTERS } from '../src/lib/universeCharacters.js';
 
-const CHARACTERS = new Set(['astro','fox','tiger','panda','robot','wizard','ranger','dragon','koala','ninja','captain','unicorn']);
 const PETS = new Set(['cat','dog','rabbit','owl','hamster','parrot','turtle','none']);
+const PRIVATE_TABLE = 'employee_universe_private_messages';
+const recipients = (row) => Array.isArray(row.mention_ids) ? row.mention_ids : [];
+export const canSeeUniverseMessage = (row, employeeId) => recipients(row).length === 0 || row.sender_id === employeeId || recipients(row).includes(employeeId);
 
 function response(res, status, payload) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -43,7 +46,15 @@ export default async function handler(req, res) {
     if (!(await requireBeta())) return response(res, 403, { error: 'Employee Universe Beta is currently disabled.' });
 
     if (req.method === 'GET') {
-      const rows = await supabaseFetch('/employee_universe_messages?select=id,sender_id,body,mention_ids,reply_to,created_at&order=created_at.desc&limit=80');
+      const suffix = '&select=id,sender_id,body,mention_ids,reply_to,created_at&order=created_at.desc&limit=80';
+      const [publicRows, ownRows, legacyPrivateRows, newOwnRows, newPrivateRows] = await Promise.all([
+        supabaseFetch('/employee_universe_messages?mention_ids=eq.' + encodeURIComponent('[]') + suffix),
+        supabaseFetch('/employee_universe_messages?sender_id=eq.' + encodeURIComponent(actor.id) + suffix),
+        supabaseFetch('/employee_universe_messages?mention_ids=cs.' + encodeURIComponent(JSON.stringify([actor.id])) + suffix),
+        supabaseFetch(`/${PRIVATE_TABLE}?sender_id=eq.` + encodeURIComponent(actor.id) + suffix),
+        supabaseFetch(`/${PRIVATE_TABLE}?mention_ids=cs.` + encodeURIComponent(JSON.stringify([actor.id])) + suffix),
+      ]);
+      const rows = [...new Map([...(publicRows || []), ...(ownRows || []), ...(legacyPrivateRows || []), ...(newOwnRows || []), ...(newPrivateRows || [])].filter((m) => canSeeUniverseMessage(m, actor.id)).map((m) => [m.id, m])).values()].sort((a,b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0,80);
       const ids = [...new Set((rows || []).flatMap((m) => [m.sender_id, ...(Array.isArray(m.mention_ids) ? m.mention_ids : [])]).filter(Boolean))];
       const employees = ids.length
         ? await supabaseFetch(`/employees?id=in.(${ids.map((id) => encodeURIComponent(id)).join(',')})&deleted_at=is.null&select=id,name,role,pending_device_request`)
@@ -53,7 +64,7 @@ export default async function handler(req, res) {
         messages: (rows || []).reverse().map((m) => ({
           id: m.id, body: m.body, sender: byId.get(m.sender_id) || { id: m.sender_id, name: 'Former employee' },
           mentions: (Array.isArray(m.mention_ids) ? m.mention_ids : []).map((id) => byId.get(id)).filter(Boolean),
-          replyTo: m.reply_to || null, createdAt: m.created_at,
+          private: recipients(m).length > 0, recipientIds: recipients(m), replyTo: rows.some((parent) => parent.id === m.reply_to) ? m.reply_to : null, createdAt: m.created_at,
         })),
       });
     }
@@ -82,14 +93,30 @@ export default async function handler(req, res) {
     if (body.action === 'message') {
       const message = String(body.message || '').trim();
       if (!message || message.length > 1500) return response(res, 400, { error: 'Messages must be between 1 and 1,500 characters.' });
-      const mentionIds = [...new Set(Array.isArray(body.mentionIds) ? body.mentionIds.map(String).filter((id) => id !== actor.id).slice(0, 12) : [])];
+      const rawMentions = Array.isArray(body.mentionIds) ? body.mentionIds.map(String) : [];
+      const mentionIds = [...new Set(rawMentions.filter((id) => id !== actor.id))];
+      if (rawMentions.length && !mentionIds.length || mentionIds.length > 12 || mentionIds.some((id) => !/^[A-Za-z0-9_-]{1,100}$/.test(id))) return response(res, 400, { error: 'Choose valid recipients (up to 12).' });
+      let parent = null;
+      if (body.replyTo) {
+        if (!/^[0-9a-f-]{36}$/i.test(String(body.replyTo))) return response(res, 400, { error: 'Invalid reply.' });
+        const query = `?id=eq.${encodeURIComponent(body.replyTo)}&select=id,sender_id,mention_ids`;
+        parent = (await supabaseFetch(`/employee_universe_messages${query}`))?.[0] || (await supabaseFetch(`/${PRIVATE_TABLE}${query}`))?.[0];
+        if (!parent || !canSeeUniverseMessage(parent, actor.id)) return response(res, 404, { error: 'Referenced message unavailable.' });
+        if (recipients(parent).length) {
+          const audience = new Set([parent.sender_id, ...recipients(parent)]);
+          if (!mentionIds.length || mentionIds.some((id) => !audience.has(id))) return response(res, 400, { error: 'Private replies must stay within the original conversation.' });
+        }
+      }
       const activeMentions = mentionIds.length
         ? await supabaseFetch(`/employees?id=in.(${mentionIds.map((id) => encodeURIComponent(id)).join(',')})&deleted_at=is.null&is_active=eq.true&select=id`)
         : [];
       const validMentionIds = (activeMentions || []).map((e) => e.id);
-      const recent = await supabaseFetch(`/employee_universe_messages?sender_id=eq.${encodeURIComponent(actor.id)}&created_at=gte.${encodeURIComponent(new Date(Date.now() - 60000).toISOString())}&select=id&limit=15`);
-      if ((recent || []).length >= 12) return response(res, 429, { error: 'Please wait a moment before sending more messages.' });
-      const inserted = await supabaseFetch('/employee_universe_messages?select=id,sender_id,body,mention_ids,reply_to,created_at', {
+      if (validMentionIds.length !== mentionIds.length || mentionIds.some((id) => !validMentionIds.includes(id))) return response(res, 400, { error: 'One or more recipients are unavailable. Nothing was sent.' });
+      const recentQuery = `?sender_id=eq.${encodeURIComponent(actor.id)}&created_at=gte.${encodeURIComponent(new Date(Date.now() - 60000).toISOString())}&select=id&limit=15`;
+      const [recent, recentPrivate] = await Promise.all([supabaseFetch(`/employee_universe_messages${recentQuery}`), supabaseFetch(`/${PRIVATE_TABLE}${recentQuery}`)]);
+      if ((recent || []).length + (recentPrivate || []).length >= 12) return response(res, 429, { error: 'Please wait a moment before sending more messages.' });
+      const table = validMentionIds.length ? PRIVATE_TABLE : 'employee_universe_messages';
+      const inserted = await supabaseFetch(`/${table}?select=id,sender_id,body,mention_ids,reply_to,created_at`, {
         method: 'POST',
         headers: { Prefer: 'return=representation' },
         body: JSON.stringify({ sender_id: actor.id, body: message, mention_ids: validMentionIds, reply_to: body.replyTo || null }),
