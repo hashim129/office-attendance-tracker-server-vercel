@@ -2,6 +2,11 @@
   "buildCommand": "npm install --legacy-peer-deps && npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "git": {
+    "deploymentEnabled": {
+      "no-deploy/*": false
+    }
+  },
   "rewrites": [
     {
       "source": "/customers",

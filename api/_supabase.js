@@ -125,6 +125,8 @@ function mapDbEmployee(r) {
   const liveDashboardAccess = Boolean(pendingObj?.liveDashboardAccess);
   const leaderboardAccess = Boolean(pendingObj?.leaderboardAccess);
   const payablesAccess = Boolean(pendingObj?.payablesAccess);
+  const salesTeam = ['B2C', 'B2B'].includes(pendingObj?.salesTeam) ? pendingObj.salesTeam : '';
+  const salesTeamHead = Boolean(salesTeam && pendingObj?.salesTeamHead);
   const birthday = /^\d{4}-\d{2}-\d{2}$/.test(String(pendingObj?.birthday || '')) ? String(pendingObj.birthday) : '';
 
   return {
@@ -154,6 +156,8 @@ function mapDbEmployee(r) {
     liveDashboardAccess,
     leaderboardAccess,
     payablesAccess,
+    salesTeam,
+    salesTeamHead,
     birthday,
     gameCharacterId: CHARACTER_IDS.has(r.game_character_id || pendingObj?.gameCharacterId) ? (r.game_character_id || pendingObj?.gameCharacterId) : undefined,
     gamePetId: ['cat','dog','rabbit','owl','hamster','parrot','turtle'].includes(r.game_pet_id || pendingObj?.gamePetId) ? (r.game_pet_id || pendingObj?.gamePetId) : undefined,
@@ -183,6 +187,8 @@ function mapAppEmployeeToDb(e) {
     liveDashboardAccess: Boolean(e.liveDashboardAccess),
     leaderboardAccess: Boolean(e.leaderboardAccess),
     payablesAccess: Boolean(e.payablesAccess),
+    salesTeam: ['B2C', 'B2B'].includes(e.salesTeam) ? e.salesTeam : '',
+    salesTeamHead: Boolean(['B2C', 'B2B'].includes(e.salesTeam) && e.salesTeamHead),
     birthday: /^\d{4}-\d{2}-\d{2}$/.test(String(e.birthday || '')) ? String(e.birthday) : '',
     gameCharacterId: e.gameCharacterId || existingPending.gameCharacterId || null,
     gamePetId: e.gamePetId || existingPending.gamePetId || 'none',

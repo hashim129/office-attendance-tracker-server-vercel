@@ -1326,6 +1326,7 @@ export default function App() {
                     onAddCeoComment={handleAddCeoComment}
                     onUpdateRecord={handleUpdateRecord}
                     isNetworkOnline={isNetworkOnline}
+                    leaves={leaves}
                   />
                 )}
 

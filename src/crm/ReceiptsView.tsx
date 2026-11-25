@@ -8,7 +8,10 @@ import { CrmReceipt, RECEIPT_ITEMS, crmCall } from './crmApi';
 const downloadReceiptPdf = async (...a: Parameters<typeof import('./receiptPdf').downloadReceiptPdf>) => (await import('./receiptPdf')).downloadReceiptPdf(...a);
 const receiptPdfFile = async (...a: Parameters<typeof import('./receiptPdf').receiptPdfFile>) => (await import('./receiptPdf')).receiptPdfFile(...a);
 import { CrmState } from './useCrm';
-import { ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
+import { CreatedStamp, ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
+import { ExportPanel } from './ExportPanel';
+import { receiptCells, receiptColumns, receiptSearch, receiptSummary } from './exportConfigs';
+
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
 import { receiptItemsText } from './receiptText';
 
@@ -209,7 +212,14 @@ export const ReceiptsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
           <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 inline-flex items-center gap-2"><ReceiptText className="w-4 h-4 text-blue-600" /> Receipts</h2>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Record money received from a client. Every receipt is sent to the Accounts office for further action, and you can download it as a PDF.</p>
         </div>
-        <button className={btnPrimary} onClick={() => { setForm(blankForm()); setError(''); }}><Plus className="w-3.5 h-3.5" /> Add receipt</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportPanel
+            title="Receipts" rows={crm.data.receipts} columns={receiptColumns()} toCells={(r) => receiptCells(r, (id) => empName.get(id) || 'Former employee', (id) => crm.data.invoices.find((i) => i.id === id)?.invoiceNo || '')}
+            getCreatedAt={(r) => r.createdAt} getCreatorId={(r) => r.createdBy} searchFields={receiptSearch} searchHint="Receipt no., query code or client"
+            employees={employees} currentUser={currentUser} companyName={crm.data.company.name} summaryOf={receiptSummary} landscape
+          />
+          <button className={btnPrimary} onClick={() => { setForm(blankForm()); setError(''); }}><Plus className="w-3.5 h-3.5" /> Add receipt</button>
+        </div>
       </div>
 
       <div className={`${cardCls} p-4 flex flex-col md:flex-row gap-2 md:items-center justify-between`}>
@@ -231,10 +241,11 @@ export const ReceiptsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                     <Pill tone={r.paymentType === 'full' ? 'green' : 'amber'}>{r.paymentType === 'full' ? 'Full payment' : 'Partial payment'}</Pill>
                     <Pill tone="slate">Query {r.queryCode}</Pill>
                     <Pill tone="blue">{r.method === 'bank' ? 'Bank transfer' : 'Cash'}</Pill>
+                    {r.linkedInvoiceId && <Pill tone="green">Counted on {crm.data.invoices.find((i) => i.id === r.linkedInvoiceId)?.invoiceNo || 'an invoice'}</Pill>}
                   </div>
                   <p className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{r.clientName}</p>
                   {receiptItemsText(r).length > 0 && <p className="text-[11px] text-slate-600 dark:text-slate-300 break-words">{receiptItemsText(r).join(' · ')}</p>}
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">{niceDate(r.createdAt)} · created by <b className="text-slate-700 dark:text-slate-200">{by(r) || 'Former employee'}</b></p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400"><CreatedStamp at={r.createdAt} by={by(r) || 'Former employee'} /></p>
                 </div>
                 <div className="lg:text-right shrink-0">
                   <p className="text-[11px] text-slate-500">Received <b className="font-mono text-emerald-600">{r.currency} {fmtAmount(r.amountReceived)}</b></p>

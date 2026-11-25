@@ -6,6 +6,9 @@ import { CrmCustomer, CrmPortalQuery, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { FollowupModal } from './FollowupModal';
 import { ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, inputCls } from './ui';
+import { ExportPanel } from './ExportPanel';
+import { customerCells, customerColumns, customerSearch } from './exportConfigs';
+
 
 interface Props {
   crm: CrmState;
@@ -133,7 +136,14 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input className={`${inputCls} pl-9`} placeholder="Search by customer, company, country or city…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search customers" />
         </div>
-        <button className={btnPrimary} onClick={() => openForm()}><Plus className="w-4 h-4" /> Add customer</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportPanel
+            title="Customers" rows={crm.data.customers} columns={customerColumns()} toCells={(c) => customerCells(c, (id) => empName.get(id) || 'Former employee')}
+            getCreatedAt={(c) => c.createdAt} getCreatorId={(c) => c.createdBy} searchFields={customerSearch} searchHint="Customer no., name or destination"
+            employees={employees} currentUser={currentUser} companyName={crm.data.company.name} landscape
+          />
+          <button className={btnPrimary} onClick={() => openForm()}><Plus className="w-4 h-4" /> Add customer</button>
+        </div>
       </div>
 
       <ErrorNote message={crm.error} />

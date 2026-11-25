@@ -46,6 +46,13 @@ export const fmtDateTime = (iso?: string | null): string => {
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 };
+/** "Created 25 Nov 2026, 5:50 am · by Faiq Ahmed": shown on every record so everyone can see when and by whom it was made. */
+export const CreatedStamp: React.FC<{ at?: string | null; by?: string; className?: string }> = ({ at, by, className = '' }) => {
+  const d = at ? new Date(at) : null;
+  const when = d && !Number.isNaN(d.getTime()) ? d.toLocaleString('en-GB', { timeZone: 'Asia/Karachi', day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+  if (!when && !by) return null;
+  return <span data-created-stamp className={`text-[10px] text-slate-500 dark:text-slate-400 ${className}`}>Created {when}{by ? <> · by <b className="font-semibold text-slate-600 dark:text-slate-300">{by}</b></> : null}</span>;
+};
 export const fmtTime = (iso: string): string => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 export const fmtDay = (iso: string): string => new Date(iso).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 

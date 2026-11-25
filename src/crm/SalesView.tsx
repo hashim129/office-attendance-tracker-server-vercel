@@ -5,6 +5,9 @@ import { Modal } from '../components/common/Modal';
 import { CrmSale, SaleType, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, inputCls } from './ui';
+import { ExportPanel } from './ExportPanel';
+import { saleCells, saleColumns, saleSearch, saleSummary } from './exportConfigs';
+
 
 interface Props {
   crm: CrmState;
@@ -203,7 +206,14 @@ export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
             {seesAll ? 'Every sales coupon from every employee. Accounts reviews and marks them.' : 'Generate a coupon for each sale. Accounts will review it and mark it paid or not paid.'}
           </p>
         </div>
-        <button className={btnPrimary} onClick={() => { setForm(emptyForm); setError(''); setFormOpen(true); }}><Plus className="w-3.5 h-3.5" /> Generate Sales Coupon</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportPanel
+            title="Sales" rows={crm.data.sales} columns={saleColumns()} toCells={(s) => saleCells(s, (id) => empName.get(id) || 'Former employee', (crm.data.saleTypes || {}) as Record<string, string>)}
+            getCreatedAt={(s) => s.createdAt} getCreatorId={(s) => s.createdBy} searchFields={saleSearch} searchHint="Coupon no., query code, customer or vendor"
+            employees={employees} currentUser={currentUser} companyName={crm.data.company.name} summaryOf={saleSummary} landscape
+          />
+          <button className={btnPrimary} onClick={() => { setForm(emptyForm); setError(''); setFormOpen(true); }}><Plus className="w-3.5 h-3.5" /> Generate Sales Coupon</button>
+        </div>
       </div>
 
       <StatBar
