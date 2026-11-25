@@ -2,7 +2,7 @@ import { getSessionEmployee } from './_session.js';
 import { supabaseFetch } from './_supabase.js';
 import { CHARACTER_IDS as CHARACTERS } from '../src/lib/universeCharacters.js';
 
-import { validAppearance } from '../src/lib/avatarWardrobe.js';
+import { validAppearance, wardrobe } from '../src/lib/avatarWardrobe.js';
 
 const PETS = new Set(['cat','dog','rabbit','owl','hamster','parrot','turtle','none']);
 const PRIVATE_TABLE = 'employee_universe_private_messages';
@@ -100,6 +100,7 @@ export default async function handler(req, res) {
       if (beta && !CHARACTERS.has(characterId)) return response(res, 400, { error: 'Choose a character from the approved gallery.' });
       if (!PETS.has(petId)) return response(res, 400, { error: 'Choose a pet from the approved gallery.' });
       if (body.appearance !== undefined && !validAppearance(body.appearance)) return response(res,400,{error:'Invalid avatar options.'});
+      if (body.photo !== undefined && !wardrobe.photo.includes(String(body.photo))) return response(res,400,{error:'Choose a profile picture from the gallery.'});
       const profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
       const name = String(profile.name || actor.name || '').trim();
       const email = String(profile.email || actor.email || '').trim();
@@ -109,13 +110,17 @@ export default async function handler(req, res) {
       if (!name || name.length > 100 || email.length > 254 || phone.length > 40 || department.length > 100 || designation.length > 100) {
         return response(res, 400, { error: 'Check the profile fields and try again.' });
       }
-      const rows = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(actor.id)}&deleted_at=is.null&select=id`);
+      const rows = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(actor.id)}&deleted_at=is.null&select=id,avatar_appearance`);
       if (!rows?.[0]) return response(res, 404, { error: 'Employee profile not found.' });
       const now = new Date().toISOString();
+      // The 3D look is saved only while the Beta is on; a profile picture can always be saved.
+      const currentLook = parseJson(rows[0].avatar_appearance, {}) || {};
+      let nextLook = beta && body.appearance ? { ...body.appearance } : null;
+      if (body.photo !== undefined) nextLook = { ...(nextLook || currentLook), photo: String(body.photo) };
       await supabaseFetch(`/employees?id=eq.${encodeURIComponent(actor.id)}&deleted_at=is.null`, {
         method: 'PATCH',
         headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({name,email,phone,department,designation,...(beta?{game_character_id:characterId,game_pet_id:petId==='none'?null:petId}:{}),...(beta&&body.appearance?{avatar_appearance:body.appearance}:{}),record_updated_at:now}),
+        body: JSON.stringify({name,email,phone,department,designation,...(beta?{game_character_id:characterId,game_pet_id:petId==='none'?null:petId}:{}),...(nextLook?{avatar_appearance:nextLook}:{}),record_updated_at:now}),
       });
       return response(res, 200, { ok: true, characterId, petId, profile:{name,email,phone,department,designation} });
     }

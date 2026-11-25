@@ -23,6 +23,8 @@ export const wardrobe = {
   pants: ['#293446','#5c85a7','#665850','#ddd3b9','#30332f','#7a1f2b','#ffffff'],
   shoes: ['#faf4df','#262b33','#c45146','#4479b4','#e2b33c','#2f8f6f'],
   status: ['None','Focus mode 🎧','In a meeting 📅','On a call 📞','Lunch break 🍛','Celebrating 🎉','Travelling ✈️','Need coffee ☕'],
+  // Static profile pictures (src/lib/profilePictures.tsx). 'None' = use the 3D avatar or initials.
+  photo: ['None', ...Array.from({ length: 24 }, (_, i) => `pf-${String(i + 1).padStart(2, '0')}`)],
   bg: ['#e3e8fa','#fde2e4','#e2f6ec','#fff2cc','#e6e0ff','#d6f0ff','#ffe5d0','#1e2a44'],
 };
 export function validAppearance(value) {
@@ -34,7 +36,7 @@ export function validAppearance(value) {
 export function randomAppearance(base = {}) {
   const pick = (key) => wardrobe[key][Math.floor(Math.random() * wardrobe[key].length)];
   const out = {};
-  for (const key of Object.keys(wardrobe)) if (!['model','status','bg'].includes(key)) out[key] = pick(key);
+  for (const key of Object.keys(wardrobe)) if (!['model','status','bg','photo'].includes(key)) out[key] = pick(key);
   // Most people do not wear a hat or glasses every day; keep it realistic.
   if (Math.random() < .55) out.hat = 'None';
   if (Math.random() < .5) out.glasses = 'None';
@@ -42,5 +44,6 @@ export function randomAppearance(base = {}) {
   out.model = base.model || 'Human';
   if (base.status) out.status = base.status;
   if (base.bg) out.bg = base.bg;
+  if (base.photo) out.photo = base.photo;
   return out;
 }
