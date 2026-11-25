@@ -24,7 +24,7 @@ const nextHour = (): Date => {
 };
 const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
-export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) => {
+export const MeetingsView: React.FC<Props & { focusId?: string }> = ({ crm, employees, currentUser, focusId }) => {
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const { meetings, customers, unread } = crm.data;
   const bookedSlots = useMemo(() => crm.data.bookedSlots || [], [crm.data.bookedSlots]);
@@ -34,7 +34,7 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
 
   const now = useNow(15000); // keeps "upcoming" and "done" in step with the clock
   const [day, setDay] = useState<Date>(() => startOfDay(new Date()));
-  const [showPast, setShowPast] = useState(false);
+  const [showPast, setShowPast] = useState(Boolean(focusId));
 
   // meeting form
   const [formMode, setFormMode] = useState<null | 'admin' | 'request'>(null);

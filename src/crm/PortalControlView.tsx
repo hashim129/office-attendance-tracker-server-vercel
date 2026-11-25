@@ -121,7 +121,7 @@ export const PortalControlView: React.FC<{ crm: CrmState }> = ({ crm }) => {
   // ---- stats
   const statDays = useMemo(() => {
     const days = stats.days || {};
-    return Object.keys(days).sort().slice(-14).map((d) => ({ d, ...days[d] }));
+    return Object.keys(days).sort().slice(-14).map((d) => ({ d, ...days[d], searches: Number(days[d]?.searches) || 0 }));
   }, [stats]);
   const totals = useMemo(() => {
     const t = { searches: 0, found: 0, notFound: 0, phone: 0, desktop: 0, quotes: 0, waClicks: 0 } as Record<string, number>;

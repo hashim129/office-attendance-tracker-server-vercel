@@ -5,13 +5,13 @@ import { ActiveDesktopTab } from '../types';
 import { CrmCategory, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { Pill, btnGhost, cardCls, fmtDateTime, isWorkPrompt } from './ui';
+import { notificationTarget } from './notificationTarget';
 
 const LABEL: Record<CrmCategory, string> = { followup: 'Follow-up / Task', meeting: 'Meeting', inventory: 'Inventory', sale: 'Sales', reminder: 'Reminder', invoice: 'Invoice', receipt: 'Receipt', customer: 'Customer' };
-const TARGET: Record<CrmCategory, ActiveDesktopTab> = { followup: 'crm-tasks', meeting: 'crm-meetings', inventory: 'crm-inventory', sale: 'crm-sales', reminder: 'clock', invoice: 'crm-invoices', receipt: 'crm-receipts', customer: 'crm-customers' };
 
 interface Props {
   crm: CrmState;
-  onOpen: (tab: ActiveDesktopTab) => void;
+  onOpen: (tab: ActiveDesktopTab, refId?: string) => void;
 }
 
 /** Full notification history (read and unread). Opening one takes you to the page it is about. */
@@ -70,7 +70,7 @@ export const NotificationsView: React.FC<Props> = ({ crm, onOpen }) => {
           {history.map((h) => (
             <li key={h.id}>
               <button
-                onClick={() => onOpen(TARGET[h.category])}
+                onClick={() => onOpen(notificationTarget[h.category], h.refId)}
                 className={`${cardCls} w-full text-left p-3 flex items-start gap-3 cursor-pointer hover:border-blue-400 transition-colors ${h.read ? '' : 'border-l-4 border-l-blue-500'}`}
               >
                 <div className="min-w-0 flex-1">

@@ -38,9 +38,10 @@ interface DesktopHeaderProps {
   onOpenMobileNav?: () => void;
   /** CRM notification history: unread count and a way to open the page. */
   crmUnread?: number;
-  crmLatest?: { id: string; category: string; message: string }[];
+  crmLatest?: { id: string; category: string; refId?: string; message: string }[];
   onCrmRefresh?: () => void;
   onOpenCrmNotifications?: () => void;
+  onOpenCrmRecord?: (tab: ActiveDesktopTab, refId?: string) => void;
   isDark?: boolean;
   onToggleTheme?: () => void;
   redesignedUiBetaEnabled?: boolean;
@@ -63,6 +64,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   crmLatest = [],
   onCrmRefresh,
   onOpenCrmNotifications,
+  onOpenCrmRecord,
   isDark = false,
   onToggleTheme,
   redesignedUiBetaEnabled = false,
@@ -255,6 +257,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
                       <span className="text-[10px] text-slate-400">CRM</span>
                     </div>
                     <p className="leading-relaxed text-slate-700 dark:text-slate-200">{n.message}</p>
+                    {onOpenCrmRecord && <button className="mt-2 font-semibold text-blue-600 underline" onClick={() => { setShowNotifications(false); onOpenCrmRecord(({ followup: 'crm-tasks', meeting: 'crm-meetings', inventory: 'crm-inventory', sale: 'crm-sales', invoice: 'crm-invoices', receipt: 'crm-receipts', customer: 'crm-customers', reminder: 'clock' } as Record<string, ActiveDesktopTab>)[n.category] || 'crm-notifications', n.refId); }}>Open record →</button>}
                     {isWorkPrompt(n.id) && (
                       <div className="mt-2">
                         <button disabled={confirmingWork} onClick={() => void confirmWorking()} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-60">
