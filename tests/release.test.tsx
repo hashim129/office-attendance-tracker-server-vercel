@@ -212,3 +212,21 @@ test('avatar studio: every catalog option and random look is accepted, junk is r
   // Saved looks from the first avatar studio must keep working.
   assert.equal(validAppearance({ model: 'Bear', skin: '#c68b62', hat: 'Fedora', glasses: 'Sunglasses', top: 'Suit', fabric: '#079ba9' }), true);
 });
+
+test('auto punch-out happens exactly at shift end + 2h, and an admin saving their own punch does not postpone it', async () => {
+  const { getShiftEndWindowMs, evaluateAttendancePresenceAndAutoClose } = await import('../api/_cloud.js');
+  const shift = { id: 's', startTime: '11:00', endTime: '19:00', expectedHours: 8 };
+  const w = getShiftEndWindowMs('2026-11-20', '11:00:00', shift, 2);
+  assert.equal(w.checkAtMs, w.verifyAtMs);
+  assert.equal(w.verifyAtMs - w.shiftEndMs, 2 * 3600000);
+  // Old punch, no confirmation: closed with time-out at 21:00:00.
+  const rec = { id: 'r', employeeId: 'e', date: '2026-11-20', timeIn: '11:00:00', breaks: [] };
+  const { records } = evaluateAttendancePresenceAndAutoClose([rec], { autoPunchOutOnInactiveHours: 2 }, [{ id: 'e', shiftId: 's' }], [shift]);
+  assert.equal(records[0].timeOut, '21:00:00');
+  assert.equal(records[0].autoPunchOutReason, 'shift_end_2h');
+  const { mergeSupabaseAttendanceRecord } = await import('../api/_supabase.js');
+  const own = mergeSupabaseAttendanceRecord({ ...rec }, { ...rec, notes: 'x', actorAction: 'update_note' }, { actorRole: 'admin', actorId: 'e' });
+  assert.equal(own.adminOverrideAt, undefined);
+  const other = mergeSupabaseAttendanceRecord({ ...rec }, { ...rec, breaks: [] }, { actorRole: 'admin', actorId: 'boss' });
+  assert.ok(other.adminOverrideAt);
+});

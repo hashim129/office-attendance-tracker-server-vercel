@@ -857,7 +857,8 @@ function mergeSupabaseAttendanceRecordCore(existing, incomingRec, options = {}) 
     isAutoPunchedOut: shouldClearTimeOut ? false : (incomingRec.isAutoPunchedOut !== undefined ? Boolean(incomingRec.isAutoPunchedOut) : Boolean(existing.isAutoPunchedOut)),
     adminVerification: incomingRec.adminVerification !== undefined ? incomingRec.adminVerification : existing.adminVerification,
     accountsVerification: incomingRec.accountsVerification !== undefined ? incomingRec.accountsVerification : existing.accountsVerification,
-    adminOverrideAt: isAdmin ? (incomingRec.adminOverrideAt || nowIso) : existing.adminOverrideAt,
+    // An admin/CEO saving their OWN punch is not an "admin override"; otherwise their own auto punch-out kept being postponed.
+    adminOverrideAt: isAdmin && !(options.actorId && options.actorId === (existing.employeeId || incomingRec.employeeId)) ? (incomingRec.adminOverrideAt || nowIso) : existing.adminOverrideAt,
     adminKeepOpen: shouldClearTimeOut
       ? Boolean(!shouldClearTimeIn && finalTimeIn)
       : (incomingRec.adminKeepOpen !== undefined ? Boolean(incomingRec.adminKeepOpen) : Boolean(existing.adminKeepOpen)),
@@ -1110,7 +1111,7 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
         const net = await enforceOfficeNetworkForPunch(existing, rec, incoming.actorRole, ctx.clientIps);
         stampWorkMode(existing, rec, net, incoming.actorRole, Array.isArray(ctx.clientIps));
         await enforceFacePassForPunch(existing, rec, incoming.actorRole, ctx);
-        const mergedRec = mergeSupabaseAttendanceRecord(existing, rec, { actorRole: incoming.actorRole });
+        const mergedRec = mergeSupabaseAttendanceRecord(existing, rec, { actorRole: incoming.actorRole, actorId: ctx.actor?.id });
         rowsToUpsert.push(mapAppAttendanceToDb(mergedRec));
       }
 

@@ -283,7 +283,8 @@ export function getShiftEndWindowMs(
   const baseMs = Number.isFinite(confirmedAtMs) ? Math.max(shiftEndMs, confirmedAtMs) : shiftEndMs;
   const verifyAtMs = baseMs + cleanGrace * 60 * 60 * 1000;
   // 15-minute verification window after Shift End + 2h for the employee to verify if they are currently working
-  const checkAtMs = cleanGrace > 0 ? verifyAtMs + 15 * 60 * 1000 : shiftEndMs;
+  // Punch-out happens exactly at Shift End + 2h. The 15-minute "are you still working?" warning comes BEFORE it.
+  const checkAtMs = cleanGrace > 0 ? verifyAtMs : shiftEndMs;
 
   return { inMs, shiftEndMs, verifyAtMs, checkAtMs, isOvernightShift };
 }
