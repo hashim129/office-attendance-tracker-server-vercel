@@ -663,6 +663,20 @@ export default async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
     const me = await getSessionEmployee(body.sessionToken);
     if (!me) throw new HttpError(401, 'Please sign in again.', 'SESSION_REQUIRED');
+    if (!me.isSuperAdmin) {
+      const action = String(body.action || '');
+      const page = action.startsWith('customer') ? 'crm-customers'
+        : action.startsWith('followup') || action.startsWith('task') ? 'crm-tasks'
+        : action.startsWith('meeting') ? 'crm-meetings'
+        : action.startsWith('inventory') ? 'crm-inventory'
+        : action.startsWith('sale') ? 'crm-sales'
+        : action.startsWith('purchase') ? 'crm-purchases'
+        : action.startsWith('invoice') ? 'crm-invoices'
+        : action.startsWith('receipt') ? 'crm-receipts'
+        : action.startsWith('portal') ? 'crm-portal'
+        : action.startsWith('notification') ? 'crm-notifications' : undefined;
+      if (page && me.featureAccess?.[page] === false) throw forbidden('Your Super Admin has disabled access to this page.');
+    }
     const isAdmin = me.role === 'admin' || me.role === 'ceo'; // the CEO has every administrator right in the CRM and Office sections
     const seeAllCust = isAdmin || me.role === 'accounts' || me.role === 'ceo';
     // Everyone can add customers; they see their own plus the ones shared with them. Admin, CEO and Accounts see all.

@@ -17,6 +17,7 @@ import {
   supabaseFetch,
 } from './_supabase.js';
 import { DEFAULT_DB } from './db.js';
+import { isSiteDisabled } from './_session.js';
 
 export default async function handler(req, res) {
   setNoCacheHeaders(res);
@@ -26,6 +27,9 @@ export default async function handler(req, res) {
   }
 
   try {
+    if (await isSiteDisabled()) {
+      return res.status(503).json({ ok: false, code: 'SITE_DISABLED', message: 'The office portal is temporarily disabled by its Super Admin.' });
+    }
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
     const { employeeId, deviceId, authToken, machineName } = body;
 
@@ -63,6 +67,9 @@ export default async function handler(req, res) {
           code: 'EMPLOYEE_INACTIVE',
           message: 'Employee account not found or deactivated.',
         });
+      }
+      if (emp.featureAccess?.clock === false) {
+        return res.status(403).json({ ok: false, code: 'PAGE_ACCESS_REVOKED', message: 'Your Super Admin has disabled access to Punch Clock.' });
       }
 
       const authRow = await getEmployeeRow(employeeId);

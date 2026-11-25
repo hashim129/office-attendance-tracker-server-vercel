@@ -63,7 +63,9 @@ import { useCrm } from './crm/useCrm';
 import { PageHero } from './components/common/PageHero';
 import { DirectivePopup } from './components/common/DirectivePopup';
 import { LiveAlerts } from './crm/LiveAlerts';
+import {pageEnabled} from './lib/pageAccess';
 const EmployeeUniverse = lazy(() => import('./components/desktop/EmployeeUniverse').then(m=>({default:m.EmployeeUniverse})));
+const SuperAdminTab = lazy(() => import('./components/desktop/SuperAdminTab').then(m=>({default:m.SuperAdminTab})));
 const EmployeeProfileTab = lazy(() => import('./components/desktop/EmployeeProfileTab').then(m=>({default:m.EmployeeProfileTab})));
 
 const IS_VERCEL_PREVIEW = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && window.location.hostname !== 'office-attendance-tracker-server-vercel-hashim129.vercel.app';
@@ -101,7 +103,7 @@ export default function App() {
   // Database State
   const [employees, setEmployees] = useState<Employee[]>([]);
   // The built-in "Office Administrator" account is kept out of every stats / attendance screen.
-  const statEmployees = useMemo(() => employees.filter((e) => e.id !== 'emp-101'), [employees]);
+  const statEmployees = useMemo(() => employees.filter((e) => e.id !== 'emp-101' && !e.isSuperAdmin), [employees]);
   const [shifts, setShifts] = useState<ShiftSchedule[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
@@ -124,6 +126,7 @@ export default function App() {
 
   // Current Session & Workspace Navigation
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
+  const [siteDisabled, setSiteDisabled] = useState<boolean>(() => localStorage.getItem('office_site_disabled_v1') === 'true');
   // High-security face scan punch (admin turns it on in Office Settings; off by default)
   const [faceEnrolledIds, setFaceEnrolledIds] = useState<string[]>([]);
   const [faceStatusLoaded, setFaceStatusLoaded] = useState(false);
@@ -136,6 +139,38 @@ export default function App() {
     setFocusedRecordId(refId);
     setActiveTabState(tab);
   };
+  useEffect(() => {
+    const onSiteDisabled = () => { setSiteDisabled(true); setCurrentUser(null); };
+    const onSiteEnabled = () => setSiteDisabled(false);
+    const onSiteStatusChanged = (event: Event) => setSiteDisabled((event as CustomEvent<boolean>).detail === true);
+    window.addEventListener('office-site-disabled', onSiteDisabled);
+    window.addEventListener('office-site-enabled', onSiteEnabled);
+    window.addEventListener('office-site-status-changed', onSiteStatusChanged);
+    return () => { window.removeEventListener('office-site-disabled', onSiteDisabled); window.removeEventListener('office-site-enabled', onSiteEnabled); window.removeEventListener('office-site-status-changed', onSiteStatusChanged); };
+  }, []);
+  useEffect(() => {
+    if (!currentUser || currentUser.isSuperAdmin) return;
+    let active = true;
+    const checkSiteAvailability = async () => {
+      try {
+        const response = await fetch(`/api/site-status?t=${Date.now()}`, { cache: 'no-store' });
+        const data = await response.json();
+        if (!active) return;
+        if (data?.disabled === true) {
+          localStorage.setItem('office_site_disabled_v1', 'true');
+          clearSession();
+          setSiteDisabled(true);
+          setCurrentUser(null);
+        } else if (data?.disabled === false) {
+          localStorage.removeItem('office_site_disabled_v1');
+          setSiteDisabled(false);
+        }
+      } catch { /* availability checks are retried on the next interval */ }
+    };
+    void checkSiteAvailability();
+    const timer = window.setInterval(checkSiteAvailability, 15000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [currentUser?.id, currentUser?.isSuperAdmin]);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
   const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-') || activeTab === 'live-dashboard' || (betaEnabled && activeTab === 'clock'));
 
@@ -445,6 +480,7 @@ export default function App() {
   const handleLogin = (employee: Employee, keepLoggedIn: boolean) => {
     setCurrentUser(employee);
     saveSession(employee.id, keepLoggedIn, takePendingToken(employee.id));
+    if (employee.isSuperAdmin) { setSiteDisabled(false); localStorage.removeItem('office_site_disabled_v1'); }
     // The pre-login endpoint returns only a safe directory projection. Fetch the full
     // authorized database snapshot immediately after the server has issued the session.
     void syncDatabaseFromServer(true).then((updated) => {
@@ -1085,6 +1121,7 @@ export default function App() {
           onLogin={handleLogin}
           companyName={settings.companyName}
           isSyncing={isInitialCloudSyncing}
+          siteDisabled={siteDisabled}
         />
       ) : (
         <div className={`app-reveal flex-1 flex flex-col ${betaEnabled && activeTab !== 'clock' ? 'min-h-screen workforce-redesign-beta' : 'min-h-[calc(100vh-2.5rem)]'} min-w-0 w-full overflow-x-clip`}>
@@ -1128,7 +1165,7 @@ export default function App() {
             />
 
             <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-x-clip bg-slate-50/50 dark:bg-slate-950/40">
-              <div key={activeTab} className="page-enter min-w-0">
+              {currentUser&&!pageEnabled(currentUser,activeTab)?<div className="mx-auto max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center text-sm text-amber-900">Access to this page has been disabled by your Super Admin.</div>:<div key={activeTab} className="page-enter min-w-0">
                 <PageHero
                   tab={activeTab}
                   name={currentUser?.name || ''}
@@ -1189,7 +1226,7 @@ export default function App() {
               }} />}
 
               {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications') && (
-                <CrmPage section={activeTab} crm={crm} employees={employees} currentUser={currentUser} onNavigate={setActiveTab} focusId={focusedRecordId} onClearFocus={() => setFocusedRecordId(undefined)} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
+                <CrmPage section={activeTab} crm={crm} employees={statEmployees} currentUser={currentUser} onNavigate={setActiveTab} focusId={focusedRecordId} onClearFocus={() => setFocusedRecordId(undefined)} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
               )}
 
               {activeTab === 'live-dashboard' && currentUser && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
@@ -1210,7 +1247,7 @@ export default function App() {
               {activeTab === 'leaves' && (
                 <LeaveManagementTab
                   currentUser={currentUser}
-                  employees={employees}
+                  employees={statEmployees}
                   leaves={leaves}
                   onApplyLeave={handleApplyLeave}
                   onReviewLeave={handleReviewLeave}
@@ -1237,7 +1274,7 @@ export default function App() {
 
               {currentUser.role === 'admin' && activeTab === 'employees' && (
                 <EmployeesDirectoryTab
-                  employees={employees}
+                  employees={statEmployees}
                   shifts={shifts}
                   records={records}
                   onAddEmployee={handleAddEmployee}
@@ -1304,6 +1341,7 @@ export default function App() {
                   currentClientIsp={currentClientIsp}
                 />
               )}
+              {currentUser.isSuperAdmin&&activeTab==='superadmin'&&<SuperAdminTab/>}
                   </Suspense>
               </ErrorBoundary>
               {CRM_ENABLED && <LiveAlerts crm={crm} onOpen={setActiveTab} />}
@@ -1312,14 +1350,14 @@ export default function App() {
       {currentUser && settings.employeeUniverseBetaEnabled === true && (
         <Suspense fallback={null}><EmployeeUniverse
           currentUser={currentUser}
-          employees={employees}
+          employees={statEmployees}
           onProfileSaved={(gameCharacterId, gamePetId) => {
             setCurrentUser((user) => user ? { ...user, gameCharacterId, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : user);
             setEmployees((list) => list.map((employee) => employee.id === currentUser.id ? { ...employee, gameCharacterId, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : employee));
           }}
         /></Suspense>
       )}
-            </div>
+            </div>}
             </main>
           </div>
         </div>
