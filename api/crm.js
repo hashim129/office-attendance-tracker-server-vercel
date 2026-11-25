@@ -1448,8 +1448,9 @@ export default async function handler(req, res) {
         return { title: str(sec.title, 160, { name: 'Section title' }), key: keyOf(sec.key, 'sec'), locked: Boolean(sec.locked), lines };
       }).filter((sec) => sec.title || sec.lines.length);
       if (!priced) throw bad('Add at least one priced line to the invoice.');
-      // Save & lock: lines saved as locked can never be changed or removed (not even by Admin); new lines can always be added.
-      if (existing) {
+      // Save & lock: lines saved as locked cannot be changed or removed by the person who made the invoice, or by Accounts; new lines can always be added.
+      // Admin / CEO may unlock a section or line (and then edit it); anything they leave locked stays locked.
+      if (existing && !isAdmin) {
         const sig = (l) => JSON.stringify([l.description, Boolean(l.note), l.unitPrice ?? null, l.units ?? null, l.currency ?? null, l.rate ?? null, Boolean(l.taxable)]);
         const newLineByKey = new Map();
         sections.forEach((sec) => sec.lines.forEach((l) => newLineByKey.set(l.key, { sec, l })));
@@ -1457,13 +1458,13 @@ export default async function handler(req, res) {
         for (const ps of Array.isArray(existing.sections) ? existing.sections : []) {
           if (ps.locked) {
             const ns = ps.key && newSecByKey.get(ps.key);
-            if (!ns || ns.title !== ps.title) throw bad('A saved & locked section cannot be changed or removed.');
+            if (!ns || ns.title !== ps.title) throw bad('A saved & locked section cannot be changed or removed. Ask an administrator to unlock it.');
             ns.locked = true;
           }
           for (const pl of ps.lines || []) {
             if (!pl.locked) continue;
             const f = pl.key && newLineByKey.get(pl.key);
-            if (!f || f.sec.key !== ps.key || sig(f.l) !== sig(pl)) throw bad('A saved & locked line cannot be changed or removed. You can add new lines.');
+            if (!f || f.sec.key !== ps.key || sig(f.l) !== sig(pl)) throw bad('A saved & locked line cannot be changed or removed. You can add new lines, or ask an administrator to unlock it.');
             f.l.locked = true;
           }
         }

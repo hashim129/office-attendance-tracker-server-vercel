@@ -814,7 +814,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
         setView(r.invoice);
       } else {
         setForm(toForm(r.invoice, company.ntn || ''));
-        setNotice(`Saved and locked. ${r.invoice.invoiceNo} is stored; locked lines can no longer be edited, but you can keep adding new lines.`);
+        setNotice(`Saved and locked. ${r.invoice.invoiceNo} is stored; locked lines can no longer be edited (only an administrator can unlock them), but you can keep adding new lines.`);
       }
     } catch (err: any) {
       setError(err?.message || 'Could not save the invoice.');
@@ -2189,6 +2189,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                   <div className="flex items-center gap-2">
                     <input className={`${inputCls} font-semibold`} placeholder={`Section heading, e.g. "07 OCT - 11 OCT BAKU FAMILY TOUR"`} value={s.title} onChange={(e) => setSection(si, { title: e.target.value, lines: s.lines.map((l) => (l.note || l.unitPrice.trim() !== '' ? l : { ...l, taxable: isServiceTitle(e.target.value) })) })} maxLength={160} disabled={s.locked} />
                     {(s.locked || s.lines.some((l) => l.locked)) && <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400"><Lock className="w-3 h-3" /> Locked</span>}
+                    {isAdmin && (s.locked || s.lines.some((l) => l.locked)) && <button type="button" className={btnGhost} title="Administrator: unlock the heading and every line of this section" data-unlock-section onClick={() => setSection(si, { locked: false, lines: s.lines.map((l) => ({ ...l, locked: false })) })}>Unlock section</button>}
                     {!s.locked && !s.lines.some((l) => l.locked) && <button type="button" aria-label="Remove section" className={btnDanger} onClick={() => patch({ sections: form.sections.filter((_, i) => i !== si) })}><Trash2 className="w-3.5 h-3.5" /></button>}
                   </div>
                   <div className="hidden md:grid grid-cols-12 gap-2 text-[10px] font-semibold text-slate-500 px-1">
@@ -2212,7 +2213,9 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                               <div className="md:col-span-2 text-right text-xs font-mono tabular-nums font-semibold text-slate-800 dark:text-slate-100">{amount === null ? '—' : fmtAmount(amount)}</div>
                             </>
                           )}
-                          {l.locked ? <Lock className="w-3.5 h-3.5 justify-self-end text-emerald-600 md:col-span-1" aria-label="Locked line" /> : <button type="button" aria-label="Remove line" className="justify-self-end text-slate-400 hover:text-red-600 cursor-pointer md:col-span-1" onClick={() => setSection(si, { lines: s.lines.filter((_, i) => i !== li) })}><X className="w-4 h-4" /></button>}
+                          {l.locked ? (isAdmin
+                            ? <button type="button" className="justify-self-end inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 hover:text-amber-600 cursor-pointer md:col-span-1" title="Administrator: unlock this line so it can be edited" aria-label="Unlock line" data-unlock-line onClick={() => setLine(si, li, { locked: false })}><Lock className="w-3.5 h-3.5" /> Unlock</button>
+                            : <Lock className="w-3.5 h-3.5 justify-self-end text-emerald-600 md:col-span-1" aria-label="Locked line" />) : <button type="button" aria-label="Remove line" className="justify-self-end text-slate-400 hover:text-red-600 cursor-pointer md:col-span-1" onClick={() => setSection(si, { lines: s.lines.filter((_, i) => i !== li) })}><X className="w-4 h-4" /></button>}
                         </div>
                         {foreign && (
                           <div className="flex items-center gap-2 pl-1 text-[11px] text-slate-600 dark:text-slate-300">
