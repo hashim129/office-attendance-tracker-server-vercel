@@ -2,8 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AtSign, Bell, MessageCircle, PawPrint, Reply, Send, Sparkles, Volume2, VolumeX, X } from 'lucide-react';
 import { Employee } from '../../types';
 import { getSessionToken } from '../../lib/storage';
-import { AvatarStage } from './UniverseOffice';
-import { EmployeeAvatar, GAME_CHARACTERS, GAME_PETS } from '../common/EmployeeIdentity';
+import { EmployeeAvatar, GAME_CHARACTERS, GAME_PETS, UniverseIllustration } from '../common/EmployeeIdentity';
 import { installSoundUnlock, isSoundOn, playAlertSound, setSoundOn } from '../../crm/sound';
 
 type PublicPerson = { id: string; name: string; role?: string; characterId?: string | null; petId?: string | null };
@@ -40,21 +39,6 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
   const polling = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const token = getSessionToken();
-  useEffect(()=>{
-    if(!token) return;
-    let busy=false;
-    const ping=async()=>{
-      if(document.hidden || !navigator.onLine || busy) return;
-      busy=true;
-      try {await fetch('/api/universe',{method:'POST',headers:{'Content-Type':'application/json','x-session-token':token},body:JSON.stringify({action:'presence'}),signal:AbortSignal.timeout(10000)});}
-      catch { /* The next visible heartbeat renews presence. */ }
-      finally {busy=false;}
-    };
-    void ping();
-    const timer=window.setInterval(ping,20000);
-    document.addEventListener('visibilitychange',ping);window.addEventListener('online',ping);
-    return ()=>{clearInterval(timer);document.removeEventListener('visibilitychange',ping);window.removeEventListener('online',ping);};
-  },[token]);
   useEffect(() => { installSoundUnlock(); }, []);
   useEffect(() => { chatOpenRef.current = chatOpen; if (chatOpen) { setUnread(0); setAlertMessage(''); } }, [chatOpen]);
   useEffect(() => { const clear = () => { if (!document.hidden && chatOpenRef.current) { setUnread(0); setAlertMessage(''); } }; document.addEventListener('visibilitychange', clear); return () => document.removeEventListener('visibilitychange', clear); }, []);
@@ -222,8 +206,8 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
           <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-white/60 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950">
             <div className="relative overflow-hidden bg-gradient-to-r from-violet-700 via-fuchsia-600 to-blue-600 px-6 py-6 text-white"><div className="absolute -right-8 -top-12 h-40 w-40 rounded-full bg-white/10" /><div className="relative flex items-center gap-4"><div className="rounded-2xl bg-white/15 p-3"><Sparkles className="h-7 w-7" /></div><div><p className="text-xl font-black">Choose your character</p><p className="mt-1 text-xs text-white/80">Your avatar will travel with your name around the workspace.</p></div></div></div>
             <div className="space-y-5 p-5 sm:p-6">
-              <section><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-extrabold text-slate-900 dark:text-white">Pick your 3D character</h3><span className="text-[10px] text-slate-400">Choose one</span></div><div className="mx-auto mb-3 max-w-xs"><AvatarStage id={characterId || 'human-1'} animated label="Live character preview"/></div><div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">{GAME_CHARACTERS.map((item) => <button key={item.id} type="button" onClick={() => setCharacterId(item.id)} className={`rounded-2xl border p-3 text-center transition hover:-translate-y-0.5 hover:shadow-md ${characterId === item.id ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-300 dark:bg-violet-950/40' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}`}><span className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${item.tint} text-3xl shadow-sm`}><AvatarStage id={item.id} label={item.name}/></span><span className="mt-2 block text-[10px] font-bold text-slate-700 dark:text-slate-200">{item.name}</span></button>)}</div></section>
-              <section><div className="mb-3 flex items-center gap-2"><PawPrint className="h-4 w-4 text-amber-500" /><h3 className="text-sm font-extrabold text-slate-900 dark:text-white">2 · Choose a pet companion <span className="font-normal text-slate-400">(optional)</span></h3></div><div className="grid grid-cols-4 gap-2 sm:grid-cols-8">{GAME_PETS.map((item) => <button key={item.id} type="button" onClick={() => setPetId(item.id)} className={`rounded-xl border p-2 text-center transition ${petId === item.id ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-200 dark:bg-amber-950/30' : 'border-slate-200 dark:border-slate-800'}`}><span className="block text-2xl">{item.id === "none" ? <span aria-hidden>＋</span> : item.emoji}</span><span className="mt-1 block truncate text-[9px] font-semibold text-slate-600 dark:text-slate-300">{item.name}</span></button>)}</div></section>
+              <section><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-extrabold text-slate-900 dark:text-white">1 · Pick your character</h3><span className="text-[10px] text-slate-400">Choose one</span></div><div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">{GAME_CHARACTERS.map((item) => <button key={item.id} type="button" onClick={() => setCharacterId(item.id)} className={`rounded-2xl border p-3 text-center transition hover:-translate-y-0.5 hover:shadow-md ${characterId === item.id ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-300 dark:bg-violet-950/40' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}`}><span className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${item.tint} text-3xl shadow-sm`}><UniverseIllustration id={item.id} className="h-12 w-12 mx-auto" /></span><span className="mt-2 block text-[10px] font-bold text-slate-700 dark:text-slate-200">{item.name}</span></button>)}</div></section>
+              <section><div className="mb-3 flex items-center gap-2"><PawPrint className="h-4 w-4 text-amber-500" /><h3 className="text-sm font-extrabold text-slate-900 dark:text-white">2 · Choose a pet companion <span className="font-normal text-slate-400">(optional)</span></h3></div><div className="grid grid-cols-4 gap-2 sm:grid-cols-8">{GAME_PETS.map((item) => <button key={item.id} type="button" onClick={() => setPetId(item.id)} className={`rounded-xl border p-2 text-center transition ${petId === item.id ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-200 dark:bg-amber-950/30' : 'border-slate-200 dark:border-slate-800'}`}><span className="block text-2xl">{item.id === "none" ? <span aria-hidden>＋</span> : <UniverseIllustration id={item.id} className="h-12 w-12 mx-auto" />}</span><span className="mt-1 block truncate text-[9px] font-semibold text-slate-600 dark:text-slate-300">{item.name}</span></button>)}</div></section>
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"><div className="flex items-center gap-3"><EmployeeAvatar characterId={characterId} petId={petId} name={currentUser.name} size="lg" /><div><p className="text-xs font-extrabold text-slate-900 dark:text-white">{currentUser.name}</p><p className="text-[10px] text-slate-500">Your new workspace identity</p></div></div><div className="flex items-center gap-2"><button type="button" onClick={() => setProfileOpen(false)} className="rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button><button type="button" onClick={() => void saveProfile()} disabled={!characterId || savingProfile} className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2.5 text-xs font-extrabold text-white shadow-lg shadow-violet-600/20 disabled:opacity-40">{savingProfile ? 'Saving…' : 'Save my character'}</button></div></div>
               {profileError && <p className="text-xs font-medium text-rose-600">{profileError}</p>}
             </div>

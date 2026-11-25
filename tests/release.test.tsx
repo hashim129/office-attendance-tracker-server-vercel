@@ -99,14 +99,6 @@ test('fixture server enforces posting role and independent Beta gate', async () 
     assert.equal(url.hostname, 'fixture.invalid');
     if (url.pathname.endsWith('/employees')) return Response.json([{ id: url.searchParams.get('id')?.startsWith('in.') ? 'recipient' : 'emp-fixture', role, name: 'Fixture', is_active: true }]);
     if (url.pathname.endsWith('/settings')) return Response.json([{ data: { employeeUniverseBetaEnabled: beta } }]);
-    if (url.pathname.endsWith('/employee_universe_presence')) {
-      if (options?.method === 'POST') {
-        assert.equal(JSON.parse(String(options.body)).employee_id, 'emp-fixture');
-        return new Response(null, {status: 204});
-      }
-      assert.match(url.searchParams.get('last_seen') || '', /^gte\./);
-      return Response.json([{employee_id:'emp-fixture'}]);
-    }
     if (url.pathname.endsWith('/crm_invoices')) {
       if (options?.method === 'PATCH') { writes++; return Response.json([{ ...row, ...JSON.parse(String(options.body)) }]); }
       return Response.json([row]);
@@ -156,15 +148,7 @@ test('fixture server enforces posting role and independent Beta gate', async () 
     assert.equal((await postPurchase(false)).data.purchase.posted, false);
     const universeReq = { method: 'GET', headers: { 'x-session-token': sessionToken } };
     assert.equal((await invoke(universeHandler, universeReq)).status, 403);
-    const pulse = {...universeReq,method:'POST',body:{action:'presence',employee_id:'another-user'}};
-    assert.equal((await invoke(universeHandler,pulse)).status,403);
     beta = true;
-    assert.equal((await invoke(universeHandler,pulse)).status,200);
-    const roster = {...universeReq,query:{view:'presence'}};
-    assert.equal((await invoke(universeHandler,roster)).status,403);
-    role='admin';
-    assert.deepEqual((await invoke(universeHandler,roster)).data.online,['emp-fixture']);
-    role='accounts';
     const messages = (await invoke(universeHandler, universeReq)).data.messages;
     assert.deepEqual(messages.map((m: { id: string }) => m.id), ['public','mine']);
     assert.equal(messages[1].private, true);
