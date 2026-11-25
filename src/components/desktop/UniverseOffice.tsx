@@ -1,72 +1,51 @@
-import React, {useEffect, useRef, useState} from 'react';
-import type {Employee, AttendanceRecord, OfficeSettings} from '../../types';
-import {deriveLiveAttendanceState, getTodayDateString} from '../../lib/attendanceCalculations';
-import {studio, pose, paint} from '../../lib/universeScene.js';
-import {getSessionToken} from '../../lib/storage';
-import {GAME_PETS} from '../common/EmployeeIdentity';
+import React, { useEffect, useRef, useState } from 'react';
+import type { Employee } from '../../types';
+import { UniverseIllustration } from '../common/EmployeeIdentity';
+import { humanCharacter } from '../../lib/universeCharacters.js';
+import './universeOffice.css';
 
-type Phase = 'portrait'|'arriving'|'working'|'sleeping'|'coffee'|'closing'|'leaving'|'away';
-export function AvatarStage({id,phase='portrait',animated=false,label=id}: {id:string;phase?:Phase;animated?:boolean;label?:string}){
-  const ref=useRef<HTMLCanvasElement>(null);
-  const portrait=phase==='portrait';
-  const rig=React.useMemo(()=>studio(id,portrait),[id,portrait]);
-  useEffect(()=>{
-    const canvas=ref.current!;
-    if(!canvas) return;
-    const start=performance.now(), reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    let timer=0,visible=false;
-    function draw(){
-      if(!visible||document.hidden) return;
-      pose(rig,phase,reduce?1.65:(performance.now()-start)/1000);
-      paint(canvas,rig);
-      if(animated&&!reduce&&phase!=='away') timer=window.setTimeout(draw,canvas.hidden?220:66);
+type Phase = 'away' | 'walking-in' | 'working' | 'closing' | 'walking-out';
+type Worker = { e: Employee; state: string };
+
+function Desk({ worker }: { worker: Worker }) {
+  const active = worker.state === 'in';
+  const [phase, setPhase] = useState<Phase>(active ? 'working' : 'away');
+  const previous = useRef(active);
+  useEffect(() => {
+    if (previous.current === active) return;
+    previous.current = active;
+    let second: ReturnType<typeof setTimeout> | undefined;
+    if (active) {
+      setPhase('walking-in');
+      second = setTimeout(() => setPhase('working'), 1700);
+      return () => clearTimeout(second);
     }
-    function refresh(){window.clearTimeout(timer);draw();}
-    const observer=new IntersectionObserver(([entry])=>{visible=entry.isIntersecting;refresh();});
-    observer.observe(canvas.parentElement!); document.addEventListener('visibilitychange',refresh);
-    return ()=>{observer.disconnect();window.clearTimeout(timer);document.removeEventListener('visibilitychange',refresh);canvas.parentElement?.querySelector('svg')?.remove();canvas.hidden=false;};
-  },[phase,rig,animated]);
-  return <span className="block overflow-hidden rounded-xl" role="img" aria-label={label}><canvas ref={ref} width={portrait?(animated?300:112):420} height={portrait?(animated?240:112):244} className="w-full"/></span>;
+    setPhase('closing');
+    const first = setTimeout(() => { setPhase('walking-out'); second = setTimeout(() => setPhase('away'), 1700); }, 650);
+    return () => { clearTimeout(first); if (second) clearTimeout(second); };
+  }, [active]);
+  const id = worker.e.gameCharacterId || `human-${1 + [...worker.e.id].reduce((n,c) => n + c.charCodeAt(0),0) % 54}`;
+  const outfit = humanCharacter(id)?.outfit || '#4f46e5';
+  const skin = humanCharacter(id)?.skin || '#e7b690';
+  const walking = phase === 'walking-in' || phase === 'walking-out';
+  const seated = phase === 'working' || phase === 'closing';
+  const head = <foreignObject x="-20" y="-22" width="40" height="40"><UniverseIllustration id={id}/></foreignObject>;
+  return <div className="rounded-2xl border border-violet-200/70 bg-white/80 overflow-hidden dark:bg-slate-900 dark:border-slate-700 min-w-0" data-phase={phase}>
+    <svg viewBox="0 0 200 125" role="img" aria-label={`${worker.e.name}: ${phase === 'working' ? 'working at laptop' : phase === 'closing' ? 'closing laptop' : walking ? 'walking through the office' : 'away from desk'}`} className="w-full">
+      <rect width="200" height="125" fill="#e0e7ff"/><path d="M0 92H200V125H0Z" fill="#c7d2fe"/><path d="M0 109H200" stroke="#a5b4fc" strokeWidth="5" strokeDasharray="12 4"/><rect x="15" y="11" width="42" height="32" rx="4" fill="#fff"/><path d="M36 11V43M15 27H57" stroke="#c7d2fe" strokeWidth="2"/><path d="M150 16H184V44H150Z" fill="#fff"/><path d="M156 34L166 22L175 34" stroke="#7c3aed" fill="none" strokeWidth="3"/>
+      <path d="M116 76V97H147V76" stroke="#64748b" strokeWidth="5" fill="none"/><path d="M121 94V105M142 94V105" stroke="#64748b" strokeWidth="3"/>
+      {seated && <g transform="translate(126 47)">{head}<path d="M-10 18Q0 13 10 18L14 42H-13Z" fill={outfit}/><path d="M-8 40L-12 59L-27 59M8 40L5 59H-10" stroke="#334155" strokeWidth="7" fill="none" strokeLinecap="round"/><path d="M-8 22L-17 30L-31 29M8 22L14 33L-6 34" stroke={skin} strokeWidth="6" fill="none" strokeLinecap="round"/></g>}
+      <path d="M78 78H156V84H78Z" fill="#a16207"/><path d="M84 84V104M150 84V104" stroke="#854d0e" strokeWidth="4"/>
+      <path d="M89 76H120" stroke="#475569" strokeWidth="4" strokeLinecap="round"/>
+      {seated && <path className={phase === 'closing' ? 'universe-lid-close' : ''} d="M91 76L85 57H113L119 76Z" fill="#334155" stroke="#475569" strokeWidth="1.5"/>}
+      {walking && <g className={phase === 'walking-in' ? 'universe-walk-in' : 'universe-walk-out'}><g transform="translate(0 42)">{head}<path d="M-11 18Q0 13 11 18L13 46H-13Z" fill={outfit}/><path className="universe-leg-a" d="M-7 44L-10 67L-19 67" stroke="#334155" strokeWidth="7" fill="none" strokeLinecap="round"/><path className="universe-leg-b" d="M7 44L10 67L18 67" stroke="#334155" strokeWidth="7" fill="none" strokeLinecap="round"/><path className="universe-arm" d="M-10 20L-16 37M10 20L16 37" stroke={skin} strokeWidth="6" strokeLinecap="round"/></g></g>}
+      {!seated && !walking && <text x="100" y="65" textAnchor="middle" fill="#64748b" fontSize="10">Desk available</text>}
+      {seated && worker.e.gamePetId && worker.e.gamePetId !== 'none' && <foreignObject x="159" y="84" width="25" height="25"><UniverseIllustration id={worker.e.gamePetId}/></foreignObject>}
+    </svg>
+    <div className="flex items-center justify-between gap-1 px-2.5 py-2"><b className="text-[11px] truncate">{worker.e.name}</b><span className={`text-[9px] shrink-0 ${active ? 'text-emerald-600' : 'text-slate-500'}`}>{phase === 'walking-in' ? 'Arriving' : phase === 'walking-out' || phase === 'closing' ? 'Leaving' : active ? 'Working' : worker.state === 'out' ? 'Clocked out' : 'Away'}</span></div>
+  </div>;
 }
-type Worker={e:Employee;live:string};
-const labels:Record<Phase,string>={portrait:'Avatar',arriving:'Arriving',working:'Working',sleeping:'Sleeping at laptop',coffee:'Coffee break',closing:'Closing laptop',leaving:'Heading out',away:'Away'};
-function Desk({worker}:{worker:Worker}){
-  const {e,live}=worker;
-  const active=['in','break','no_internet'].includes(live);
-  const settled:Phase=live==='break'?'coffee':live==='no_internet'?'sleeping':active?'working':'away';
-  const [transition,setTransition]=useState<Phase|null>(null);
-  const previous=useRef(false);
-  useEffect(()=>{
-    const was=previous.current; previous.current=active;
-    const timers:number[]=[];
-    if(active){setTransition('arriving');timers.push(window.setTimeout(()=>setTransition(null),1650));}
-    else if(was){setTransition('closing');timers.push(window.setTimeout(()=>setTransition('leaving'),760),window.setTimeout(()=>setTransition(null),2410));}
-    else setTransition(null);
-    return ()=>timers.forEach(clearTimeout);
-  },[active]);
-  const phase=transition||settled, pet=GAME_PETS.find(p=>p.id===e.gamePetId&&p.id!=='none');
-  const id=e.gameCharacterId||'human-'+(1+[...e.id].reduce((n,c)=>n+c.charCodeAt(0),0)%54);
-  return <article data-phase={phase} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700"><AvatarStage id={id} phase={phase} animated label={e.name+' · '+labels[phase]}/>{active&&pet&&<span className="absolute right-3 bottom-11 text-xl" title={pet.name}>{pet.emoji}</span>}<div className="flex justify-between items-center gap-2 p-2 text-xs"><b className="truncate">{e.name}</b><span>{labels[phase]}</span></div></article>;
-}
-export function UniverseOffice({workers,viewerId}:{workers:Worker[];viewerId?:string}){
-  const [online,setOnline]=useState<Set<string>|null>(null);
-  useEffect(()=>{
-    let mounted=true, busy=false;
-    const poll=async()=>{
-      const token=getSessionToken();
-      if(!token||document.hidden||busy)return;
-      busy=true;
-      try{
-        const res=await fetch('/api/universe?view=presence',{headers:{'x-session-token':token},signal:AbortSignal.timeout(10000)});
-        if(res.ok){const data=await res.json();if(mounted&&Array.isArray(data.online))setOnline(new Set(data.online));}
-      }catch {if(mounted)setOnline(null);}finally{busy=false;}
-    };
-    void poll();const timer=setInterval(poll,10000);
-    return ()=>{mounted=false;clearInterval(timer);};
-  },[viewerId]);
-  return <section className="rounded-3xl border border-indigo-200 bg-indigo-50 p-4 dark:bg-slate-900"><h2 className="mb-3 font-bold">Employee Universe · Live office</h2><div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">{workers.map(worker=><Desk key={worker.e.id} worker={worker.e.id!==viewerId && online && worker.live==='in' && !online.has(worker.e.id)?{...worker,live:'no_internet'}:worker}/>)}</div></section>;
-}
-export function PersonalDesk({employee,record,settings,online}:{employee:Employee;record?:AttendanceRecord;settings:OfficeSettings;online:boolean}){
-  const live=deriveLiveAttendanceState({record,settings,todayStr:getTodayDateString(),isCurrentUserOffline:!online,isCurrentUserConnected:online});
-  return <div className="mt-4 max-w-md"><h2 className="mb-2 text-sm font-bold">My Universe desk</h2><Desk worker={{e:employee,live}}/></div>;
+
+export function UniverseOffice({ workers }: { workers: Worker[] }) {
+  return <section className="rounded-3xl border border-violet-200 bg-gradient-to-br from-violet-50 to-sky-50 p-4 dark:bg-slate-900 dark:from-slate-900 dark:to-slate-800 dark:border-slate-700"><div className="flex items-center justify-between mb-3"><div><h2 className="font-black text-violet-800 dark:text-violet-200">✦ Employee Universe · Live Office</h2><p className="text-xs text-slate-500">Your crew arrives, works at their desks, and heads home as attendance updates arrive.</p></div><span className="rounded-full bg-emerald-100 text-emerald-700 px-3 py-1 font-bold text-xs">● Live</span></div><div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3">{workers.map((worker) => <Desk key={worker.e.id} worker={worker}/>)}</div></section>;
 }
