@@ -1014,7 +1014,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
         {shown.map((p) => {
           const items = p.items || [];
           return (
-            <div key={p.id} data-posted={p.posted === true} className={`${cardCls} p-4 ${p.posted ? 'border-emerald-200 bg-emerald-50/80 dark:border-emerald-900 dark:bg-emerald-950/25' : ''}`}>
+            <div key={p.id} data-posted={p.posted === true} className={`${cardCls} p-4 ${p.posted ? 'border-emerald-200 !bg-emerald-50/80 dark:border-emerald-900 dark:!bg-emerald-950/25' : ''}`}>
               <div className="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-slate-100">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
