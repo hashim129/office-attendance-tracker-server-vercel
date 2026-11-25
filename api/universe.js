@@ -54,6 +54,11 @@ export default async function handler(req, res) {
       const rows = await supabaseFetch('/employee_universe_presence?last_seen=gte.' + encodeURIComponent(since) + '&select=employee_id');
       return response(res, 200, {online:rows.map(row => row.employee_id)});
     }
+    if (req.method === 'GET' && req.query?.view === 'presence') {
+      const since = new Date(Date.now() - 50000).toISOString();
+      const presence = await supabaseFetch('/employee_universe_presence?last_seen=gte.' + encodeURIComponent(since) + '&select=employee_id');
+      return response(res, 200, {online:(presence || []).map(row=>row.employee_id)});
+    }
     if (req.method === 'GET') {
       const suffix = '&select=id,sender_id,body,mention_ids,reply_to,created_at&order=created_at.desc&limit=80';
       const [publicRows, ownRows, legacyPrivateRows, newOwnRows, newPrivateRows] = await Promise.all([
@@ -80,6 +85,11 @@ export default async function handler(req, res) {
 
     if (req.method !== 'POST') return response(res, 405, { error: 'Method not allowed.' });
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+
+    if(body.action==='presence'){
+      await supabaseFetch('/employee_universe_presence?on_conflict=employee_id',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({employee_id:actor.id,last_seen:new Date().toISOString()})});
+      return response(res,200,{ok:true});
+    }
 
     if (body.action === 'presence') {
       await supabaseFetch('/employee_universe_presence?on_conflict=employee_id', {
