@@ -186,7 +186,7 @@ export async function buildReceiptPdf(r: CrmReceipt, company: CompanyProfile, re
 export const receiptFileName = (r: CrmReceipt) => `${r.receiptNo}-${r.clientName.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'receipt'}.pdf`;
 
 export async function receiptPdfFile(r: CrmReceipt, company: CompanyProfile, receivedBy: string): Promise<File> {
-  return new File([await buildReceiptPdf(r, company, receivedBy)], receiptFileName(r), { type: 'application/pdf' });
+  return new File([new Uint8Array(await buildReceiptPdf(r, company, receivedBy))], receiptFileName(r), { type: 'application/pdf' });
 }
 
 export async function downloadReceiptPdf(r: CrmReceipt, company: CompanyProfile, receivedBy: string): Promise<void> {

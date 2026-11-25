@@ -102,7 +102,7 @@ export interface CrmBadges {
   unreadTotal: number;
   /** My open deadlines (follow-ups / meetings) within the next 3 days, plus just-missed ones. */
   upcoming: CrmUpcoming[];
-  unreadLatest: { id: string; category: CrmCategory; message: string }[];
+  unreadLatest: { id: string; category: CrmCategory; refId?: string; message: string }[];
 }
 
 export type CrmCategory = 'followup' | 'meeting' | 'inventory' | 'sale' | 'reminder' | 'invoice' | 'receipt' | 'customer';
@@ -253,6 +253,10 @@ export interface CrmInvoice {
 }
 
 export interface InvoiceVendor {
+  id?: string;
+  posted?: boolean;
+  postedAt?: string | null;
+  postedBy?: string | null;
   name: string;
   description?: string;
   unitPrice?: number | null;

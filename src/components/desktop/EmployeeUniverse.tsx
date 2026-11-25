@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AtSign, MessageCircle, PawPrint, Reply, Send, Sparkles, X } from 'lucide-react';
 import { Employee } from '../../types';
 import { getSessionToken } from '../../lib/storage';
-import { EmployeeAvatar, GAME_CHARACTERS, GAME_PETS } from '../common/EmployeeIdentity';
+import { EmployeeAvatar, GAME_CHARACTERS, GAME_PETS, UniverseIllustration } from '../common/EmployeeIdentity';
 
 type PublicPerson = { id: string; name: string; role?: string; characterId?: string | null; petId?: string | null };
 type ChatMessage = { id: string; body: string; sender: PublicPerson; mentions: PublicPerson[]; replyTo: string | null; createdAt: string };
@@ -17,7 +17,7 @@ const timeLabel = (value: string) => {
 };
 
 export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onProfileSaved }) => {
-  const [profileOpen, setProfileOpen] = useState(!currentUser.gameCharacterId);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [characterId, setCharacterId] = useState(currentUser.gameCharacterId || '');
   const [petId, setPetId] = useState(currentUser.gamePetId || 'none');
   const [savingProfile, setSavingProfile] = useState(false);
@@ -38,7 +38,6 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
     if (!currentUser.gameCharacterId) {
       setCharacterId('');
       setPetId(currentUser.gamePetId || 'none');
-      setProfileOpen(true);
     }
   }, [currentUser.id, currentUser.gameCharacterId, currentUser.gamePetId]);
 
@@ -46,7 +45,7 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
     if (!token) return;
     try {
       const response = await fetch('/api/universe', { headers: { 'x-session-token': token }, cache: 'no-store' });
-      if (!response.ok) return;
+      if (!response.ok) { setChatError('Employee Universe is unavailable. Please retry shortly.'); return; }
       const data = await response.json();
       if (Array.isArray(data.messages)) setMessages(data.messages);
       setChatError('');
@@ -135,16 +134,17 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
     <>
       <button type="button" onClick={() => setChatOpen((v) => !v)} className="fixed bottom-5 right-5 z-[70] flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-600 to-blue-600 px-4 py-3 text-sm font-bold text-white shadow-xl shadow-violet-900/25 transition hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-fuchsia-300/60" aria-label="Open Employee Universe chat">
         <span className="relative"><MessageCircle className="h-5 w-5" />{unreadMentions > 0 && <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-300 px-1 text-[9px] font-black text-slate-900">{unreadMentions}</span>}</span>
-        <span className="hidden sm:inline">Team Lounge</span>
+        <span className="hidden sm:inline">Employee Universe 2.0</span>
         <EmployeeAvatar characterId={currentUser.gameCharacterId} petId={currentUser.gamePetId} name={currentUser.name} size="xs" />
       </button>
 
       {chatOpen && (
-        <section className="fixed bottom-20 right-3 z-[70] flex h-[min(590px,calc(100vh-7rem))] w-[min(390px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-2xl shadow-slate-900/25 dark:border-slate-700 dark:bg-slate-950" aria-label="Team Lounge conversation">
+        <section className="fixed bottom-20 right-3 z-[70] flex h-[min(760px,calc(100vh-7rem))] w-[min(820px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-2xl shadow-slate-900/25 dark:border-slate-700 dark:bg-slate-950" aria-label="Employee Universe 2.0 conversation">
           <header className="flex items-center justify-between bg-gradient-to-r from-violet-700 via-fuchsia-600 to-blue-600 px-4 py-3 text-white">
-            <div className="flex items-center gap-2.5"><div className="rounded-xl bg-white/15 p-2"><Sparkles className="h-5 w-5" /></div><div><p className="text-sm font-extrabold">Team Lounge</p><p className="text-[10px] text-white/75">A friendly space for the whole crew</p></div></div>
+            <div className="flex items-center gap-2.5"><div className="rounded-xl bg-white/15 p-2"><Sparkles className="h-5 w-5" /></div><div><p className="text-sm font-extrabold">Employee Universe 2.0</p><p className="text-[10px] text-white/75">A friendly space for the whole crew</p></div></div>
             <div className="flex items-center gap-1"><button type="button" onClick={() => setProfileOpen(true)} className="rounded-lg bg-white/15 px-2 py-1.5 text-[10px] font-bold hover:bg-white/25">My character</button><button type="button" onClick={() => setChatOpen(false)} className="rounded-lg p-2 hover:bg-white/20" aria-label="Close chat"><X className="h-4 w-4" /></button></div>
           </header>
+          <div className="border-b border-violet-100 bg-violet-50/60 px-4 py-3 dark:border-slate-700 dark:bg-slate-900"><div className="flex items-center justify-between"><div><h2 className="text-sm font-black text-violet-800 dark:text-violet-200">Meet your crew</h2><p className="text-[10px] text-slate-500">Explore your colleagues' characters and send them a mention.</p></div><button className="text-xs font-bold text-violet-700 dark:text-violet-300" onClick={() => setProfileOpen(true)}>Customize profile</button></div><div className="mt-3 flex gap-3 overflow-x-auto pb-2">{employees.filter((e) => e.isActive !== false).map((e) => <button key={e.id} disabled={e.id === currentUser.id} type="button" onClick={() => addMention(e)} className="flex w-20 shrink-0 flex-col items-center gap-1 rounded-xl p-2 hover:bg-violet-100 dark:hover:bg-slate-800"><EmployeeAvatar characterId={e.gameCharacterId} petId={e.gamePetId} name={e.name} size="lg"/><span className="w-full truncate text-center text-[10px] font-bold">{e.name}</span></button>)}</div></div>
           <div className="flex-1 space-y-3 overflow-y-auto bg-gradient-to-b from-violet-50/70 to-white p-3 dark:from-slate-900 dark:to-slate-950">
             {messages.length === 0 && <div className="flex h-full min-h-48 flex-col items-center justify-center text-center"><span className="text-4xl">🚀</span><p className="mt-2 text-sm font-bold text-slate-800 dark:text-white">The lounge is all yours!</p><p className="mt-1 max-w-56 text-xs text-slate-500">Say hello, share an update or mention a teammate.</p></div>}
             {messages.map((item) => {
@@ -176,9 +176,9 @@ export const EmployeeUniverse: React.FC<Props> = ({ currentUser, employees, onPr
           <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-white/60 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950">
             <div className="relative overflow-hidden bg-gradient-to-r from-violet-700 via-fuchsia-600 to-blue-600 px-6 py-6 text-white"><div className="absolute -right-8 -top-12 h-40 w-40 rounded-full bg-white/10" /><div className="relative flex items-center gap-4"><div className="rounded-2xl bg-white/15 p-3"><Sparkles className="h-7 w-7" /></div><div><p className="text-xl font-black">Choose your character</p><p className="mt-1 text-xs text-white/80">Your avatar will travel with your name around the workspace.</p></div></div></div>
             <div className="space-y-5 p-5 sm:p-6">
-              <section><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-extrabold text-slate-900 dark:text-white">1 · Pick your character</h3><span className="text-[10px] text-slate-400">Choose one</span></div><div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">{GAME_CHARACTERS.map((item) => <button key={item.id} type="button" onClick={() => setCharacterId(item.id)} className={`rounded-2xl border p-3 text-center transition hover:-translate-y-0.5 hover:shadow-md ${characterId === item.id ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-300 dark:bg-violet-950/40' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}`}><span className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${item.tint} text-3xl shadow-sm`}>{item.emoji}</span><span className="mt-2 block text-[10px] font-bold text-slate-700 dark:text-slate-200">{item.name}</span></button>)}</div></section>
-              <section><div className="mb-3 flex items-center gap-2"><PawPrint className="h-4 w-4 text-amber-500" /><h3 className="text-sm font-extrabold text-slate-900 dark:text-white">2 · Choose a pet companion <span className="font-normal text-slate-400">(optional)</span></h3></div><div className="grid grid-cols-4 gap-2 sm:grid-cols-8">{GAME_PETS.map((item) => <button key={item.id} type="button" onClick={() => setPetId(item.id)} className={`rounded-xl border p-2 text-center transition ${petId === item.id ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-200 dark:bg-amber-950/30' : 'border-slate-200 dark:border-slate-800'}`}><span className="block text-2xl">{item.emoji}</span><span className="mt-1 block truncate text-[9px] font-semibold text-slate-600 dark:text-slate-300">{item.name}</span></button>)}</div></section>
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"><div className="flex items-center gap-3"><EmployeeAvatar characterId={characterId} petId={petId} name={currentUser.name} size="lg" /><div><p className="text-xs font-extrabold text-slate-900 dark:text-white">{currentUser.name}</p><p className="text-[10px] text-slate-500">Your new workspace identity</p></div></div><div className="flex items-center gap-2"><button type="button" onClick={() => setProfileOpen(false)} className="rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" disabled={!currentUser.gameCharacterId}>Cancel</button><button type="button" onClick={() => void saveProfile()} disabled={!characterId || savingProfile} className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2.5 text-xs font-extrabold text-white shadow-lg shadow-violet-600/20 disabled:opacity-40">{savingProfile ? 'Saving…' : 'Save my character'}</button></div></div>
+              <section><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-extrabold text-slate-900 dark:text-white">1 · Pick your character</h3><span className="text-[10px] text-slate-400">Choose one</span></div><div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">{GAME_CHARACTERS.map((item) => <button key={item.id} type="button" onClick={() => setCharacterId(item.id)} className={`rounded-2xl border p-3 text-center transition hover:-translate-y-0.5 hover:shadow-md ${characterId === item.id ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-300 dark:bg-violet-950/40' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}`}><span className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${item.tint} text-3xl shadow-sm`}><UniverseIllustration id={item.id} className="h-12 w-12 mx-auto" /></span><span className="mt-2 block text-[10px] font-bold text-slate-700 dark:text-slate-200">{item.name}</span></button>)}</div></section>
+              <section><div className="mb-3 flex items-center gap-2"><PawPrint className="h-4 w-4 text-amber-500" /><h3 className="text-sm font-extrabold text-slate-900 dark:text-white">2 · Choose a pet companion <span className="font-normal text-slate-400">(optional)</span></h3></div><div className="grid grid-cols-4 gap-2 sm:grid-cols-8">{GAME_PETS.map((item) => <button key={item.id} type="button" onClick={() => setPetId(item.id)} className={`rounded-xl border p-2 text-center transition ${petId === item.id ? 'border-amber-400 bg-amber-50 ring-2 ring-amber-200 dark:bg-amber-950/30' : 'border-slate-200 dark:border-slate-800'}`}><span className="block text-2xl">{item.id === "none" ? <span aria-hidden>＋</span> : <UniverseIllustration id={item.id} className="h-12 w-12 mx-auto" />}</span><span className="mt-1 block truncate text-[9px] font-semibold text-slate-600 dark:text-slate-300">{item.name}</span></button>)}</div></section>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"><div className="flex items-center gap-3"><EmployeeAvatar characterId={characterId} petId={petId} name={currentUser.name} size="lg" /><div><p className="text-xs font-extrabold text-slate-900 dark:text-white">{currentUser.name}</p><p className="text-[10px] text-slate-500">Your new workspace identity</p></div></div><div className="flex items-center gap-2"><button type="button" onClick={() => setProfileOpen(false)} className="rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">Cancel</button><button type="button" onClick={() => void saveProfile()} disabled={!characterId || savingProfile} className="rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 px-5 py-2.5 text-xs font-extrabold text-white shadow-lg shadow-violet-600/20 disabled:opacity-40">{savingProfile ? 'Saving…' : 'Save my character'}</button></div></div>
               {profileError && <p className="text-xs font-medium text-rose-600">{profileError}</p>}
             </div>
           </div>

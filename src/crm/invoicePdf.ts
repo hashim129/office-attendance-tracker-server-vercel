@@ -311,7 +311,7 @@ export const invoiceFileName = (inv: CrmInvoice) => `${inv.invoiceNo}-${inv.cust
 
 export async function invoicePdfFile(inv: CrmInvoice, company: CompanyProfile, preparedBy: string): Promise<File> {
   const bytes = await buildInvoicePdf(inv, company, preparedBy);
-  return new File([bytes], invoiceFileName(inv), { type: 'application/pdf' });
+  return new File([new Uint8Array(bytes)], invoiceFileName(inv), { type: 'application/pdf' });
 }
 
 export async function downloadInvoicePdf(inv: CrmInvoice, company: CompanyProfile, preparedBy: string): Promise<void> {
@@ -421,7 +421,7 @@ export async function buildVendorPayablesPdf(inv: CrmInvoice, company: CompanyPr
 
 export async function downloadVendorPayablesPdf(inv: CrmInvoice, company: CompanyProfile, preparedBy: string): Promise<void> {
   const bytes = await buildVendorPayablesPdf(inv, company, preparedBy);
-  const file = new File([bytes], `${inv.invoiceNo}-vendor-payables.pdf`, { type: 'application/pdf' });
+  const file = new File([new Uint8Array(bytes)], `${inv.invoiceNo}-vendor-payables.pdf`, { type: 'application/pdf' });
   const url = URL.createObjectURL(file);
   const a = document.createElement('a');
   a.href = url;

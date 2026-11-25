@@ -11,6 +11,7 @@ interface Toast {
   kind: 'deadline' | 'notice' | 'reminder';
   text: string;
   tab: ActiveDesktopTab;
+  refId?: string;
   urgent?: boolean;
   ask?: boolean; // "Are you still working?" prompt with a confirm button
 }
@@ -37,7 +38,7 @@ const WARN_MS = 15 * 60 * 1000;
  * Live alerts on every page: a heads-up 15 minutes before a follow-up/meeting is due and another when it is due,
  * plus a pop-up for each new notification. Each alert shows once per sign-in session.
  */
-export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTab) => void }> = ({ crm, onOpen }) => {
+export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTab, refId?: string) => void }> = ({ crm, onOpen }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const seen = useRef<Set<string>>(loadSeen());
   useEffect(() => { installSoundUnlock(); }, []);
@@ -75,6 +76,7 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
       urgent: n.category === 'reminder',
       ask: n.category === 'reminder' && isWorkPrompt(n.id),
       text: n.message,
+      refId: n.refId,
       tab: n.category === 'followup' ? 'crm-tasks' : n.category === 'meeting' ? 'crm-meetings' : n.category === 'sale' ? 'crm-sales' : n.category === 'invoice' ? 'crm-invoices' : n.category === 'receipt' ? 'crm-receipts' : n.category === 'customer' ? 'crm-customers' : n.category === 'reminder' ? 'clock' : 'crm-inventory',
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,7 +121,7 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
       {toasts.map((t) => (
         <div key={t.key} className={`rounded-xl border shadow-lg p-3 flex items-start gap-2.5 bg-white dark:bg-slate-900 ${t.urgent ? 'border-red-400 dark:border-red-700' : t.kind === 'deadline' ? 'border-amber-400 dark:border-amber-700' : 'border-blue-300 dark:border-blue-800'}`}>
           {t.kind !== 'notice' ? <Clock className={`w-4 h-4 mt-0.5 shrink-0 ${t.urgent ? 'text-red-600' : 'text-amber-600'}`} /> : <Bell className="w-4 h-4 mt-0.5 shrink-0 text-blue-600" />}
-          <button className="flex-1 text-left text-xs text-slate-800 dark:text-slate-100 cursor-pointer" onClick={() => { onOpen(t.tab); setToasts((l) => l.filter((x) => x.key !== t.key)); }}>
+          <button className="flex-1 text-left text-xs text-slate-800 dark:text-slate-100 cursor-pointer" onClick={() => { onOpen(t.tab, t.refId); setToasts((l) => l.filter((x) => x.key !== t.key)); }}>
             <span className="block font-bold text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">{t.ask ? 'Are you still working?' : t.kind === 'reminder' ? 'Punch-out reminder' : t.kind === 'deadline' ? (t.urgent ? 'Deadline now' : 'Deadline soon') : 'New notification'}</span>
             {t.text}
           </button>

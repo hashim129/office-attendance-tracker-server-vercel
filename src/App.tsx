@@ -128,7 +128,12 @@ export default function App() {
   const [enrollSelf, setEnrollSelf] = useState<{ employeeId: string; run: (() => void) | null } | null>(null);
   const enrollPromptShownRef = useRef<Set<string>>(new Set());
   const [faceRequest, setFaceRequest] = useState<{ employeeId: string; run: () => void } | null>(null);
-  const [activeTab, setActiveTab] = useState<ActiveDesktopTab>('clock');
+  const [activeTab, setActiveTabState] = useState<ActiveDesktopTab>('clock');
+  const [focusedRecordId, setFocusedRecordId] = useState<string | undefined>();
+  const setActiveTab = (tab: ActiveDesktopTab, refId?: string) => {
+    setFocusedRecordId(refId);
+    setActiveTabState(tab);
+  };
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
   const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-') || activeTab === 'live-dashboard' || (betaEnabled && activeTab === 'clock'));
 
@@ -503,7 +508,7 @@ export default function App() {
         ...presenceFields,
         timeIn: nowTime,
         status: late ? 'late' : 'present',
-        notes: notes || nextRecords[existingIdx].notes,
+        notes,
         clientIp: currentClientIp,
         deviceId,
         deviceName: deviceLabel,
@@ -544,7 +549,7 @@ export default function App() {
     saveAttendanceRecords(nextRecords, changedRecord, actorRole);
   };
 
-  const handleUpdatePunchNote = (employeeId: string, notes: string) => {
+  const handleUpdatePunchNote = async (employeeId: string, notes: string): Promise<boolean> => {
     const todayStr = getTodayDateString();
     const currentRecords = recordsRef.current;
     const existingIdx = currentRecords.findIndex(
@@ -565,8 +570,9 @@ export default function App() {
       updatedRecords[existingIdx] = changedRecord;
       recordsRef.current = updatedRecords;
       setRecords(updatedRecords);
-      saveAttendanceRecords(updatedRecords, changedRecord, actorRole);
+      return saveAttendanceRecords(updatedRecords, changedRecord, actorRole);
     }
+    return false;
   };
 
   const handleTimeOut = (employeeId: string, notes?: string) => {
@@ -613,7 +619,7 @@ export default function App() {
       totalWorkedMinutes: worked.totalWorkedMinutes,
       regularMinutes: worked.regularMinutes,
       overtimeMinutes: worked.overtimeMinutes,
-      notes: notes || currentRec.notes,
+      notes,
       deviceId: currentRec.deviceId || deviceId,
       deviceName: currentRec.deviceName || deviceLabel,
       isDeviceMismatch: currentRec.isDeviceMismatch || isMismatch,
@@ -1097,6 +1103,7 @@ export default function App() {
             crmLatest={CRM_ENABLED ? crm.badges.unreadLatest : []}
             onCrmRefresh={CRM_ENABLED ? () => void crm.refresh() : undefined}
             onOpenCrmNotifications={CRM_ENABLED ? () => setActiveTab('crm-notifications') : undefined}
+            onOpenCrmRecord={setActiveTab}
             isDark={isDark}
             onToggleTheme={handleToggleTheme}
             redesignedUiBetaEnabled={betaEnabled}
@@ -1174,7 +1181,7 @@ export default function App() {
               )}
 
               {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications') && (
-                <CrmPage section={activeTab} crm={crm} employees={employees} currentUser={currentUser} onNavigate={setActiveTab} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
+                <CrmPage section={activeTab} crm={crm} employees={employees} currentUser={currentUser} onNavigate={setActiveTab} focusId={focusedRecordId} onClearFocus={() => setFocusedRecordId(undefined)} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
               )}
 
               {activeTab === 'live-dashboard' && currentUser && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (

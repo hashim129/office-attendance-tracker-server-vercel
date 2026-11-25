@@ -727,15 +727,18 @@ export async function persistAutoClosures(originalRecords, evaluatedRecords) {
  * record's notes_log (the single `notes` field only shows the latest one and used to overwrite the earlier remark).
  */
 export function withNotesLog(existing, incomingRec, merged, actorRole) {
-  const prior = Array.isArray(existing?.notesLog) ? existing.notesLog : [];
+  const prior = Array.isArray(existing?.notesLog) ? [...existing.notesLog] : [];
+  if (!prior.length && String(existing?.notes || '').trim()) prior.push({ id: 'legacy', at: existing.recordUpdatedAt || '', kind: 'note', by: existing.employeeId || '', text: existing.notes });
   let log = prior;
   const text = String(incomingRec?.notes ?? '').trim();
   const before = String(existing?.notes ?? '').trim();
-  if (text && text !== before && !prior.some((e) => e && e.text === text)) {
-    const act = incomingRec.actorAction;
+  const act = incomingRec.actorAction;
+  const explicit = ['time_in', 'time_out', 'update_note'].includes(act);
+  const entryId = `nl-${incomingRec.recordUpdatedAt || new Date().toISOString()}-${act || 'note'}`;
+  if (text && (explicit || (actorRole === 'admin' && text !== before)) && !prior.some((e) => e && e.id === entryId)) {
     const kind = actorRole === 'admin' && act !== 'time_in' && act !== 'time_out' ? 'admin_note'
       : act === 'time_in' ? 'punch_in' : act === 'time_out' ? 'punch_out' : 'note';
-    log = [...prior, { id: `nl-${Date.now().toString(36)}-${prior.length}`, at: new Date().toISOString(), kind, by: actorRole === 'admin' ? 'admin' : (merged.employeeId || incomingRec.employeeId || ''), text }].slice(-100);
+    log = [...prior, { id: entryId, at: new Date().toISOString(), kind, by: merged.employeeId || incomingRec.employeeId || '', text }];
   }
   return { ...merged, notesLog: log };
 }
@@ -749,6 +752,7 @@ function mergeSupabaseAttendanceRecordCore(existing, incomingRec, options = {}) 
   const actorRole = options.actorRole || incomingRec.lastEditedByRole || 'employee';
   const isAdmin = actorRole === 'admin';
   const nowIso = new Date().toISOString();
+  if (existing && incomingRec.actorAction === 'update_note') return { ...existing, notes: String(incomingRec.notes || '').trim() || existing.notes, recordUpdatedAt: nowIso };
 
   if (!existing) {
     const fresh = { ...incomingRec };
@@ -1082,6 +1086,8 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
         if (!rec || !rec.id) continue;
         const existingRows = await supabaseFetch(`/attendance?id=eq.${encodeURIComponent(rec.id)}&select=*`);
         const existing = existingRows?.[0] ? mapDbAttendance(existingRows[0]) : null;
+
+        if (rec.actorAction === 'update_note' && !existing) throw denied(400, 'ATTENDANCE_REQUIRED', 'Punch in before saving an additional remark.');
 
         const net = await enforceOfficeNetworkForPunch(existing, rec, incoming.actorRole, ctx.clientIps);
         stampWorkMode(existing, rec, net, incoming.actorRole, Array.isArray(ctx.clientIps));

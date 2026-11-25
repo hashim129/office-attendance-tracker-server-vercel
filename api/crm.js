@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { confirmOpenWork, isSupabaseConfigured, supabaseFetch, sweepShiftReminders } from './_supabase.js';
 import { format12h, getShiftEndWindowMs } from './_cloud.js';
 import { getSessionEmployee } from './_session.js';
+import { updateVendorPosting } from './_vendorLines.js';
 
 const KINDS = ['meeting', 'corporate', 'internal', 'regular', 'personal'];
 const KIND_LABEL = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up', regular: 'Regular customers follow-up', personal: 'Personal follow-up' };
@@ -698,7 +699,7 @@ export default async function handler(req, res) {
         customersNew: mine.filter((n) => n.category === 'customer').length,
         salesPending: (isAdmin || me.role === 'accounts') ? salesRows.filter((x) => x.status === 'pending').length : 0,
         unreadTotal: mine.length,
-        unreadLatest: [...mine].sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))).slice(0, 5).map((n) => ({ id: n.id, category: n.category, message: n.message })),
+        unreadLatest: [...mine].sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))).slice(0, 5).map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message })),
         upcoming,
       };
       if (action === 'badges') return res.status(200).json({ ok: true, badges });
@@ -1427,7 +1428,8 @@ export default async function handler(req, res) {
         const units = hasUnits ? money(v.units, `Units for ${name}`) : null;
         const computedAmt = unitPrice !== null ? r2(unitPrice * (units ?? 1)) : 0;
         const amount = hasAmount ? money(v.amount, `Payable to ${name}`) : computedAmt;
-        return { name, description, unitPrice, units, amount, currency: vCur, bank };
+        const previous = asArray(existing?.vendors).find((p, pi) => (p.id || `legacy-${pi}`) === v.id);
+        return { name, description, unitPrice, units, amount, currency: vCur, bank, id: previous?.id || id('vendor'), posted: Boolean(previous?.posted), postedAt: previous?.postedAt || null, postedBy: previous?.postedBy || null };
       }).filter(Boolean);
       const at = nowIso();
       const base = {
@@ -1748,6 +1750,23 @@ export default async function handler(req, res) {
       await upsert('crm_invoices', row);
       if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Vendor side of invoice ${existing.invoice_no} was marked ${status.toUpperCase()}.`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
+    }
+
+    if (action === 'invoice_vendor_line_posted') {
+      const existing = await getOne('crm_invoices', body.id);
+      if (!existing) throw notFound('Invoice not found.');
+      if (!(isAdmin || me.role === 'accounts')) throw forbidden('Only Accounts or Admin can post a vendor line.');
+      if (existing.kind === 'vendor' || existing.status === 'cancelled') throw bad('This invoice cannot be posted.');
+      if (body.revision !== existing.updated_at) throw bad('Invoice changed. Refresh and try again.');
+      const vendors = asArray(existing.vendors);
+      const at = nowIso();
+      const posted = body.posted === true;
+      const updated = updateVendorPosting(vendors, body.vendorId, posted, me.id, at, () => id('vendor'));
+      if (!updated) throw notFound('Vendor line no longer exists. Refresh the invoice.');
+      const revision = existing.updated_at ? `eq.${encodeURIComponent(existing.updated_at)}` : 'is.null';
+      const changed = await supabaseFetch(`/crm_invoices?id=eq.${encodeURIComponent(existing.id)}&updated_at=${revision}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ vendors: updated, updated_at: at }) });
+      if (!changed?.length) throw bad('Invoice changed. Refresh and try again.');
+      return res.status(200).json({ ok: true, invoice: mapInvoice(changed[0]) });
     }
 
     if (action === 'invoice_vendor_posted') {

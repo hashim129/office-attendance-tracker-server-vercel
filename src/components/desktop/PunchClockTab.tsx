@@ -68,7 +68,7 @@ interface PunchClockTabProps {
   onTimeOut: (employeeId: string, notes?: string) => void;
   onStartBreak: (employeeId: string, type: 'lunch' | 'coffee' | 'short_break') => void;
   onEndBreak: (employeeId: string) => void;
-  onUpdatePunchNote?: (employeeId: string, notes: string) => void;
+  onUpdatePunchNote?: (employeeId: string, notes: string) => Promise<boolean>;
   settings: OfficeSettings;
   currentClientIp?: string;
   currentClientIsp?: string;
@@ -132,12 +132,10 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     (r) => r.employeeId === currentUser.id && r.date === todayStr
   );
 
-  // Sync existing note into actionNotes state
+  // Keep a fresh draft separate from the persisted remark.
   useEffect(() => {
-    if (todayRecord?.notes !== undefined) {
-      setActionNotes(todayRecord.notes || '');
-    }
-  }, [todayRecord?.notes]);
+    setActionNotes('');
+  }, [currentUser.id, todayStr, todayRecord?.timeIn, todayRecord?.timeOut]);
 
   // Today's Coworker Live Presence (Specific Day Only)
   const [coworkerSearch, setCoworkerSearch] = useState<string>('');
@@ -366,9 +364,11 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     }
   };
 
-  const handleSaveNoteRealTime = () => {
-    if (!onUpdatePunchNote) return;
-    onUpdatePunchNote(currentUser.id, actionNotes.trim());
+  const handleSaveNoteRealTime = async () => {
+    if (!onUpdatePunchNote || !actionNotes.trim()) return;
+    const saved = await onUpdatePunchNote(currentUser.id, actionNotes.trim());
+    if (!saved) { alert('Remark is queued for sync. Please check your connection.'); return; }
+    setActionNotes('');
     setNoteSavedFeedback(true);
     setTimeout(() => setNoteSavedFeedback(false), 2500);
   };
@@ -855,13 +855,13 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
               </div>
             )}
 
-            {/* Real-Time Punch Note / Remark Section: staff only see it when a Work From Home reason is required */}
-            {(isAdminUser || isRemoteWfhPunch) && (
+            {/* Optional remarks for every employee; remote work retains its reason requirement. */}
+            {(
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
                   <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{isRemoteWfhPunch ? 'Note: Reason for Working from Home (required)' : 'Punch Note / Daily Remark'}</span>
+                  <span>{isRemoteWfhPunch ? 'Note: Reason for Working from Home (required)' : 'Punch Note / Daily Remark (optional)'}</span>
                 </div>
                 {noteSavedFeedback && (
                   <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 animate-in fade-in">
@@ -884,6 +884,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                   <button
                     type="button"
                     onClick={handleSaveNoteRealTime}
+                    disabled={!actionNotes.trim()}
                     className="px-3.5 py-2 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
                     title="Save remark to database immediately"
                   >

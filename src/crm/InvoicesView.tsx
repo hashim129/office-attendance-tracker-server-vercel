@@ -22,7 +22,7 @@ interface Props {
 
 interface FormLine { description: string; unitPrice: string; units: string; currency: string; rate: string; taxable: boolean; note: boolean; key: string; locked: boolean }
 interface FormSection { title: string; key: string; locked: boolean; lines: FormLine[] }
-interface FormVendor { name: string; description: string; unitPrice: string; units: string; amount: string; currency: string; bank: string }
+interface FormVendor { id?: string; name: string; description: string; unitPrice: string; units: string; amount: string; currency: string; bank: string }
 interface FormState {
   id?: string;
   kind: 'customer' | 'vendor';
@@ -209,7 +209,8 @@ function toForm(inv: CrmInvoice, companyNtn = ''): FormState {
   return {
     id: inv.id, kind, invoiceNo: inv.invoiceNo, crmId: crmQueryOf(inv), customerName: inv.customerName, customerPhone: inv.customerPhone,
     ntn: inv.ntn === null || inv.ntn === undefined ? companyNtn : inv.ntn, showNtn: inv.showNtn !== false,
-    vendors: kind === 'customer' ? ((inv.vendors || []).length ? inv.vendors.map((v) => ({
+    vendors: kind === 'customer' ? ((inv.vendors || []).length ? inv.vendors.map((v, vi) => ({
+      id: v.id || `legacy-${vi}`,
       name: v.name,
       description: v.description || '',
       unitPrice: v.unitPrice !== null && v.unitPrice !== undefined ? String(v.unitPrice) : '',
@@ -344,12 +345,12 @@ const InvoicePreview: React.FC<{ inv: CrmInvoice; company: CompanyProfile; by: s
   );
 };
 
-export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, customerPortalBetaEnabled = false }) => {
+export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, employees, currentUser, customerPortalBetaEnabled = false, focusId }) => {
   const isStaff = currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.role === 'ceo';
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const seesAll = isStaff || currentUser.role === 'ceo';
   const { invoices: allInvoices, company } = crm.data;
-  const [side, setSide] = useState<'customer' | 'vendor'>('customer');
+  const [side, setSide] = useState<'customer' | 'vendor'>(allInvoices.find((i) => i.id === focusId)?.kind || 'customer');
   const invoices = useMemo(() => allInvoices.filter((i) => (i.kind || 'customer') === side), [allInvoices, side]);
   const vendorSide = side === 'vendor';
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
@@ -359,7 +360,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
   // Cards start folded so the page stays short; people open the ones they need.
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
   const toggleOpen = (id: string) => setOpenIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const [view, setView] = useState<CrmInvoice | null>(null);
+  const [view, setView] = useState<CrmInvoice | null>(allInvoices.find((i) => i.id === focusId) || null);
   const [portalFor, setPortalFor] = useState<CrmInvoice | null>(null);
   const canPortalCtl = currentUser.role === 'admin' || currentUser.role === 'ceo' || Boolean(currentUser.customerPortalAccess);
   const [companyForm, setCompanyForm] = useState<CompanyProfile | null>(null);
@@ -1974,6 +1975,8 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                               <div className="min-w-0 space-y-0.5">
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <span className="font-bold text-slate-900 dark:text-slate-100">{v.name}</span>
+                                  <Pill tone={v.posted ? 'green' : 'slate'}>{v.posted ? 'Posted' : 'Not posted'}</Pill>
+                                  {isStaff && i.status !== 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_vendor_line_posted', { id: i.id, revision: i.updatedAt, vendorId: v.id || `legacy-${vi}`, posted: !v.posted })}>{v.posted ? 'Unpost' : 'Mark as posted'}</button>}
                                   {v.description && <span className="text-[11px] text-slate-600 dark:text-slate-300">· {v.description}</span>}
                                 </div>
                                 {(v.unitPrice !== null && v.unitPrice !== undefined) && (
@@ -2058,6 +2061,8 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                     {v.unitPrice !== null && v.unitPrice !== undefined ? <span className="text-slate-500"> (Unit price: {v.currency} {fmtAmount(v.unitPrice)} × Units: {fmtAmount(v.units ?? 1)})</span> : null}
                     {v.amount ? <> — payable <span className="font-mono font-bold">{v.currency} {fmtAmount(v.amount)}</span></> : null}
                     {v.bank && <span className="block whitespace-pre-wrap text-slate-500 dark:text-slate-400">Bank: {v.bank}</span>}
+                    <span className="ml-2 text-xs font-bold">{v.posted ? '✓ Posted' : 'Not posted'}</span>
+                    {(currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.role === 'ceo') && view.status !== 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_vendor_line_posted', { id: view.id, revision: view.updatedAt, vendorId: v.id || `legacy-${i}`, posted: !v.posted })}>{v.posted ? 'Unpost' : 'Mark as posted'}</button>}
                   </div>
                 ))}
               </div>
