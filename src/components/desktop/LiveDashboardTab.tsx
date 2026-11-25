@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, AlertTriangle, ArrowRight, CalendarCheck2, CalendarClock, CalendarDays, CalendarOff, CheckCircle2, Clock3, FileText, Home, Loader2, LogOut, Medal, PackageCheck, Target, Timer, TrendingUp, Trophy, UserX, Users, Wallet, WifiOff } from 'lucide-react';
-import { ActiveDesktopTab, AttendanceRecord, Employee, LeaveRequest, ShiftSchedule } from '../../types';
-import { getTodayDateString, isLateArrival, parseTimeToMinutes } from '../../lib/attendanceCalculations';
+import { ActiveDesktopTab, AttendanceRecord, OfficeSettings, Employee, LeaveRequest, ShiftSchedule } from '../../types';
+import { deriveLiveAttendanceState, getTodayDateString, isLateArrival, parseTimeToMinutes } from '../../lib/attendanceCalculations';
 import { CrmState } from '../../crm/useCrm';
 import { crmCall } from '../../crm/crmApi';
 import { CountUp } from '../common/CountUp';
@@ -13,6 +13,7 @@ type State = 'in' | 'out' | 'leave' | 'absent' | 'waiting' | 'off';
 interface Row {
   e: Employee;
   state: State;
+  live: string;
   late: boolean;
   wfh: boolean;
   offline: boolean;
@@ -55,10 +56,12 @@ interface Props {
   crm: CrmState;
   onNavigate: (tab: ActiveDesktopTab) => void;
   redesignedUiBetaEnabled?: boolean;
+  settings: OfficeSettings;
+  online: boolean;
   employeeUniverseEnabled?: boolean;
 }
 
-export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, records, shifts, leaves, crm, onNavigate, redesignedUiBetaEnabled = false, employeeUniverseEnabled = false }) => {
+export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, records, shifts, leaves, crm, onNavigate, settings, online, redesignedUiBetaEnabled = false, employeeUniverseEnabled = false }) => {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 30000);
@@ -88,13 +91,14 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
         return {
           e,
           state,
+          live: deriveLiveAttendanceState({record:rec,settings,nowMs:now.getTime(),todayStr:today,isCurrentUserOffline:e.id===currentUser.id&&!online,isCurrentUserConnected:e.id===currentUser.id&&online}),
           late: Boolean(rec && shift && isLateArrival(rec.timeIn, shift)),
           wfh: Boolean(rec && (e.allowWorkFromHome || remoteLeave)),
           offline: Boolean(rec && !rec.timeOut && rec.connectionStatus === 'no_internet'),
           timeIn: rec?.timeIn,
         };
       });
-  }, [employees, records, shifts, leaves, today, now]);
+  }, [employees, records, shifts, leaves, today, now, settings, currentUser.id, online]);
 
   const count = (f: (r: Row) => boolean) => rows.filter(f).length;
   const inNow = count((r) => r.state === 'in');
@@ -243,7 +247,7 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
         <Stat label="Finished" value={done} tone="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" icon={<LogOut className="w-4 h-4" />} />
       </div>
 
-      {employeeUniverseEnabled && <UniverseOffice workers={rows} />}
+      {employeeUniverseEnabled && <UniverseOffice viewerId={currentUser.id} workers={rows} />}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Card title="Team Pulse · Live Presence" icon={<Users className="w-4 h-4 text-blue-600" />} right={<span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" /> LIVE</span>}>
           <div className="mb-3 grid grid-cols-2 sm:grid-cols-5 gap-2">
