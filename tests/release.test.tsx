@@ -92,6 +92,7 @@ test('fixture server enforces posting role and independent Beta gate', async () 
   let beta = false;
   let writes = 0;
   let sentTable = '';
+  let purchase = { id: 'pur-fixture', updated_at: '2026-11-25', data: { id: 'pur-fixture', purchaseNo: 'PUR-000001', createdBy: 'emp-fixture', status: 'unpaid', totalPayable: 250, items: [{ name: 'Vendor', amount: 250 }] } };
   const row = { id: 'inv-fixture', kind: 'customer', status: 'unpaid', updated_at: '2026-11-25', vendors: [{ name: 'A', amount: 100 }, { name: 'B', amount: 200 }] };
   globalThis.fetch = (async (input, options) => {
     const url = new URL(String(input));
@@ -101,6 +102,10 @@ test('fixture server enforces posting role and independent Beta gate', async () 
     if (url.pathname.endsWith('/crm_invoices')) {
       if (options?.method === 'PATCH') { writes++; return Response.json([{ ...row, ...JSON.parse(String(options.body)) }]); }
       return Response.json([row]);
+    }
+    if (url.pathname.endsWith('/crm_company')) {
+      if (options?.method === 'PATCH') { assert.equal(url.searchParams.get('updated_at'), `eq.${purchase.updated_at}`); purchase = { ...purchase, ...JSON.parse(String(options.body)) }; writes++; }
+      return Response.json([purchase]);
     }
     if (url.pathname.endsWith('/employee_universe_messages') || url.pathname.endsWith('/employee_universe_private_messages')) {
       if (options?.method === 'POST') { sentTable = url.pathname.split('/').pop()!; return Response.json([{ id: 'sent', ...JSON.parse(String(options.body)) }]); }
@@ -130,6 +135,17 @@ test('fixture server enforces posting role and independent Beta gate', async () 
     assert.equal(posted.status, 200);
     assert.equal(posted.data.invoice.vendors[1].posted, true);
     assert.equal(writes, 1);
+    const postPurchase = (posted: boolean) => invoke(crmHandler, { method: 'POST', body: { action: 'purchase_posted', id: purchase.id, posted, sessionToken } });
+    role = 'employee';
+    assert.equal((await postPurchase(true)).status, 403);
+    role = 'accounts';
+    const postedPurchase = await postPurchase(true);
+    assert.equal(postedPurchase.status, 200);
+    assert.equal(postedPurchase.data.purchase.posted, true);
+    assert.equal(postedPurchase.data.purchase.postedBy, 'emp-fixture');
+    assert.equal(postedPurchase.data.purchase.status, 'unpaid');
+    assert.equal(postedPurchase.data.purchase.totalPayable, 250);
+    assert.equal((await postPurchase(false)).data.purchase.posted, false);
     const universeReq = { method: 'GET', headers: { 'x-session-token': sessionToken } };
     assert.equal((await invoke(universeHandler, universeReq)).status, 403);
     beta = true;

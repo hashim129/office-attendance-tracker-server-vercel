@@ -387,6 +387,9 @@ export interface CrmPurchase {
   totalReceivable: number;
   notes: string;
   status: 'unpaid' | 'paid' | 'partial';
+  posted?: boolean;
+  postedAt?: string | null;
+  postedBy?: string | null;
   createdAt: string;
   updatedAt: string;
 }

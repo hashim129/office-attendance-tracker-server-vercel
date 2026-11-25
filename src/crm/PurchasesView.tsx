@@ -278,6 +278,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
 
   const [form, setForm] = useState<PurchaseFormState | null>(null);
   const [viewing, setViewing] = useState<CrmPurchase | null>(null);
+  const [postingId, setPostingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'unpaid' | 'paid' | 'partial'>('all');
   const [catFilter, setCatFilter] = useState<'all' | PurchaseCategory>('all');
   const [query, setQuery] = useState('');
@@ -705,6 +706,18 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
     }
   };
 
+  const changePurchasePosting = async (p: CrmPurchase) => {
+    if (postingId) return;
+    setPostingId(p.id);
+    try {
+      const res = await crmCall<{ purchase: CrmPurchase }>('purchase_posted', { id: p.id, posted: !p.posted });
+      await crm.refresh();
+      setViewing((current) => current?.id === p.id ? res.purchase : current);
+    } catch (e: any) {
+      window.alert(e?.message || 'Could not update purchase posting status.');
+    } finally { setPostingId(null); }
+  };
+
   return (
     <div className="space-y-4">
       {/* Header Card */}
@@ -1009,6 +1022,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                     <Pill tone={p.status === 'paid' ? 'green' : p.status === 'partial' ? 'blue' : 'amber'}>
                       {p.status === 'paid' ? 'Paid' : p.status === 'partial' ? 'Partially Paid' : 'Unpaid / Credit'}
                     </Pill>
+                    <Pill tone={p.posted ? 'green' : 'slate'}>{p.posted ? '✓ Posted' : 'Not posted'}</Pill>
                   </div>
                   <div className="text-[11px] text-slate-500 mt-1">
                     Purchase Date: <b>{niceDate(p.purchaseDate)}</b> · {items.length}{' '}
@@ -1018,6 +1032,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
+                  {isStaff && <button type="button" className={btnGhost} disabled={postingId !== null} onClick={() => void changePurchasePosting(p)}>{postingId === p.id ? 'Saving…' : p.posted ? 'Unpost' : 'Mark as posted'}</button>}
                   {isStaff && (
                     <select
                       aria-label={`Payment status for ${p.purchaseNo}`}
@@ -2057,12 +2072,15 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                 <Pill tone={viewing.status === 'paid' ? 'green' : viewing.status === 'partial' ? 'blue' : 'amber'}>
                   {viewing.status === 'paid' ? 'Paid' : viewing.status === 'partial' ? 'Partially Paid' : 'Unpaid / Credit'}
                 </Pill>
+                <Pill tone={viewing.posted ? 'green' : 'slate'}>{viewing.posted ? '✓ Posted' : 'Not posted'}</Pill>
+                {viewing.posted && viewing.postedBy && <span className="text-xs text-slate-500">Posted by {empName.get(viewing.postedBy) || 'Accounts'} · {niceDate(viewing.postedAt)}</span>}
                 <span className="text-xs text-slate-500">
                   Date: <b>{niceDate(viewing.purchaseDate)}</b> · Created by{' '}
                   <b>{empName.get(viewing.createdBy) || 'Employee'}</b>
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                {isStaff && <button type="button" className={btnGhost} disabled={postingId !== null} onClick={() => void changePurchasePosting(viewing)}>{postingId === viewing.id ? 'Saving…' : viewing.posted ? 'Unpost' : 'Mark as posted'}</button>}
                 <button
                   type="button"
                   onClick={() => {
