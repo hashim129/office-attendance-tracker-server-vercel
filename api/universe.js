@@ -38,6 +38,7 @@ function publicEmployee(row) {
     role: row.role || 'employee',
     characterId: CHARACTERS.has(row.game_character_id || pending.gameCharacterId) ? row.game_character_id || pending.gameCharacterId : null,
     petId: PETS.has(row.game_pet_id || pending.gamePetId) && (row.game_pet_id || pending.gamePetId) !== 'none' ? row.game_pet_id || pending.gamePetId : null,
+    appearance: validAppearance(parseJson(row.avatar_appearance, null)) ? parseJson(row.avatar_appearance, null) : null,
   };
 }
 
@@ -46,7 +47,8 @@ export default async function handler(req, res) {
     const actor = await requireActor(req);
     if (!actor) return response(res, 401, { error: 'Please sign in again.' });
     const input=req.method==='POST'?(typeof req.body==='string'?JSON.parse(req.body):req.body)||{}:{};
-    if (input.action!=='profile' && !actor.isSuperAdmin && actor.featureAccess?.['live-dashboard'] === false) return response(res, 403, { error: 'Your Super Admin has disabled access to Employee Universe.' });
+    // Presence heartbeats always run so a person is never shown as "offline" just because their chat is switched off.
+    if (!['profile','presence'].includes(input.action) && req.query?.view !== 'presence' && !actor.isSuperAdmin && actor.featureAccess?.['employee-universe'] === false) return response(res, 403, { error: 'Your Super Admin has disabled access to Employee Universe.' });
     const beta=await requireBeta();
     if (!beta && (input.action!=='profile' || !input.profile || input.appearance || input.characterId || input.petId)) return response(res, 403, { error: 'Employee Universe Beta is currently disabled.' });
 
@@ -57,12 +59,7 @@ export default async function handler(req, res) {
       }
       const since = new Date(Date.now() - 50000).toISOString();
       const rows = await supabaseFetch('/employee_universe_presence?last_seen=gte.' + encodeURIComponent(since) + '&select=employee_id');
-      return response(res, 200, {online:rows.map(row => row.employee_id)});
-    }
-    if (req.method === 'GET' && req.query?.view === 'presence') {
-      const since = new Date(Date.now() - 50000).toISOString();
-      const presence = await supabaseFetch('/employee_universe_presence?last_seen=gte.' + encodeURIComponent(since) + '&select=employee_id');
-      return response(res, 200, {online:(presence || []).map(row=>row.employee_id)});
+      return response(res, 200, {online:(rows || []).map(row => row.employee_id)});
     }
     if (req.method === 'GET') {
       const suffix = '&select=id,sender_id,body,mention_ids,reply_to,created_at&order=created_at.desc&limit=80';
@@ -76,7 +73,7 @@ export default async function handler(req, res) {
       const rows = [...new Map([...(publicRows || []), ...(ownRows || []), ...(legacyPrivateRows || []), ...(newOwnRows || []), ...(newPrivateRows || [])].filter((m) => canSeeUniverseMessage(m, actor.id)).map((m) => [m.id, m])).values()].sort((a,b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0,80);
       const ids = [...new Set((rows || []).flatMap((m) => [m.sender_id, ...(Array.isArray(m.mention_ids) ? m.mention_ids : [])]).filter(Boolean))];
       const employees = ids.length
-        ? await supabaseFetch(`/employees?id=in.(${ids.map((id) => encodeURIComponent(id)).join(',')})&deleted_at=is.null&select=id,name,role,pending_device_request,game_character_id,game_pet_id`)
+        ? await supabaseFetch(`/employees?id=in.(${ids.map((id) => encodeURIComponent(id)).join(',')})&deleted_at=is.null&select=id,name,role,pending_device_request,game_character_id,game_pet_id,avatar_appearance`)
         : [];
       const byId = new Map((employees || []).map((e) => [e.id, publicEmployee(e)]));
       return response(res, 200, {
@@ -96,13 +93,6 @@ export default async function handler(req, res) {
       return response(res,200,{ok:true});
     }
 
-    if (body.action === 'presence') {
-      await supabaseFetch('/employee_universe_presence?on_conflict=employee_id', {
-        method:'POST', headers:{Prefer:'resolution=merge-duplicates,return=minimal'},
-        body:JSON.stringify({employee_id:actor.id,last_seen:new Date().toISOString()})
-      });
-      return response(res, 200, {ok:true});
-    }
     if (body.action === 'profile') {
       if (!actor.isSuperAdmin && actor.featureAccess?.['employee-profile'] === false) return response(res, 403, { error: 'Your Super Admin has disabled access to My Profile.' });
       const characterId = String(body.characterId || '');
@@ -125,7 +115,7 @@ export default async function handler(req, res) {
       await supabaseFetch(`/employees?id=eq.${encodeURIComponent(actor.id)}&deleted_at=is.null`, {
         method: 'PATCH',
         headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({name,email,phone,department,designation,...(beta?{game_character_id:characterId,game_pet_id:petId==='none'?null:petId}:{}),...(body.appearance?{avatar_appearance:body.appearance}:{}),record_updated_at:now}),
+        body: JSON.stringify({name,email,phone,department,designation,...(beta?{game_character_id:characterId,game_pet_id:petId==='none'?null:petId}:{}),...(beta&&body.appearance?{avatar_appearance:body.appearance}:{}),record_updated_at:now}),
       });
       return response(res, 200, { ok: true, characterId, petId, profile:{name,email,phone,department,designation} });
     }

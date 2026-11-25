@@ -1,7 +1,7 @@
 import { getSessionEmployee, refreshSiteDisabledCache } from './_session.js';
 import { supabaseFetch } from './_supabase.js';
 
-const pages = new Set(['clock','employee-profile','my-attendance','team-attendance','insights','employees','shifts','leaves','reports','settings','crm-customers','crm-tasks','crm-meetings','crm-inventory','crm-sales','crm-purchases','crm-invoices','crm-receipts','crm-portal','crm-notifications','live-dashboard']);
+const pages = new Set(['clock','employee-profile','my-attendance','team-attendance','insights','employees','shifts','leaves','reports','settings','crm-customers','crm-tasks','crm-meetings','crm-inventory','crm-sales','crm-purchases','crm-invoices','crm-receipts','crm-portal','crm-notifications','live-dashboard','employee-universe']);
 const roles = new Set(['admin','employee','accounts','ceo']);
 const json = (value, fallback = {}) => {
   if (!value) return fallback;

@@ -202,3 +202,13 @@ test('fixture server enforces posting role and independent Beta gate', async () 
     }
   }
 });
+
+test('avatar studio: every catalog option and random look is accepted, junk is rejected', async () => {
+  const { wardrobe, validAppearance, randomAppearance } = await import('../src/lib/avatarWardrobe.js');
+  for (const [key, options] of Object.entries(wardrobe)) for (const option of options) assert.equal(validAppearance({ [key]: option }), true, `${key}=${option}`);
+  for (let i = 0; i < 50; i++) assert.equal(validAppearance(randomAppearance({ status: 'Lunch break 🍛' })), true);
+  assert.equal(validAppearance({ hat: '<script>' }), false);
+  assert.equal(validAppearance({ notAKey: 'x' }), false);
+  // Saved looks from the first avatar studio must keep working.
+  assert.equal(validAppearance({ model: 'Bear', skin: '#c68b62', hat: 'Fedora', glasses: 'Sunglasses', top: 'Suit', fabric: '#079ba9' }), true);
+});
