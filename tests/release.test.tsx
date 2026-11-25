@@ -92,13 +92,25 @@ test('fixture server enforces posting role and independent Beta gate', async () 
   let beta = false;
   let writes = 0;
   let sentTable = '';
+  let employeeProfilePatch: Record<string, unknown> | null = null;
   let purchase = { id: 'pur-fixture', updated_at: '2026-11-25', data: { id: 'pur-fixture', purchaseNo: 'PUR-000001', createdBy: 'emp-fixture', status: 'unpaid', totalPayable: 250, items: [{ name: 'Vendor', amount: 250 }] } };
   const row = { id: 'inv-fixture', kind: 'customer', status: 'unpaid', updated_at: '2026-11-25', vendors: [{ name: 'A', amount: 100 }, { name: 'B', amount: 200 }] };
   globalThis.fetch = (async (input, options) => {
     const url = new URL(String(input));
     assert.equal(url.hostname, 'fixture.invalid');
-    if (url.pathname.endsWith('/employees')) return Response.json([{ id: url.searchParams.get('id')?.startsWith('in.') ? 'recipient' : 'emp-fixture', role, name: 'Fixture', is_active: true }]);
+    if (url.pathname.endsWith('/employees')) {
+      if (options?.method === 'PATCH') { employeeProfilePatch = JSON.parse(String(options.body)); return new Response(null, {status:204}); }
+      return Response.json([{ id: url.searchParams.get('id')?.startsWith('in.') ? 'recipient' : 'emp-fixture', role, name: 'Fixture', email:'fixture@example.test', phone:'', department:'Ops', designation:'Staff', is_active: true }]);
+    }
     if (url.pathname.endsWith('/settings')) return Response.json([{ data: { employeeUniverseBetaEnabled: beta } }]);
+    if (url.pathname.endsWith('/employee_universe_presence')) {
+      if (options?.method === 'POST') {
+        assert.equal(JSON.parse(String(options.body)).employee_id, 'emp-fixture');
+        return new Response(null, {status: 204});
+      }
+      assert.match(url.searchParams.get('last_seen') || '', /^gte\./);
+      return Response.json([{employee_id:'emp-fixture'}]);
+    }
     if (url.pathname.endsWith('/crm_invoices')) {
       if (options?.method === 'PATCH') { writes++; return Response.json([{ ...row, ...JSON.parse(String(options.body)) }]); }
       return Response.json([row]);
@@ -148,7 +160,23 @@ test('fixture server enforces posting role and independent Beta gate', async () 
     assert.equal((await postPurchase(false)).data.purchase.posted, false);
     const universeReq = { method: 'GET', headers: { 'x-session-token': sessionToken } };
     assert.equal((await invoke(universeHandler, universeReq)).status, 403);
+    const pulse = {...universeReq,method:'POST',body:{action:'presence',employee_id:'another-user'}};
+    assert.equal((await invoke(universeHandler,pulse)).status,403);
     beta = true;
+    assert.equal((await invoke(universeHandler,pulse)).status,200);
+    const roster = {...universeReq,query:{view:'presence'}};
+    assert.equal((await invoke(universeHandler,roster)).status,403);
+    role='admin';
+    assert.deepEqual((await invoke(universeHandler,roster)).data.online,['emp-fixture']);
+    role='accounts';
+    const profile = await invoke(universeHandler,{method:'POST',headers:universeReq.headers,body:{action:'profile',characterId:'human-12',petId:'cat',profile:{name:'Updated Fixture',email:'updated@example.test',phone:'123',department:'Sales',designation:'Consultant',role:'admin',hourlyRate:999}}});
+    assert.equal(profile.status,200);
+    const savedProfile = employeeProfilePatch as Record<string, unknown> | null;
+    assert.equal(savedProfile?.game_character_id,'human-12');
+    assert.equal(savedProfile?.game_pet_id,'cat');
+    assert.equal(savedProfile?.name,'Updated Fixture');
+    assert.equal(savedProfile?.role,undefined);
+    assert.equal(savedProfile?.hourly_rate,undefined);
     const messages = (await invoke(universeHandler, universeReq)).data.messages;
     assert.deepEqual(messages.map((m: { id: string }) => m.id), ['public','mine']);
     assert.equal(messages[1].private, true);

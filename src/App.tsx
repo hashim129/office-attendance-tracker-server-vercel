@@ -63,7 +63,8 @@ import { useCrm } from './crm/useCrm';
 import { PageHero } from './components/common/PageHero';
 import { DirectivePopup } from './components/common/DirectivePopup';
 import { LiveAlerts } from './crm/LiveAlerts';
-import { EmployeeUniverse } from './components/desktop/EmployeeUniverse';
+const EmployeeUniverse = lazy(() => import('./components/desktop/EmployeeUniverse').then(m=>({default:m.EmployeeUniverse})));
+const EmployeeProfileTab = lazy(() => import('./components/desktop/EmployeeProfileTab').then(m=>({default:m.EmployeeProfileTab})));
 
 const IS_VERCEL_PREVIEW = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && window.location.hostname !== 'office-attendance-tracker-server-vercel-hashim129.vercel.app';
 
@@ -86,6 +87,7 @@ const SmartInsightsTab = lazy(() => import('./components/desktop/SmartInsightsTa
 const OfficeSettingsTab = lazy(() => import('./components/desktop/OfficeSettingsTab').then((m) => ({ default: m.OfficeSettingsTab })));
 const PrintableTimesheetModal = lazy(() => import('./components/desktop/PrintableTimesheetModal').then((m) => ({ default: m.PrintableTimesheetModal })));
 const FaceScanModal = lazy(() => import('./components/common/FaceScanModal').then((m) => ({ default: m.FaceScanModal })));
+const PersonalDesk = lazy(() => import('./components/desktop/UniverseOffice').then(m=>({default:m.PersonalDesk})));
 const LiveDashboardTab = lazy(() => import('./components/desktop/LiveDashboardTab').then((m) => ({ default: m.LiveDashboardTab })));
 const CrmPage = lazy(() => import('./crm/CrmPage').then((m) => ({ default: m.CrmPage })));
 const KioskMode = lazy(() => import('./components/kiosk/KioskMode').then((m) => ({ default: m.KioskMode })));
@@ -1163,6 +1165,7 @@ export default function App() {
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                 />
+                {currentUser && settings.employeeUniverseBetaEnabled === true && <PersonalDesk employee={currentUser} record={records.find(r=>r.employeeId===currentUser.id && r.date===getTodayDateString())} settings={settings} online={isNetworkOnline}/>}
                 </>
               )}
 
@@ -1180,12 +1183,18 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'employee-profile' && currentUser && <EmployeeProfileTab employee={currentUser} onSaved={(profile) => {
+                setCurrentUser(user => user ? {...user,...profile} : user);
+                setEmployees(list => list.map(employee => employee.id===currentUser.id ? {...employee,...profile} : employee));
+              }} />}
+
               {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications') && (
                 <CrmPage section={activeTab} crm={crm} employees={employees} currentUser={currentUser} onNavigate={setActiveTab} focusId={focusedRecordId} onClearFocus={() => setFocusedRecordId(undefined)} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
               )}
 
               {activeTab === 'live-dashboard' && currentUser && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
                 <LiveDashboardTab
+                  settings={settings} online={isNetworkOnline}
                   currentUser={currentUser}
                   employees={statEmployees}
                   records={records}
@@ -1301,14 +1310,14 @@ export default function App() {
               {currentUser && <DirectivePopup comments={ceoComments} userId={currentUser.id} onRead={handleMarkCeoCommentRead} />}
       <QuickJump currentUser={currentUser} crmEnabled={CRM_ENABLED} onSelectTab={setActiveTab} />
       {currentUser && settings.employeeUniverseBetaEnabled === true && (
-        <EmployeeUniverse
+        <Suspense fallback={null}><EmployeeUniverse
           currentUser={currentUser}
           employees={employees}
           onProfileSaved={(gameCharacterId, gamePetId) => {
             setCurrentUser((user) => user ? { ...user, gameCharacterId, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : user);
             setEmployees((list) => list.map((employee) => employee.id === currentUser.id ? { ...employee, gameCharacterId, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : employee));
           }}
-        />
+        /></Suspense>
       )}
             </div>
             </main>
