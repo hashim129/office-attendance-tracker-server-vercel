@@ -98,7 +98,10 @@ export default async function handler(req, res) {
       `/crm_notifications?employee_id=eq.${encodeURIComponent(e.id)}&category=eq.reminder&read_at=is.null&select=*`
     );
     const asks = (Array.isArray(pending) ? pending : []).filter((n) => /-(end|ask-\d+-\d+)$/.test(String(n.id)) && n.ref_id === rec.id);
-    let askWorking = asks.length > 0;
+    // Only pop the Windows "extra hours?" box while a question is fresh (last 20 min). An old unanswered
+    // "shift ended" note used to make it ask every 10 minutes all evening.
+    const freshMs = Date.now() - 20 * 60 * 1000;
+    let askWorking = asks.some((n) => Date.parse(n.created_at) >= freshMs);
     if (confirmWork === true && !patch.monitoring_paused) {
       patch.work_confirmed_at = nowIso;
       if (asks.length) {

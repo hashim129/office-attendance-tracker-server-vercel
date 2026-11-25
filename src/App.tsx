@@ -1352,11 +1352,12 @@ export default function App() {
       <QuickJump currentUser={currentUser} crmEnabled={CRM_ENABLED} onSelectTab={setActiveTab} />
       {currentUser && settings.employeeUniverseBetaEnabled === true && (
         <Suspense fallback={null}><EmployeeUniverse
+          chatEnabled={currentUser.isSuperAdmin === true || currentUser.featureAccess?.['employee-universe'] !== false}
           currentUser={currentUser}
           employees={statEmployees}
-          onProfileSaved={(gameCharacterId, gamePetId) => {
-            setCurrentUser((user) => user ? { ...user, gameCharacterId, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : user);
-            setEmployees((list) => list.map((employee) => employee.id === currentUser.id ? { ...employee, gameCharacterId, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : employee));
+          onProfileSaved={(gameCharacterId, gamePetId, avatarAppearance) => {
+            setCurrentUser((user) => user ? { ...user, gameCharacterId, avatarAppearance, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : user);
+            setEmployees((list) => list.map((employee) => employee.id === currentUser.id ? { ...employee, gameCharacterId, avatarAppearance, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : employee));
           }}
         /></Suspense>
       )}

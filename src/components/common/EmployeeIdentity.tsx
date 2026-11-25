@@ -64,13 +64,27 @@ export const UniverseIllustration: React.FC<{ id: string; className?: string }> 
   </svg>;
 };
 
-export const EmployeeAvatar: React.FC<{ characterId?: string; petId?: string; name?: string; size?: 'xs' | 'sm' | 'md' | 'lg' }> = ({ characterId, petId, name = '', size = 'md' }) => {
+/** Renders the person's own 3D look as a still picture. three.js loads only when a custom look exists. */
+function useAvatarSnapshot(characterId?: string, appearance?: Record<string, string> | null) {
+  const [url, setUrl] = React.useState('');
+  const key = appearance && Object.keys(appearance).length ? JSON.stringify(appearance) : '';
+  React.useEffect(() => {
+    if (!key || typeof window === 'undefined') { setUrl(''); return; }
+    let alive = true;
+    import('../../lib/universeScene.js').then((m) => { if (alive) setUrl(m.snapshot(characterId || 'human-1', JSON.parse(key), 128)); }).catch(() => { /* keep the drawing */ });
+    return () => { alive = false; };
+  }, [characterId, key]);
+  return url;
+}
+
+export const EmployeeAvatar: React.FC<{ characterId?: string; petId?: string; name?: string; size?: 'xs' | 'sm' | 'md' | 'lg'; appearance?: Record<string, string> | null }> = ({ characterId, petId, name = '', size = 'md', appearance }) => {
   const character = characterFor(characterId);
   const pet = petFor(petId);
+  const photo = useAvatarSnapshot(characterId, appearance);
   const dimensions = size === 'xs' ? 'h-7 w-7 text-sm rounded-lg' : size === 'sm' ? 'h-9 w-9 text-lg rounded-xl' : size === 'lg' ? 'h-16 w-16 text-3xl rounded-2xl' : 'h-11 w-11 text-2xl rounded-xl';
   return (
     <span className={`relative inline-flex shrink-0 items-center justify-center bg-gradient-to-br ${character?.tint || 'from-slate-200 to-slate-400'} ${dimensions} shadow-sm ring-2 ring-white/80 dark:ring-slate-800`} title={character ? character.name : name}>
-      {character ? <UniverseIllustration id={character.id} /> : <span aria-hidden>{name.trim()[0]?.toUpperCase() || '🙂'}</span>}
+      {photo ? <img src={photo} alt="" className="h-full w-full rounded-[inherit] object-cover" /> : character ? <UniverseIllustration id={character.id} /> : <span aria-hidden>{name.trim()[0]?.toUpperCase() || '🙂'}</span>}
       {pet && <span className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-white text-[11px] shadow-sm dark:border-slate-800 dark:bg-slate-800 ${size === 'xs' ? 'scale-75' : ''}`} title={pet.name}><UniverseIllustration id={pet.id} /></span>}
     </span>
   );

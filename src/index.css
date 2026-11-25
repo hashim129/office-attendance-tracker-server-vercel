@@ -842,3 +842,8 @@ button:not(:disabled):active { transform: scale(0.97); }
 .dash-swatch-none { background: repeating-linear-gradient(45deg, #fff, #fff 3px, #cbd5e1 3px, #cbd5e1 6px); }
 .dash-resize { position: absolute; right: 2px; bottom: 2px; z-index: 4; width: 1.4rem; height: 1.4rem; cursor: nwse-resize; touch-action: none; border-radius: .35rem; background: linear-gradient(135deg, transparent 50%, #2563eb 50%, #2563eb 58%, transparent 58%, transparent 72%, #2563eb 72%, #2563eb 80%, transparent 80%); }
 @media (prefers-reduced-motion: reduce) { .dash-cell, .dash-cell * { transition-duration: .01ms !important; } }
+
+/* Employee Universe: speech bubble pops in above the avatar. */
+@keyframes universe-bubble-pop { 0% { opacity: 0; transform: translate(-50%, 6px) scale(.85); } 60% { opacity: 1; transform: translate(-50%, -2px) scale(1.04); } 100% { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+.universe-bubble { animation: universe-bubble-pop .45s ease-out both; }
+@media (prefers-reduced-motion: reduce) { .universe-bubble { animation: none; } }
