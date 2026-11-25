@@ -5,8 +5,25 @@
 import crypto from 'crypto';
 import { getSupabaseConfig } from './_supabase.js';
 import { getEmployeeRow } from './_auth.js';
+import { supabaseFetch } from './_supabase.js';
 
 export const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+let lockdownCache = { expiresAt: 0, enabled: false };
+
+export async function isSiteDisabled(now = Date.now()) {
+  if (lockdownCache.expiresAt > now) return lockdownCache.enabled;
+  try {
+    const rows = await supabaseFetch('/settings?id=eq.current&select=data');
+    const data = rows?.[0]?.data || {};
+    lockdownCache = { expiresAt: now + 3000, enabled: data.siteDisabled === true };
+  } catch {
+    return lockdownCache.enabled;
+  }
+  return lockdownCache.enabled;
+}
+export function refreshSiteDisabledCache(enabled) {
+  lockdownCache = { expiresAt: Date.now() + 3000, enabled: enabled === true };
+}
 
 function secret() {
   return (
@@ -33,7 +50,8 @@ export async function getSessionEmployee(token, now = Date.now()) {
     const { i, x } = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
     if (typeof x !== 'number' || x <= now || !i) return null;
     const row = await getEmployeeRow(i);
-    return row && row.is_active !== false ? row : null;
+    if (!row || row.is_active === false || (await isSiteDisabled(now) && row.role !== 'superadmin')) return null;
+    return row.role === 'superadmin' ? { ...row, role: 'admin', isSuperAdmin: true, featureAccess: row.page_access || {} } : { ...row, featureAccess: row.page_access || {} };
   } catch {
     return null;
   }

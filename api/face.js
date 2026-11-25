@@ -1,6 +1,6 @@
 import { isSupabaseConfigured, supabaseFetch } from './_supabase.js';
 import { checkAdminPin, migratePlaintextPins } from './_auth.js';
-import { getSessionEmployee } from './_session.js';
+import { getSessionEmployee, isSiteDisabled } from './_session.js';
 import {
   FACE_MATCH_DISTANCE, FACE_DUPLICATE_DISTANCE, FACE_AMBIGUITY_MARGIN, bestDistance, closestOther, listTemplates, samplesAreConsistent, checkLock, clearFailures, getTemplate, isValidDescriptor,
   listEnrolledIds, recordFailure, signFacePass,
@@ -20,6 +20,7 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (!isSupabaseConfigured()) return res.status(503).json({ error: 'Face scan needs the cloud database.' });
   try {
+    if (await isSiteDisabled()) return res.status(503).json({ error: 'The office portal is temporarily disabled by its Super Admin.' });
     if (req.method === 'GET') {
       return res.status(200).json({ ok: true, enrolledIds: await listEnrolledIds() });
     }

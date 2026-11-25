@@ -25,6 +25,7 @@ import {
   ExternalLink,
   Gauge,
   ContactRound,
+  ShieldCheck,
 } from 'lucide-react';
 import { ActiveDesktopTab, Employee, OfficeSettings } from '../../types';
 import { CrmBadges } from '../../crm/crmApi';
@@ -62,6 +63,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   const isAdmin = currentUser.role === 'admin';
   const isCeo = currentUser.role === 'ceo';
   const isAccounts = currentUser.role === 'accounts';
+  const canOpenPage=(page: import('../../types').ActiveDesktopTab)=>currentUser.isSuperAdmin===true||currentUser.featureAccess?.[page]!==false;
   const [activeTeamSource, setActiveTeamSource] = useState<'workspace' | 'ceo' | 'admin'>(() => (isAdmin ? 'admin' : isCeo ? 'ceo' : 'workspace'));
 
   // Sliding highlight that glides to whichever menu item is active
@@ -123,7 +125,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             My Workspace
           </p>
           <div className="space-y-1">
-            <button
+            {canOpenPage('clock') && <button
               onClick={() => handleTabClick('clock')}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                 activeTab === 'clock'
@@ -133,9 +135,9 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             >
               <Clock className="w-4 h-4 shrink-0" />
               <span>Punch Clock</span>
-            </button>
+            </button>}
 
-            {(['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
+            {canOpenPage('live-dashboard') && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
               <button
                 onClick={() => handleTabClick('live-dashboard')}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
@@ -150,7 +152,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               </button>
             )}
 
-            <button
+            {canOpenPage('my-attendance') && <button
               onClick={() => handleTabClick('my-attendance')}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                 activeTab === 'my-attendance'
@@ -160,13 +162,13 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             >
               <CalendarCheck className="w-4 h-4 shrink-0" />
               <span>My Attendance & Stats</span>
-            </button>
+            </button>}
 
-            <button onClick={() => handleTabClick('employee-profile')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${activeTab==='employee-profile'?'bg-blue-600 text-white shadow-xs':'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'}`}>
+            {canOpenPage('employee-profile')&&<button onClick={() => handleTabClick('employee-profile')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${activeTab==='employee-profile'?'bg-blue-600 text-white shadow-xs':'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'}`}>
               <ContactRound className="w-4 h-4 shrink-0"/><span>My Profile</span>
-            </button>
+            </button>}
 
-            {(['admin', 'ceo'].includes(currentUser.role) || currentUser.teamPresenceAccess === true) && (
+            {canOpenPage('team-attendance')&&(['admin', 'ceo'].includes(currentUser.role) || currentUser.teamPresenceAccess === true) && (
               <button
                 onClick={() => handleTabClick('team-attendance', 'workspace')}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
@@ -182,7 +184,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               </button>
             )}
 
-            <button
+            {canOpenPage('leaves')&&<button
               onClick={() => onSelectTab('leaves')}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                 activeTab === 'leaves'
@@ -199,7 +201,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                   {pendingLeavesCount}
                 </span>
               )}
-            </button>
+            </button>}
 
           </div>
         </div>
@@ -215,7 +217,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 { tab: 'crm-customers' as const, label: 'Customers', Icon: Contact, badge: crmBadges?.customersNew || 0, tone: 'bg-amber-500' },
                 { tab: 'crm-tasks' as const, label: 'Follow-ups & Tasks', Icon: ClipboardList, badge: crmBadges?.tasksNew || 0, tone: 'bg-amber-500' },
                 { tab: 'crm-meetings' as const, label: 'Meetings', Icon: CalendarClock, badge: (crmBadges?.meetingsNew || 0) + (crmBadges?.meetingsPending || 0), tone: 'bg-amber-500' },
-              ]).map(({ tab, label, Icon, badge, tone }) => (
+              ]).filter(({tab})=>canOpenPage(tab)).map(({ tab, label, Icon, badge, tone }) => (
                 <button
                   key={tab}
                   onClick={() => onSelectTab(tab)}
@@ -235,7 +237,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 </button>
               ))}
 
-              {settings.customerPortalBetaEnabled !== false && (currentUser.role === 'admin' || currentUser.customerPortalAccess) && (
+              {canOpenPage('crm-customers')&&settings.customerPortalBetaEnabled !== false && (currentUser.role === 'admin' || currentUser.customerPortalAccess) && (
                 <a
                   href="/customers"
                   target="_blank"
@@ -273,7 +275,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 { tab: 'crm-invoices' as const, label: 'Invoices', Icon: FileText, badge: crmBadges?.invoiceNew || 0 },
                 { tab: 'crm-portal' as const, label: 'Portal Control', Icon: SlidersHorizontal, badge: 0 },
                 { tab: 'crm-notifications' as const, label: 'Notifications', Icon: BellRing, badge: crmBadges?.unreadTotal || 0 },
-              ]).filter((i) => i.tab !== 'crm-sales' || ['admin', 'accounts', 'ceo'].includes(currentUser.role) || Boolean(currentUser.salesAccess)).filter((i) => i.tab !== 'crm-portal' || (['admin', 'ceo'].includes(currentUser.role) && settings.customerPortalBetaEnabled !== false)).map(({ tab, label, Icon, badge }) => (
+              ]).filter((i) => canOpenPage(i.tab)).filter((i) => i.tab !== 'crm-sales' || ['admin', 'accounts', 'ceo'].includes(currentUser.role) || Boolean(currentUser.salesAccess)).filter((i) => i.tab !== 'crm-portal' || (['admin', 'ceo'].includes(currentUser.role) && settings.customerPortalBetaEnabled !== false)).map(({ tab, label, Icon, badge }) => (
                 <button
                   key={tab}
                   onClick={() => onSelectTab(tab)}
@@ -291,7 +293,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 </button>
               ))}
             </div>
-            <button
+            {canOpenPage('crm-inventory')&&<button
               onClick={() => onSelectTab('crm-inventory')}
               className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                 activeTab === 'crm-inventory'
@@ -306,7 +308,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               {(crmBadges?.inventoryNew || 0) > 0 && (
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">{crmBadges?.inventoryNew}</span>
               )}
-            </button>
+            </button>}
           </div>
         )}
 
@@ -317,7 +319,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               Accounts & Audit
             </p>
             <div className="space-y-1">
-              <button
+              {canOpenPage('team-attendance')&&<button
                 onClick={() => onSelectTab('team-attendance')}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'team-attendance'
@@ -327,9 +329,9 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               >
                 <UserCheck className="w-4 h-4 shrink-0" />
                 <span>Attendance Verification</span>
-              </button>
+              </button>}
 
-              <button
+              {canOpenPage('insights')&&<button
                 onClick={() => onSelectTab('insights')}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'insights'
@@ -345,9 +347,9 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${activeTab === 'insights' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'}`}>
                   NEW
                 </span>
-              </button>
+              </button>}
 
-              <button
+              {canOpenPage('reports')&&<button
                 onClick={() => onSelectTab('reports')}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
                   activeTab === 'reports'
@@ -357,7 +359,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               >
                 <FileSpreadsheet className="w-4 h-4 shrink-0" />
                 <span>Reports & Payroll</span>
-              </button>
+              </button>}
             </div>
           </div>
         )}
@@ -504,6 +506,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 <Settings className="w-4 h-4 shrink-0" />
                 <span>Office & Server Settings</span>
               </button>
+              {currentUser.isSuperAdmin&&<button onClick={()=>handleTabClick('superadmin')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-bold transition-all ${activeTab==='superadmin'?'bg-violet-700 text-white shadow-xs':'text-violet-800 bg-violet-50 hover:bg-violet-100 dark:text-violet-200 dark:bg-violet-950/40 dark:hover:bg-violet-900/50'}`}><ShieldCheck className="w-4 h-4"/><span>Super Admin Console</span></button>}
             </div>
           </div>
         )}

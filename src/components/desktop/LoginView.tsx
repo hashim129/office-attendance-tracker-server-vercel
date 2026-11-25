@@ -8,6 +8,7 @@ interface LoginViewProps {
   onLogin: (employee: Employee, keepLoggedIn: boolean) => void;
   companyName: string;
   isSyncing?: boolean;
+  siteDisabled?: boolean;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({
@@ -15,9 +16,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
   onLogin,
   companyName,
   isSyncing = false,
+  siteDisabled = false,
 }) => {
   const activeEmployees = useMemo(
-    () => employees.filter((e) => e.isActive !== false),
+    () => employees.filter((e) => e.isActive !== false && !e.isSuperAdmin),
     [employees]
   );
 
@@ -101,6 +103,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
       <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
       <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200/80 dark:border-slate-800 p-8 z-10 transition-all">
+        {siteDisabled && <div role="status" className="mb-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">The office portal is temporarily disabled by its Super Admin. The Super Admin can still sign in to restore access.</div>}
         {/* Office Server Header */}
         <div className="flex flex-col items-center text-center mb-6">
           <div className="w-14 h-14 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 mb-3">
@@ -119,6 +122,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
               <span>Syncing live directory & credentials from cloud server...</span>
             </div>
           )}
+          {employees.length===0 && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">The employee portal is currently disabled. Authorized Super Admin sign-in remains available.</p>}
         </div>
 
         {/* Mode Selector Tabs */}
@@ -268,7 +272,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
                   type="text"
                   value={manualCode}
                   onChange={(e) => setManualCode(e.target.value)}
-                  placeholder="e.g. EMP-101 or admin@office.local"
+                placeholder="Enter your account ID"
                   className="w-full px-3.5 py-2.5 pl-10 bg-slate-50 dark:bg-slate-800/80 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                   required
                 />

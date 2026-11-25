@@ -132,7 +132,9 @@ function mapDbEmployee(r) {
     employeeCode: r.employee_code,
     name: r.name,
     email: r.email || '',
-    role: r.role || 'employee',
+    role: r.role === 'superadmin' ? 'admin' : (r.role || 'employee'),
+    isSuperAdmin: r.role === 'superadmin',
+    featureAccess: r.page_access && typeof r.page_access === 'object' ? r.page_access : undefined,
     // The PIN is never sent to browsers. It is checked on the server (api/auth.js).
     pin: '',
     hasPin: Boolean(r.pin_hash || r.pin),
@@ -191,7 +193,7 @@ function mapAppEmployeeToDb(e) {
     employee_code: e.employeeCode || e.id,
     name: e.name,
     email: e.email || '',
-    role: e.role || 'employee',
+    role: e.isSuperAdmin ? 'superadmin' : (e.role || 'employee'),
     department: e.department || '',
     designation: e.designation || '',
     shift_id: e.shiftId || 'shift-std',
@@ -202,6 +204,7 @@ function mapAppEmployeeToDb(e) {
     avatar_seed: e.avatarSeed || '',
     game_character_id: e.gameCharacterId || null,
     game_pet_id: e.gamePetId || null,
+    page_access: e.featureAccess || {},
     registered_device_id: e.registeredDeviceId || null,
     registered_device_name: e.registeredDeviceName || null,
     registered_at: e.registeredAt || null,
@@ -1076,6 +1079,11 @@ function authorizeExternalMutation(incoming, ctx) {
 
 export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
   const scope = incoming.scope || 'legacy_bulk';
+  const pageByScope = { attendance: 'clock', employee_upsert: 'employees', employees: 'employees', employee_delete: 'employees', shifts: 'shifts', leaves: 'leaves', settings: 'settings' };
+  const protectedPage = pageByScope[scope];
+  if (protectedPage && ctx.actor && !ctx.actor.isSuperAdmin && ctx.actor.featureAccess?.[protectedPage] === false) {
+    throw denied(403, 'PAGE_ACCESS_REVOKED', 'Your Super Admin has disabled access to this page.');
+  }
   // The one-time Gist migration is an internal server operation, not a browser mutation.
   if (!(ctx.internalMigration === true && scope === 'full_restore')) {
     authorizeExternalMutation(incoming, ctx);
@@ -1124,9 +1132,13 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
       if (incoming.selfServiceOnly && !existing) throw denied(403, 'FORBIDDEN', 'Employee not found.');
       let mergedEmp = emp;
       if (existing) {
+        if (existing.isSuperAdmin && !ctx.actor?.isSuperAdmin) {
+          throw denied(403, 'SUPER_ADMIN_PROTECTED', 'Only the Super Admin can change this protected account.');
+        }
         mergedEmp = {
           ...existing,
           ...emp,
+          ...(existing.isSuperAdmin ? { isSuperAdmin: true, role: 'admin' } : {}),
         };
         if (incoming.allowClearDevice) {
           mergedEmp.registeredDeviceId = undefined;
@@ -1175,6 +1187,10 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
       throw e;
     }
     if (targetId) {
+      const targetRows = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(targetId)}&select=id,role`);
+      if (targetRows?.[0]?.role === 'superadmin' && !ctx.actor?.isSuperAdmin) {
+        throw denied(403, 'SUPER_ADMIN_PROTECTED', 'Only the Super Admin can change this protected account.');
+      }
       // An administrator may remove another administrator, but never the last active one.
       const admins = await supabaseFetch('/employees?role=eq.admin&deleted_at=is.null&is_active=eq.true&select=id');
       const others = (Array.isArray(admins) ? admins : []).filter((a) => a.id !== targetId);

@@ -43,6 +43,7 @@ export default async function handler(req, res) {
   try {
     const actor = await requireActor(req);
     if (!actor) return response(res, 401, { error: 'Please sign in again.' });
+    if (!actor.isSuperAdmin && actor.featureAccess?.['live-dashboard'] === false) return response(res, 403, { error: 'Your Super Admin has disabled access to Employee Universe.' });
     if (!(await requireBeta())) return response(res, 403, { error: 'Employee Universe Beta is currently disabled.' });
 
     if (req.method === 'GET' && req.query?.view === 'presence') {
@@ -99,6 +100,7 @@ export default async function handler(req, res) {
       return response(res, 200, {ok:true});
     }
     if (body.action === 'profile') {
+      if (!actor.isSuperAdmin && actor.featureAccess?.['employee-profile'] === false) return response(res, 403, { error: 'Your Super Admin has disabled access to My Profile.' });
       const characterId = String(body.characterId || '');
       const petId = String(body.petId || 'none');
       if (!CHARACTERS.has(characterId)) return response(res, 400, { error: 'Choose a character from the approved gallery.' });
