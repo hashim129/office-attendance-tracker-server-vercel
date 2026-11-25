@@ -2,6 +2,8 @@ import { getSessionEmployee } from './_session.js';
 import { supabaseFetch } from './_supabase.js';
 import { CHARACTER_IDS as CHARACTERS } from '../src/lib/universeCharacters.js';
 
+import { validAppearance } from '../src/lib/avatarWardrobe.js';
+
 const PETS = new Set(['cat','dog','rabbit','owl','hamster','parrot','turtle','none']);
 const PRIVATE_TABLE = 'employee_universe_private_messages';
 const recipients = (row) => Array.isArray(row.mention_ids) ? row.mention_ids : [];
@@ -43,8 +45,10 @@ export default async function handler(req, res) {
   try {
     const actor = await requireActor(req);
     if (!actor) return response(res, 401, { error: 'Please sign in again.' });
-    if (!actor.isSuperAdmin && actor.featureAccess?.['live-dashboard'] === false) return response(res, 403, { error: 'Your Super Admin has disabled access to Employee Universe.' });
-    if (!(await requireBeta())) return response(res, 403, { error: 'Employee Universe Beta is currently disabled.' });
+    const input=req.method==='POST'?(typeof req.body==='string'?JSON.parse(req.body):req.body)||{}:{};
+    if (input.action!=='profile' && !actor.isSuperAdmin && actor.featureAccess?.['live-dashboard'] === false) return response(res, 403, { error: 'Your Super Admin has disabled access to Employee Universe.' });
+    const beta=await requireBeta();
+    if (!beta && (input.action!=='profile' || !input.profile || input.appearance || input.characterId || input.petId)) return response(res, 403, { error: 'Employee Universe Beta is currently disabled.' });
 
     if (req.method === 'GET' && req.query?.view === 'presence') {
       const profile = parseJson(actor.pending_device_request);
@@ -103,8 +107,9 @@ export default async function handler(req, res) {
       if (!actor.isSuperAdmin && actor.featureAccess?.['employee-profile'] === false) return response(res, 403, { error: 'Your Super Admin has disabled access to My Profile.' });
       const characterId = String(body.characterId || '');
       const petId = String(body.petId || 'none');
-      if (!CHARACTERS.has(characterId)) return response(res, 400, { error: 'Choose a character from the approved gallery.' });
+      if (beta && !CHARACTERS.has(characterId)) return response(res, 400, { error: 'Choose a character from the approved gallery.' });
       if (!PETS.has(petId)) return response(res, 400, { error: 'Choose a pet from the approved gallery.' });
+      if (body.appearance !== undefined && !validAppearance(body.appearance)) return response(res,400,{error:'Invalid avatar options.'});
       const profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
       const name = String(profile.name || actor.name || '').trim();
       const email = String(profile.email || actor.email || '').trim();
@@ -120,7 +125,7 @@ export default async function handler(req, res) {
       await supabaseFetch(`/employees?id=eq.${encodeURIComponent(actor.id)}&deleted_at=is.null`, {
         method: 'PATCH',
         headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({name,email,phone,department,designation,game_character_id:characterId,game_pet_id:petId==='none'?null:petId,record_updated_at:now}),
+        body: JSON.stringify({name,email,phone,department,designation,...(beta?{game_character_id:characterId,game_pet_id:petId==='none'?null:petId}:{}),...(body.appearance?{avatar_appearance:body.appearance}:{}),record_updated_at:now}),
       });
       return response(res, 200, { ok: true, characterId, petId, profile:{name,email,phone,department,designation} });
     }

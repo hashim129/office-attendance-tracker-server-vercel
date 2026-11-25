@@ -177,6 +177,15 @@ test('fixture server enforces posting role and independent Beta gate', async () 
     assert.equal(savedProfile?.name,'Updated Fixture');
     assert.equal(savedProfile?.role,undefined);
     assert.equal(savedProfile?.hourly_rate,undefined);
+    const changeLook = (appearance:Record<string,string>) => invoke(universeHandler,{method:'POST',headers:universeReq.headers,body:{action:'profile',characterId:'human-12',petId:'cat',appearance}});
+    for (const glasses of ['Round','Square']) {
+      assert.equal((await changeLook({model:'Bear',glasses})).status,200);
+      assert.deepEqual((employeeProfilePatch as Record<string,unknown>|null)?.avatar_appearance,{model:'Bear',glasses});
+    }
+    assert.equal((await changeLook({model:'Invalid'})).status,400);
+    beta=false;
+    assert.equal((await changeLook({model:'Ape'})).status,403);
+    beta=true;
     const messages = (await invoke(universeHandler, universeReq)).data.messages;
     assert.deepEqual(messages.map((m: { id: string }) => m.id), ['public','mine']);
     assert.equal(messages[1].private, true);

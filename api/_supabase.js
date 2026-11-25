@@ -159,6 +159,7 @@ function mapDbEmployee(r) {
     salesTeam,
     salesTeamHead,
     birthday,
+    avatarAppearance: r.avatar_appearance || undefined,
     gameCharacterId: CHARACTER_IDS.has(r.game_character_id || pendingObj?.gameCharacterId) ? (r.game_character_id || pendingObj?.gameCharacterId) : undefined,
     gamePetId: ['cat','dog','rabbit','owl','hamster','parrot','turtle'].includes(r.game_pet_id || pendingObj?.gamePetId) ? (r.game_pet_id || pendingObj?.gamePetId) : undefined,
     registeredDeviceId: r.registered_device_id || undefined,
