@@ -6,6 +6,7 @@ import { CrmState } from '../../crm/useCrm';
 import { crmCall } from '../../crm/crmApi';
 import { CountUp } from '../common/CountUp';
 import { EmployeeAvatar } from '../common/EmployeeIdentity';
+import { UniverseOffice } from './UniverseOffice';
 
 type State = 'in' | 'out' | 'leave' | 'absent' | 'waiting' | 'off';
 
@@ -242,6 +243,7 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
         <Stat label="Finished" value={done} tone="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" icon={<LogOut className="w-4 h-4" />} />
       </div>
 
+      {employeeUniverseEnabled && <UniverseOffice workers={rows} />}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Card title="Team Pulse · Live Presence" icon={<Users className="w-4 h-4 text-blue-600" />} right={<span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" /> LIVE</span>}>
           <div className="mb-3 grid grid-cols-2 sm:grid-cols-5 gap-2">

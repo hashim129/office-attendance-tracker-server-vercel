@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { canEditFinancialRecord } from '../lib/financePermissions.js';
 import { Plus, Trash2, Eye, Pencil, ShoppingBag, X, Check, Plane, Building2, Stamp, Bus, ShieldCheck, Package, CreditCard, Search, Columns3, FolderPlus } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
@@ -1034,7 +1035,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                   <button type="button" onClick={() => setViewing(p)} className={btnGhost}>
                     <Eye className="w-3.5 h-3.5" /> View
                   </button>
-                  <button
+                  {canEditFinancialRecord(currentUser.role, currentUser.id, p.createdBy, 'purchase') && <button
                     type="button"
                     onClick={() => {
                       setForm(toForm(p));
@@ -1043,7 +1044,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                     className={btnGhost}
                   >
                     <Pencil className="w-3.5 h-3.5" /> Edit
-                  </button>
+                  </button>}
                   {isAdmin && (
                     <button type="button" onClick={() => removePurchase(p)} className={btnDanger}>
                       <Trash2 className="w-3.5 h-3.5" />

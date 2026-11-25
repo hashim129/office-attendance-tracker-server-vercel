@@ -1,0 +1,11 @@
+@keyframes universe-arrive { from { transform: translateX(-24px) } to { transform: translateX(126px) } }
+@keyframes universe-depart { from { transform: translateX(126px) } to { transform: translateX(224px) } }
+@keyframes universe-stride { from { transform: rotate(-19deg) } to { transform: rotate(19deg) } }
+@keyframes universe-lid { to { transform: scaleY(.07) } }
+.universe-walk-in { animation: universe-arrive 1.7s linear both; }
+.universe-walk-out { animation: universe-depart 1.7s linear both; }
+.universe-leg-a,.universe-leg-b { transform-box:fill-box; transform-origin:top center; animation: universe-stride .25s ease-in-out infinite alternate; }
+.universe-leg-b { animation-direction: alternate-reverse; }
+.universe-arm { transform-box:fill-box; transform-origin:top center; animation: universe-stride .25s ease-in-out infinite alternate-reverse; }
+.universe-lid-close { transform-box: fill-box; transform-origin: bottom center; animation: universe-lid .65s ease-in both; }
+@media(prefers-reduced-motion:reduce) { .universe-walk-in,.universe-walk-out,.universe-leg-a,.universe-leg-b,.universe-arm,.universe-lid-close { animation-duration: .01ms; animation-iteration-count:1; } }

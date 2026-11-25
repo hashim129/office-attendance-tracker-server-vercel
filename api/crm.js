@@ -6,6 +6,7 @@ import { confirmOpenWork, isSupabaseConfigured, supabaseFetch, sweepShiftReminde
 import { format12h, getShiftEndWindowMs } from './_cloud.js';
 import { getSessionEmployee } from './_session.js';
 import { updateVendorPosting } from './_vendorLines.js';
+import { canEditFinancialRecord } from '../src/lib/financePermissions.js';
 
 const KINDS = ['meeting', 'corporate', 'internal', 'regular', 'personal'];
 const KIND_LABEL = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up', regular: 'Regular customers follow-up', personal: 'Personal follow-up' };
@@ -1445,7 +1446,7 @@ export default async function handler(req, res) {
         payment_received_by: existing ? (existing.created_by === me.id && existing.status === 'unpaid' ? (x.paymentReceived ? me.id : null) : existing.payment_received_by) : (x.paymentReceived ? me.id : null),
         payment_received_auto: existing ? Boolean(existing.payment_received_auto) : false,
       };
-      if (existing && !isAdmin && !(existing.created_by === me.id && existing.status === 'unpaid')) {
+      if (existing && !canEditFinancialRecord(me.role, me.id, existing.created_by, 'invoice', existing.status)) {
         throw forbidden('You can only edit your own unpaid invoices.');
       }
       const betaEnabled = await isCustomerPortalBetaEnabled();
@@ -1797,7 +1798,7 @@ export default async function handler(req, res) {
       const x = body.receipt || {};
       const existing = x.id ? await getOne('crm_receipts', x.id) : null;
       if (x.id && !existing) throw notFound('Receipt not found.');
-      if (existing && !(isAdmin || me.role === 'accounts' || existing.created_by === me.id)) throw forbidden('You can only edit your own receipts.');
+      if (existing && !canEditFinancialRecord(me.role, me.id, existing.created_by, 'receipt')) throw forbidden('You can only edit your own receipts.');
       const money = (v, label) => {
         const n = Number(v);
         if (v === '' || v === null || v === undefined || !Number.isFinite(n) || n < 0 || n > 9999999999) throw bad(`${label} is not a valid amount.`);
@@ -1929,7 +1930,7 @@ export default async function handler(req, res) {
       const existingRow = x.id ? await getOne('crm_company', x.id) : null;
       const existing = existingRow?.data || null;
       if (x.id && !existing) throw notFound('Purchase record not found.');
-      if (existing && !(isAdmin || me.role === 'accounts' || existing.createdBy === me.id)) {
+      if (existing && !canEditFinancialRecord(me.role, me.id, existing.createdBy, 'purchase')) {
         throw forbidden('You can only edit your own purchase records.');
       }
 
