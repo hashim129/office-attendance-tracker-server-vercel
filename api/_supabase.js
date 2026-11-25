@@ -1,5 +1,6 @@
 import { checkOfficeNetwork } from './_netmatch.js';
 import { verifyFacePass } from './_face.js';
+import { CHARACTER_IDS } from '../src/lib/universeCharacters.js';
 /**
  * Supabase (PostgreSQL) REST Adapter
  * Provides zero-dependency, atomic cloud database persistence via Supabase PostgREST API.
@@ -133,7 +134,9 @@ function mapDbEmployee(r) {
     employeeCode: r.employee_code,
     name: r.name,
     email: r.email || '',
-    role: r.role || 'employee',
+    role: r.role === 'superadmin' ? 'admin' : (r.role || 'employee'),
+    isSuperAdmin: r.role === 'superadmin',
+    featureAccess: r.page_access && typeof r.page_access === 'object' ? r.page_access : undefined,
     // The PIN is never sent to browsers. It is checked on the server (api/auth.js).
     pin: '',
     hasPin: Boolean(r.pin_hash || r.pin),
@@ -156,8 +159,8 @@ function mapDbEmployee(r) {
     salesTeam,
     salesTeamHead,
     birthday,
-    gameCharacterId: ['astro','fox','tiger','panda','robot','wizard','ranger','dragon','koala','ninja','captain','unicorn'].includes(pendingObj?.gameCharacterId) ? pendingObj.gameCharacterId : undefined,
-    gamePetId: ['cat','dog','rabbit','owl','hamster','parrot','turtle'].includes(pendingObj?.gamePetId) ? pendingObj.gamePetId : undefined,
+    gameCharacterId: CHARACTER_IDS.has(r.game_character_id || pendingObj?.gameCharacterId) ? (r.game_character_id || pendingObj?.gameCharacterId) : undefined,
+    gamePetId: ['cat','dog','rabbit','owl','hamster','parrot','turtle'].includes(r.game_pet_id || pendingObj?.gamePetId) ? (r.game_pet_id || pendingObj?.gamePetId) : undefined,
     registeredDeviceId: r.registered_device_id || undefined,
     registeredDeviceName: r.registered_device_name || undefined,
     registeredAt: r.registered_at || undefined,
@@ -196,7 +199,7 @@ function mapAppEmployeeToDb(e) {
     employee_code: e.employeeCode || e.id,
     name: e.name,
     email: e.email || '',
-    role: e.role || 'employee',
+    role: e.isSuperAdmin ? 'superadmin' : (e.role || 'employee'),
     department: e.department || '',
     designation: e.designation || '',
     shift_id: e.shiftId || 'shift-std',
@@ -205,6 +208,9 @@ function mapAppEmployeeToDb(e) {
     is_active: e.isActive !== false,
     joined_date: e.joinedDate || null,
     avatar_seed: e.avatarSeed || '',
+    game_character_id: e.gameCharacterId || null,
+    game_pet_id: e.gamePetId || null,
+    page_access: e.featureAccess || {},
     registered_device_id: e.registeredDeviceId || null,
     registered_device_name: e.registeredDeviceName || null,
     registered_at: e.registeredAt || null,
@@ -733,15 +739,18 @@ export async function persistAutoClosures(originalRecords, evaluatedRecords) {
  * record's notes_log (the single `notes` field only shows the latest one and used to overwrite the earlier remark).
  */
 export function withNotesLog(existing, incomingRec, merged, actorRole) {
-  const prior = Array.isArray(existing?.notesLog) ? existing.notesLog : [];
+  const prior = Array.isArray(existing?.notesLog) ? [...existing.notesLog] : [];
+  if (!prior.length && String(existing?.notes || '').trim()) prior.push({ id: 'legacy', at: existing.recordUpdatedAt || '', kind: 'note', by: existing.employeeId || '', text: existing.notes });
   let log = prior;
   const text = String(incomingRec?.notes ?? '').trim();
   const before = String(existing?.notes ?? '').trim();
-  if (text && text !== before && !prior.some((e) => e && e.text === text)) {
-    const act = incomingRec.actorAction;
+  const act = incomingRec.actorAction;
+  const explicit = ['time_in', 'time_out', 'update_note'].includes(act);
+  const entryId = `nl-${incomingRec.recordUpdatedAt || new Date().toISOString()}-${act || 'note'}`;
+  if (text && (explicit || (actorRole === 'admin' && text !== before)) && !prior.some((e) => e && e.id === entryId)) {
     const kind = actorRole === 'admin' && act !== 'time_in' && act !== 'time_out' ? 'admin_note'
       : act === 'time_in' ? 'punch_in' : act === 'time_out' ? 'punch_out' : 'note';
-    log = [...prior, { id: `nl-${Date.now().toString(36)}-${prior.length}`, at: new Date().toISOString(), kind, by: actorRole === 'admin' ? 'admin' : (merged.employeeId || incomingRec.employeeId || ''), text }].slice(-100);
+    log = [...prior, { id: entryId, at: new Date().toISOString(), kind, by: merged.employeeId || incomingRec.employeeId || '', text }];
   }
   return { ...merged, notesLog: log };
 }
@@ -755,6 +764,7 @@ function mergeSupabaseAttendanceRecordCore(existing, incomingRec, options = {}) 
   const actorRole = options.actorRole || incomingRec.lastEditedByRole || 'employee';
   const isAdmin = actorRole === 'admin';
   const nowIso = new Date().toISOString();
+  if (existing && incomingRec.actorAction === 'update_note') return { ...existing, notes: String(incomingRec.notes || '').trim() || existing.notes, recordUpdatedAt: nowIso };
 
   if (!existing) {
     const fresh = { ...incomingRec };
@@ -1075,6 +1085,11 @@ function authorizeExternalMutation(incoming, ctx) {
 
 export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
   const scope = incoming.scope || 'legacy_bulk';
+  const pageByScope = { attendance: 'clock', employee_upsert: 'employees', employees: 'employees', employee_delete: 'employees', shifts: 'shifts', leaves: 'leaves', settings: 'settings' };
+  const protectedPage = pageByScope[scope];
+  if (protectedPage && ctx.actor && !ctx.actor.isSuperAdmin && ctx.actor.featureAccess?.[protectedPage] === false) {
+    throw denied(403, 'PAGE_ACCESS_REVOKED', 'Your Super Admin has disabled access to this page.');
+  }
   // The one-time Gist migration is an internal server operation, not a browser mutation.
   if (!(ctx.internalMigration === true && scope === 'full_restore')) {
     authorizeExternalMutation(incoming, ctx);
@@ -1088,6 +1103,8 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
         if (!rec || !rec.id) continue;
         const existingRows = await supabaseFetch(`/attendance?id=eq.${encodeURIComponent(rec.id)}&select=*`);
         const existing = existingRows?.[0] ? mapDbAttendance(existingRows[0]) : null;
+
+        if (rec.actorAction === 'update_note' && !existing) throw denied(400, 'ATTENDANCE_REQUIRED', 'Punch in before saving an additional remark.');
 
         const net = await enforceOfficeNetworkForPunch(existing, rec, incoming.actorRole, ctx.clientIps);
         stampWorkMode(existing, rec, net, incoming.actorRole, Array.isArray(ctx.clientIps));
@@ -1121,9 +1138,13 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
       if (incoming.selfServiceOnly && !existing) throw denied(403, 'FORBIDDEN', 'Employee not found.');
       let mergedEmp = emp;
       if (existing) {
+        if (existing.isSuperAdmin && !ctx.actor?.isSuperAdmin) {
+          throw denied(403, 'SUPER_ADMIN_PROTECTED', 'Only the Super Admin can change this protected account.');
+        }
         mergedEmp = {
           ...existing,
           ...emp,
+          ...(existing.isSuperAdmin ? { isSuperAdmin: true, role: 'admin' } : {}),
         };
         if (incoming.allowClearDevice) {
           mergedEmp.registeredDeviceId = undefined;
@@ -1172,6 +1193,10 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
       throw e;
     }
     if (targetId) {
+      const targetRows = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(targetId)}&select=id,role`);
+      if (targetRows?.[0]?.role === 'superadmin' && !ctx.actor?.isSuperAdmin) {
+        throw denied(403, 'SUPER_ADMIN_PROTECTED', 'Only the Super Admin can change this protected account.');
+      }
       // An administrator may remove another administrator, but never the last active one.
       const admins = await supabaseFetch('/employees?role=eq.admin&deleted_at=is.null&is_active=eq.true&select=id');
       const others = (Array.isArray(admins) ? admins : []).filter((a) => a.id !== targetId);

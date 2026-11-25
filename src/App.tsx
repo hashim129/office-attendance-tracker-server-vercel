@@ -63,7 +63,10 @@ import { useCrm } from './crm/useCrm';
 import { PageHero } from './components/common/PageHero';
 import { DirectivePopup } from './components/common/DirectivePopup';
 import { LiveAlerts } from './crm/LiveAlerts';
-import { EmployeeUniverse } from './components/desktop/EmployeeUniverse';
+import {pageEnabled} from './lib/pageAccess';
+const EmployeeUniverse = lazy(() => import('./components/desktop/EmployeeUniverse').then(m=>({default:m.EmployeeUniverse})));
+const SuperAdminTab = lazy(() => import('./components/desktop/SuperAdminTab').then(m=>({default:m.SuperAdminTab})));
+const EmployeeProfileTab = lazy(() => import('./components/desktop/EmployeeProfileTab').then(m=>({default:m.EmployeeProfileTab})));
 
 const IS_VERCEL_PREVIEW = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app') && window.location.hostname !== 'office-attendance-tracker-server-vercel-hashim129.vercel.app';
 
@@ -86,6 +89,7 @@ const SmartInsightsTab = lazy(() => import('./components/desktop/SmartInsightsTa
 const OfficeSettingsTab = lazy(() => import('./components/desktop/OfficeSettingsTab').then((m) => ({ default: m.OfficeSettingsTab })));
 const PrintableTimesheetModal = lazy(() => import('./components/desktop/PrintableTimesheetModal').then((m) => ({ default: m.PrintableTimesheetModal })));
 const FaceScanModal = lazy(() => import('./components/common/FaceScanModal').then((m) => ({ default: m.FaceScanModal })));
+const PersonalDesk = lazy(() => import('./components/desktop/UniverseOffice').then(m=>({default:m.PersonalDesk})));
 const LiveDashboardTab = lazy(() => import('./components/desktop/LiveDashboardTab').then((m) => ({ default: m.LiveDashboardTab })));
 const CrmPage = lazy(() => import('./crm/CrmPage').then((m) => ({ default: m.CrmPage })));
 const KioskMode = lazy(() => import('./components/kiosk/KioskMode').then((m) => ({ default: m.KioskMode })));
@@ -99,7 +103,7 @@ export default function App() {
   // Database State
   const [employees, setEmployees] = useState<Employee[]>([]);
   // The built-in "Office Administrator" account is kept out of every stats / attendance screen.
-  const statEmployees = useMemo(() => employees.filter((e) => e.id !== 'emp-101'), [employees]);
+  const statEmployees = useMemo(() => employees.filter((e) => e.id !== 'emp-101' && !e.isSuperAdmin), [employees]);
   const [shifts, setShifts] = useState<ShiftSchedule[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
@@ -122,13 +126,51 @@ export default function App() {
 
   // Current Session & Workspace Navigation
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
+  const [siteDisabled, setSiteDisabled] = useState<boolean>(() => localStorage.getItem('office_site_disabled_v1') === 'true');
   // High-security face scan punch (admin turns it on in Office Settings; off by default)
   const [faceEnrolledIds, setFaceEnrolledIds] = useState<string[]>([]);
   const [faceStatusLoaded, setFaceStatusLoaded] = useState(false);
   const [enrollSelf, setEnrollSelf] = useState<{ employeeId: string; run: (() => void) | null } | null>(null);
   const enrollPromptShownRef = useRef<Set<string>>(new Set());
   const [faceRequest, setFaceRequest] = useState<{ employeeId: string; run: () => void } | null>(null);
-  const [activeTab, setActiveTab] = useState<ActiveDesktopTab>('clock');
+  const [activeTab, setActiveTabState] = useState<ActiveDesktopTab>('clock');
+  const [focusedRecordId, setFocusedRecordId] = useState<string | undefined>();
+  const setActiveTab = (tab: ActiveDesktopTab, refId?: string) => {
+    setFocusedRecordId(refId);
+    setActiveTabState(tab);
+  };
+  useEffect(() => {
+    const onSiteDisabled = () => { setSiteDisabled(true); setCurrentUser(null); };
+    const onSiteEnabled = () => setSiteDisabled(false);
+    const onSiteStatusChanged = (event: Event) => setSiteDisabled((event as CustomEvent<boolean>).detail === true);
+    window.addEventListener('office-site-disabled', onSiteDisabled);
+    window.addEventListener('office-site-enabled', onSiteEnabled);
+    window.addEventListener('office-site-status-changed', onSiteStatusChanged);
+    return () => { window.removeEventListener('office-site-disabled', onSiteDisabled); window.removeEventListener('office-site-enabled', onSiteEnabled); window.removeEventListener('office-site-status-changed', onSiteStatusChanged); };
+  }, []);
+  useEffect(() => {
+    if (!currentUser || currentUser.isSuperAdmin) return;
+    let active = true;
+    const checkSiteAvailability = async () => {
+      try {
+        const response = await fetch(`/api/site-status?t=${Date.now()}`, { cache: 'no-store' });
+        const data = await response.json();
+        if (!active) return;
+        if (data?.disabled === true) {
+          localStorage.setItem('office_site_disabled_v1', 'true');
+          clearSession();
+          setSiteDisabled(true);
+          setCurrentUser(null);
+        } else if (data?.disabled === false) {
+          localStorage.removeItem('office_site_disabled_v1');
+          setSiteDisabled(false);
+        }
+      } catch { /* availability checks are retried on the next interval */ }
+    };
+    void checkSiteAvailability();
+    const timer = window.setInterval(checkSiteAvailability, 15000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [currentUser?.id, currentUser?.isSuperAdmin]);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
   const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-') || activeTab === 'live-dashboard' || (betaEnabled && activeTab === 'clock'));
 
@@ -438,6 +480,7 @@ export default function App() {
   const handleLogin = (employee: Employee, keepLoggedIn: boolean) => {
     setCurrentUser(employee);
     saveSession(employee.id, keepLoggedIn, takePendingToken(employee.id));
+    if (employee.isSuperAdmin) { setSiteDisabled(false); localStorage.removeItem('office_site_disabled_v1'); }
     // The pre-login endpoint returns only a safe directory projection. Fetch the full
     // authorized database snapshot immediately after the server has issued the session.
     void syncDatabaseFromServer(true).then((updated) => {
@@ -503,7 +546,7 @@ export default function App() {
         ...presenceFields,
         timeIn: nowTime,
         status: late ? 'late' : 'present',
-        notes: notes || nextRecords[existingIdx].notes,
+        notes,
         clientIp: currentClientIp,
         deviceId,
         deviceName: deviceLabel,
@@ -544,7 +587,7 @@ export default function App() {
     saveAttendanceRecords(nextRecords, changedRecord, actorRole);
   };
 
-  const handleUpdatePunchNote = (employeeId: string, notes: string) => {
+  const handleUpdatePunchNote = async (employeeId: string, notes: string): Promise<boolean> => {
     const todayStr = getTodayDateString();
     const currentRecords = recordsRef.current;
     const existingIdx = currentRecords.findIndex(
@@ -565,8 +608,9 @@ export default function App() {
       updatedRecords[existingIdx] = changedRecord;
       recordsRef.current = updatedRecords;
       setRecords(updatedRecords);
-      saveAttendanceRecords(updatedRecords, changedRecord, actorRole);
+      return saveAttendanceRecords(updatedRecords, changedRecord, actorRole);
     }
+    return false;
   };
 
   const handleTimeOut = (employeeId: string, notes?: string) => {
@@ -613,7 +657,7 @@ export default function App() {
       totalWorkedMinutes: worked.totalWorkedMinutes,
       regularMinutes: worked.regularMinutes,
       overtimeMinutes: worked.overtimeMinutes,
-      notes: notes || currentRec.notes,
+      notes,
       deviceId: currentRec.deviceId || deviceId,
       deviceName: currentRec.deviceName || deviceLabel,
       isDeviceMismatch: currentRec.isDeviceMismatch || isMismatch,
@@ -1077,6 +1121,7 @@ export default function App() {
           onLogin={handleLogin}
           companyName={settings.companyName}
           isSyncing={isInitialCloudSyncing}
+          siteDisabled={siteDisabled}
         />
       ) : (
         <div className={`app-reveal flex-1 flex flex-col ${betaEnabled && activeTab !== 'clock' ? 'min-h-screen workforce-redesign-beta' : 'min-h-[calc(100vh-2.5rem)]'} min-w-0 w-full overflow-x-clip`}>
@@ -1097,6 +1142,7 @@ export default function App() {
             crmLatest={CRM_ENABLED ? crm.badges.unreadLatest : []}
             onCrmRefresh={CRM_ENABLED ? () => void crm.refresh() : undefined}
             onOpenCrmNotifications={CRM_ENABLED ? () => setActiveTab('crm-notifications') : undefined}
+            onOpenCrmRecord={setActiveTab}
             isDark={isDark}
             onToggleTheme={handleToggleTheme}
             redesignedUiBetaEnabled={betaEnabled}
@@ -1119,7 +1165,7 @@ export default function App() {
             />
 
             <main className="flex-1 min-w-0 w-full p-3 sm:p-5 lg:p-6 overflow-x-clip bg-slate-50/50 dark:bg-slate-950/40">
-              <div key={activeTab} className="page-enter min-w-0">
+              {currentUser&&!pageEnabled(currentUser,activeTab)?<div className="mx-auto max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center text-sm text-amber-900">Access to this page has been disabled by your Super Admin.</div>:<div key={activeTab} className="page-enter min-w-0">
                 <PageHero
                   tab={activeTab}
                   name={currentUser?.name || ''}
@@ -1156,6 +1202,7 @@ export default function App() {
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                 />
+                {currentUser && settings.employeeUniverseBetaEnabled === true && <PersonalDesk employee={currentUser} record={records.find(r=>r.employeeId===currentUser.id && r.date===getTodayDateString())} settings={settings} online={isNetworkOnline}/>}
                 </>
               )}
 
@@ -1173,12 +1220,18 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'employee-profile' && currentUser && <EmployeeProfileTab employee={currentUser} onSaved={(profile) => {
+                setCurrentUser(user => user ? {...user,...profile} : user);
+                setEmployees(list => list.map(employee => employee.id===currentUser.id ? {...employee,...profile} : employee));
+              }} />}
+
               {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications') && (
-                <CrmPage section={activeTab} crm={crm} employees={employees} currentUser={currentUser} onNavigate={setActiveTab} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
+                <CrmPage section={activeTab} crm={crm} employees={statEmployees} currentUser={currentUser} onNavigate={setActiveTab} focusId={focusedRecordId} onClearFocus={() => setFocusedRecordId(undefined)} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
               )}
 
               {activeTab === 'live-dashboard' && currentUser && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
                 <LiveDashboardTab
+                  settings={settings} online={isNetworkOnline}
                   currentUser={currentUser}
                   employees={statEmployees}
                   records={records}
@@ -1194,7 +1247,7 @@ export default function App() {
               {activeTab === 'leaves' && (
                 <LeaveManagementTab
                   currentUser={currentUser}
-                  employees={employees}
+                  employees={statEmployees}
                   leaves={leaves}
                   onApplyLeave={handleApplyLeave}
                   onReviewLeave={handleReviewLeave}
@@ -1221,7 +1274,7 @@ export default function App() {
 
               {currentUser.role === 'admin' && activeTab === 'employees' && (
                 <EmployeesDirectoryTab
-                  employees={employees}
+                  employees={statEmployees}
                   shifts={shifts}
                   records={records}
                   onAddEmployee={handleAddEmployee}
@@ -1289,22 +1342,23 @@ export default function App() {
                   currentClientIsp={currentClientIsp}
                 />
               )}
+              {currentUser.isSuperAdmin&&activeTab==='superadmin'&&<SuperAdminTab/>}
                   </Suspense>
               </ErrorBoundary>
               {CRM_ENABLED && <LiveAlerts crm={crm} onOpen={setActiveTab} />}
               {currentUser && <DirectivePopup comments={ceoComments} userId={currentUser.id} onRead={handleMarkCeoCommentRead} />}
       <QuickJump currentUser={currentUser} crmEnabled={CRM_ENABLED} onSelectTab={setActiveTab} />
       {currentUser && settings.employeeUniverseBetaEnabled === true && (
-        <EmployeeUniverse
+        <Suspense fallback={null}><EmployeeUniverse
           currentUser={currentUser}
-          employees={employees}
+          employees={statEmployees}
           onProfileSaved={(gameCharacterId, gamePetId) => {
             setCurrentUser((user) => user ? { ...user, gameCharacterId, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : user);
             setEmployees((list) => list.map((employee) => employee.id === currentUser.id ? { ...employee, gameCharacterId, gamePetId: gamePetId === 'none' ? undefined : gamePetId } : employee));
           }}
-        />
+        /></Suspense>
       )}
-            </div>
+            </div>}
             </main>
           </div>
         </div>

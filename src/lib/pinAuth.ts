@@ -85,7 +85,8 @@ export async function lookupLogin(identifier: string, pin: string, employees: Em
   const r = await post('lookup', { identifier, pin: pin.trim() });
   if (r.status === 200) {
     const emp = employees.find((e) => e.id === r.json.employeeId);
-    if (emp) { rememberSession(emp.id, pin.trim()); gotToken(emp.id, r.json.session); return { ok: true, employee: emp }; }
+    const authenticatedEmployee = emp || r.json.employee;
+    if (authenticatedEmployee) { rememberSession(authenticatedEmployee.id, pin.trim()); gotToken(authenticatedEmployee.id, r.json.session); return { ok: true, employee: authenticatedEmployee }; }
     return { ok: false, error: 'Account not found. Please refresh and try again.' };
   }
   return fail(r, 'Incorrect PIN or password.');

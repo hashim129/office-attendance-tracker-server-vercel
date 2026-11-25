@@ -151,6 +151,8 @@ export interface Employee {
   birthday?: string; // YYYY-MM-DD, optional (used for birthday cards)
   gameCharacterId?: string; // Employee Universe Beta avatar selection
   gamePetId?: string; // Employee Universe Beta optional companion
+  isSuperAdmin?: boolean;
+  featureAccess?: Record<string, boolean>;
   allowWorkFromHome?: boolean; // When true, attendance punch in/out has NO IP restriction
   registeredDeviceId?: string; // Persistent device UUID bound to this employee
   registeredDeviceName?: string; // e.g. "Ahmed's Samsung Galaxy A54 (Android)"
@@ -221,6 +223,7 @@ export type AppMode = 'desktop' | 'kiosk';
 
 export type ActiveDesktopTab =
   | 'clock'
+  | 'employee-profile'
   | 'my-attendance'
   | 'team-attendance'
   | 'insights'
@@ -239,4 +242,5 @@ export type ActiveDesktopTab =
   | 'crm-receipts'
   | 'crm-portal'
   | 'crm-notifications'
-  | 'live-dashboard';
+  | 'live-dashboard'
+  | 'superadmin';

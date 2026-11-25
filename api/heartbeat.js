@@ -36,6 +36,9 @@ export default async function handler(req, res) {
       if (!e || (employeeId && e.id !== employeeId)) {
         return res.status(401).json({ ok: false, code: 'SESSION_INVALID', message: 'Please sign in again.' });
       }
+      if (!e.isSuperAdmin && e.featureAccess?.clock === false) {
+        return res.status(403).json({ ok: false, code: 'PAGE_ACCESS_REVOKED', message: 'Your Super Admin has disabled access to Punch Clock.' });
+      }
     } else {
       if (!authToken) {
         return res.status(400).json({ ok: false, code: 'INVALID_REQUEST', message: 'Missing authToken.' });

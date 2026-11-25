@@ -21,18 +21,18 @@ type StatusFilter = 'open' | 'all' | FollowupStatus;
 
 const statusTone = (s: FollowupStatus) => (s === 'completed' ? 'green' : s === 'not_completed' ? 'red' : s === 'rescheduled' ? 'violet' : 'amber');
 
-export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
+export const TasksView: React.FC<Props & { focusId?: string }> = ({ crm, employees, currentUser, focusId }) => {
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const { customers, followups, unread } = crm.data;
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const customerOf = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const [scope, setScope] = useState<Scope>('all');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(focusId ? 'all' : 'open');
   const [query, setQuery] = useState('');
   const [kindFilter, setKindFilter] = useState<'all' | FollowupKind>('all');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CrmFollowup | null>(null);
-  const [viewingId, setViewingId] = useState<string | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(focusId || null);
   const [outcomeFor, setOutcomeFor] = useState<CrmFollowup | null>(null);
 
   const [outcome, setOutcome] = useState<'completed' | 'not_completed' | 'rescheduled'>('completed');

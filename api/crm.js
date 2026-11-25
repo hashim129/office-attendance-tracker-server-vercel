@@ -6,6 +6,8 @@ import { confirmOpenWork, isSupabaseConfigured, supabaseFetch, sweepShiftReminde
 import { format12h, getShiftEndWindowMs } from './_cloud.js';
 import { getSessionEmployee } from './_session.js';
 import { PaymentError, assertWithinTotal, buildPayments, cleanStored, receiptProblem, sumPayments } from './_invoicePayments.js';
+import { updateVendorPosting } from './_vendorLines.js';
+import { canEditFinancialRecord } from '../src/lib/financePermissions.js';
 
 const KINDS = ['meeting', 'corporate', 'internal', 'regular', 'personal'];
 const KIND_LABEL = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up', regular: 'Regular customers follow-up', personal: 'Personal follow-up' };
@@ -555,6 +557,15 @@ async function getAllPurchases() {
   }
 }
 
+async function updatePurchaseRow(existingRow, data, at) {
+  const revision = existingRow.updated_at ? `eq.${encodeURIComponent(existingRow.updated_at)}` : 'is.null';
+  const changed = await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(existingRow.id)}&updated_at=${revision}`, {
+    method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ data, updated_at: at }),
+  });
+  if (!changed?.length) throw bad('Purchase changed. Refresh and try again.');
+  return { ...changed[0].data, id: changed[0].id, updatedAt: changed[0].updated_at || at };
+}
+
 async function getAllPortalQueries() {
   try {
     const rows = (await supabaseFetch(`/crm_company?id=like.pqr-*&order=updated_at.desc&limit=250&select=*`)) || [];
@@ -686,6 +697,20 @@ export default async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
     const me = await getSessionEmployee(body.sessionToken);
     if (!me) throw new HttpError(401, 'Please sign in again.', 'SESSION_REQUIRED');
+    if (!me.isSuperAdmin) {
+      const action = String(body.action || '');
+      const page = action.startsWith('customer') ? 'crm-customers'
+        : action.startsWith('followup') || action.startsWith('task') ? 'crm-tasks'
+        : action.startsWith('meeting') ? 'crm-meetings'
+        : action.startsWith('inventory') ? 'crm-inventory'
+        : action.startsWith('sale') ? 'crm-sales'
+        : action.startsWith('purchase') ? 'crm-purchases'
+        : action.startsWith('invoice') ? 'crm-invoices'
+        : action.startsWith('receipt') ? 'crm-receipts'
+        : action.startsWith('portal') ? 'crm-portal'
+        : action.startsWith('notification') ? 'crm-notifications' : undefined;
+      if (page && me.featureAccess?.[page] === false) throw forbidden('Your Super Admin has disabled access to this page.');
+    }
     const isAdmin = me.role === 'admin' || me.role === 'ceo'; // the CEO has every administrator right in the CRM and Office sections
     const seeAllCust = isAdmin || me.role === 'accounts' || me.role === 'ceo';
     // Everyone can add customers; they see their own plus the ones shared with them. Admin, CEO and Accounts see all.
@@ -734,7 +759,7 @@ export default async function handler(req, res) {
         customersNew: mine.filter((n) => n.category === 'customer').length,
         salesPending: (isAdmin || me.role === 'accounts') ? salesRows.filter((x) => x.status === 'pending').length : 0,
         unreadTotal: mine.length,
-        unreadLatest: [...mine].sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))).slice(0, 5).map((n) => ({ id: n.id, category: n.category, message: n.message })),
+        unreadLatest: [...mine].sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))).slice(0, 5).map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message })),
         upcoming,
       };
       if (action === 'badges') return res.status(200).json({ ok: true, badges });
@@ -1496,7 +1521,8 @@ export default async function handler(req, res) {
         const units = hasUnits ? money(v.units, `Units for ${name}`) : null;
         const computedAmt = unitPrice !== null ? r2(unitPrice * (units ?? 1)) : 0;
         const amount = hasAmount ? money(v.amount, `Payable to ${name}`) : computedAmt;
-        return { name, description, unitPrice, units, amount, currency: vCur, bank };
+        const previous = asArray(existing?.vendors).find((p, pi) => (p.id || `legacy-${pi}`) === v.id);
+        return { name, description, unitPrice, units, amount, currency: vCur, bank, id: previous?.id || id('vendor'), posted: Boolean(previous?.posted), postedAt: previous?.postedAt || null, postedBy: previous?.postedBy || null };
       }).filter(Boolean);
       const at = nowIso();
       const base = {
@@ -1512,7 +1538,7 @@ export default async function handler(req, res) {
         payment_received_by: existing ? (existing.created_by === me.id && existing.status === 'unpaid' ? (x.paymentReceived ? me.id : null) : existing.payment_received_by) : (x.paymentReceived ? me.id : null),
         payment_received_auto: existing ? Boolean(existing.payment_received_auto) : false,
       };
-      if (existing && !isAdmin && !(existing.created_by === me.id && existing.status === 'unpaid')) {
+      if (existing && !canEditFinancialRecord(me.role, me.id, existing.created_by, 'invoice', existing.status)) {
         throw forbidden('You can only edit your own unpaid invoices.');
       }
       const betaEnabled = await isCustomerPortalBetaEnabled();
@@ -1821,6 +1847,23 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
 
+    if (action === 'invoice_vendor_line_posted') {
+      const existing = await getOne('crm_invoices', body.id);
+      if (!existing) throw notFound('Invoice not found.');
+      if (!(isAdmin || me.role === 'accounts')) throw forbidden('Only Accounts or Admin can post a vendor line.');
+      if (existing.kind === 'vendor' || existing.status === 'cancelled') throw bad('This invoice cannot be posted.');
+      if (body.revision !== existing.updated_at) throw bad('Invoice changed. Refresh and try again.');
+      const vendors = asArray(existing.vendors);
+      const at = nowIso();
+      const posted = body.posted === true;
+      const updated = updateVendorPosting(vendors, body.vendorId, posted, me.id, at, () => id('vendor'));
+      if (!updated) throw notFound('Vendor line no longer exists. Refresh the invoice.');
+      const revision = existing.updated_at ? `eq.${encodeURIComponent(existing.updated_at)}` : 'is.null';
+      const changed = await supabaseFetch(`/crm_invoices?id=eq.${encodeURIComponent(existing.id)}&updated_at=${revision}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ vendors: updated, updated_at: at }) });
+      if (!changed?.length) throw bad('Invoice changed. Refresh and try again.');
+      return res.status(200).json({ ok: true, invoice: mapInvoice(changed[0]) });
+    }
+
     if (action === 'invoice_vendor_posted') {
       const existing = await getOne('crm_invoices', body.id);
       if (!existing) throw notFound('Vendor payable not found.');
@@ -1896,7 +1939,7 @@ export default async function handler(req, res) {
       const x = body.receipt || {};
       const existing = x.id ? await getOne('crm_receipts', x.id) : null;
       if (x.id && !existing) throw notFound('Receipt not found.');
-      if (existing && !(isAdmin || me.role === 'accounts' || existing.created_by === me.id)) throw forbidden('You can only edit your own receipts.');
+      if (existing && !canEditFinancialRecord(me.role, me.id, existing.created_by, 'receipt')) throw forbidden('You can only edit your own receipts.');
       const money = (v, label) => {
         const n = Number(v);
         if (v === '' || v === null || v === undefined || !Number.isFinite(n) || n < 0 || n > 9999999999) throw bad(`${label} is not a valid amount.`);
@@ -2032,7 +2075,7 @@ export default async function handler(req, res) {
       const existingRow = x.id ? await getOne('crm_company', x.id) : null;
       const existing = existingRow?.data || null;
       if (x.id && !existing) throw notFound('Purchase record not found.');
-      if (existing && !(isAdmin || me.role === 'accounts' || existing.createdBy === me.id)) {
+      if (existing && !canEditFinancialRecord(me.role, me.id, existing.createdBy, 'purchase')) {
         throw forbidden('You can only edit your own purchase records.');
       }
 
@@ -2163,14 +2206,14 @@ export default async function handler(req, res) {
           status,
           updatedAt: at,
         };
-        await upsert('crm_company', { id: existing.id, data: updatedPurchase, updated_at: at });
+        const saved = await updatePurchaseRow(existingRow, updatedPurchase, at);
         const what = changedBits([
           ['customer', existing.customerName, customerName], ['query code', existing.crmId, crmId], ['currency', existing.currency, currency],
           ['payable', existing.totalPayable, totalPayable], ['receivable', existing.totalReceivable, totalReceivable], ['items', asArray(existing.items).length, items.length],
           ['date', existing.purchaseDate, purchaseDate], ['notes', existing.notes, notes],
         ]);
         await notify(await salesStaffIds(), 'invoice', existing.id, `${me.name || 'Someone'} edited vendor purchase ${existing.purchaseNo}${what ? ` (${what})` : ' (details updated)'}.`, me.id);
-        return res.status(200).json({ ok: true, purchase: updatedPurchase });
+        return res.status(200).json({ ok: true, purchase: saved });
       }
 
       const existingPurchases = await getAllPurchases();
@@ -2199,6 +2242,17 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, purchase: newPurchase });
     }
 
+    if (action === 'purchase_posted') {
+      if (!(isAdmin || me.role === 'accounts')) throw forbidden('Only Accounts or Admin can post purchases.');
+      if (typeof body.id !== 'string' || !body.id.startsWith('pur-') || typeof body.posted !== 'boolean') throw bad('Choose a valid purchase and posting status.');
+      const existingRow = await getOne('crm_company', body.id);
+      if (!existingRow?.data?.purchaseNo || existingRow.id !== body.id) throw notFound('Purchase record not found.');
+      const at = nowIso();
+      const updated = { ...existingRow.data, posted: body.posted, postedAt: body.posted ? at : null, postedBy: body.posted ? me.id : null, updatedAt: at };
+      const saved = await updatePurchaseRow(existingRow, updated, at);
+      return res.status(200).json({ ok: true, purchase: saved });
+    }
+
     if (action === 'purchase_status') {
       const existingRow = await getOne('crm_company', body.id);
       if (!existingRow?.data) throw notFound('Purchase record not found.');
@@ -2208,8 +2262,8 @@ export default async function handler(req, res) {
       const status = ['unpaid', 'paid', 'partial'].includes(body.status) ? body.status : 'unpaid';
       const at = nowIso();
       const updated = { ...existingRow.data, status, updatedAt: at };
-      await upsert('crm_company', { id: existingRow.id, data: updated, updated_at: at });
-      return res.status(200).json({ ok: true, purchase: updated });
+      const saved = await updatePurchaseRow(existingRow, updated, at);
+      return res.status(200).json({ ok: true, purchase: saved });
     }
 
     if (action === 'purchase_delete') {

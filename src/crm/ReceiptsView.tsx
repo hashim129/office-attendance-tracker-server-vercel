@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { canEditFinancialRecord } from '../lib/financePermissions.js';
 import { Plus, Trash2, FileDown, Share2, Eye, Pencil, ReceiptText, Upload, X } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
@@ -77,7 +78,7 @@ const Group: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
 
 const niceDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
-export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) => {
+export const ReceiptsView: React.FC<Props & { focusId?: string }> = ({ crm, employees, currentUser, focusId }) => {
   const isStaff = currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.role === 'ceo';
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const seesAll = isStaff || currentUser.role === 'ceo';
@@ -85,7 +86,7 @@ export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) =
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const currencies = useMemo(() => allCurrencies(), []);
   const [form, setForm] = useState<FormState | null>(null);
-  const [view, setView] = useState<CrmReceipt | null>(null);
+  const [view, setView] = useState<CrmReceipt | null>(receipts.find((r) => r.id === focusId) || null);
   const [proof, setProof] = useState<{ loading: boolean; image: string | null }>({ loading: false, image: null });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -126,7 +127,7 @@ export const ReceiptsView: React.FC<Props> = ({ crm, employees, currentUser }) =
   }, [receipts, query, empName]);
 
   const patch = (p: Partial<FormState>) => { setForm((f) => (f ? { ...f, ...p } : f)); setError(''); };
-  const canEdit = (r: CrmReceipt) => isStaff || r.createdBy === currentUser.id;
+  const canEdit = (r: CrmReceipt) => canEditFinancialRecord(currentUser.role, currentUser.id, r.createdBy, 'receipt');
   const by = (r: CrmReceipt) => empName.get(r.createdBy) || '';
 
   const pickImage = async (file: File | undefined) => {

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { canEditFinancialRecord } from '../lib/financePermissions.js';
 import { Plus, Trash2, Eye, Pencil, ShoppingBag, X, Check, Plane, Building2, Stamp, Bus, ShieldCheck, Package, CreditCard, Search, Columns3, FolderPlus } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
@@ -280,7 +281,9 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
 
   const [form, setForm] = useState<PurchaseFormState | null>(null);
   const [viewing, setViewing] = useState<CrmPurchase | null>(null);
+  const [postingId, setPostingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'unpaid' | 'paid' | 'partial'>('all');
+  const [postingFilter, setPostingFilter] = useState<'all' | 'not-posted' | 'posted'>('all');
   const [catFilter, setCatFilter] = useState<'all' | PurchaseCategory>('all');
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
@@ -326,6 +329,8 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
     const q = query.trim().toLowerCase();
     return purchases.filter((p) => {
       if (filter !== 'all' && p.status !== filter) return false;
+      if (postingFilter === 'posted' && !p.posted) return false;
+      if (postingFilter === 'not-posted' && p.posted) return false;
       if (catFilter !== 'all' && !(p.items || []).some((it) => it.category === catFilter)) return false;
       if (!q) return true;
       const itemText = (p.items || [])
@@ -355,7 +360,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [purchases, filter, catFilter, query, empName]);
+  }, [purchases, filter, postingFilter, catFilter, query, empName]);
 
   const handleAddCustomColumn = async (e?: React.FormEvent, overrideCategory?: PurchaseCategory | 'all') => {
     if (e) e.preventDefault();
@@ -707,6 +712,18 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
     }
   };
 
+  const changePurchasePosting = async (p: CrmPurchase) => {
+    if (postingId) return;
+    setPostingId(p.id);
+    try {
+      const res = await crmCall<{ purchase: CrmPurchase }>('purchase_posted', { id: p.id, posted: !p.posted });
+      await crm.refresh();
+      setViewing((current) => current?.id === p.id ? res.purchase : current);
+    } catch (e: any) {
+      window.alert(e?.message || 'Could not update purchase posting status.');
+    } finally { setPostingId(null); }
+  };
+
   return (
     <div className="space-y-4">
       {/* Header Card */}
@@ -969,6 +986,12 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
             </button>
           ))}
           <span className="mx-1 text-slate-300">|</span>
+          {(['all', 'not-posted', 'posted'] as const).map((k) => (
+            <button key={k} type="button" onClick={() => setPostingFilter(k)} className={`px-3 py-1 rounded-full text-xs font-medium ${postingFilter === k ? k === 'posted' ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'}`}>
+              {k === 'all' ? 'All posting states' : k === 'posted' ? 'Posted' : 'Not posted'}
+            </button>
+          ))}
+          <span className="mx-1 text-slate-300">|</span>
           <select
             className={`${inputCls} !w-auto !py-1 text-xs`}
             value={catFilter}
@@ -999,7 +1022,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
         {shown.map((p) => {
           const items = p.items || [];
           return (
-            <div key={p.id} className={`${cardCls} p-4`}>
+            <div key={p.id} data-posted={p.posted === true} className={`${cardCls} p-4 ${p.posted ? 'border-emerald-200 !bg-emerald-50/80 dark:border-emerald-900 dark:!bg-emerald-950/25' : ''}`}>
               <div className="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-slate-100">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -1016,6 +1039,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                     <Pill tone={p.status === 'paid' ? 'green' : p.status === 'partial' ? 'blue' : 'amber'}>
                       {p.status === 'paid' ? 'Paid' : p.status === 'partial' ? 'Partially Paid' : 'Unpaid / Credit'}
                     </Pill>
+                    <Pill tone={p.posted ? 'green' : 'slate'}>{p.posted ? '✓ Posted' : 'Not posted'}</Pill>
                   </div>
                   <div className="text-[11px] text-slate-500 mt-1">
                     Purchase Date: <b>{niceDate(p.purchaseDate)}</b> · {items.length}{' '}
@@ -1024,6 +1048,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
+                  {isStaff && <button type="button" className={btnGhost} disabled={postingId !== null} onClick={() => void changePurchasePosting(p)}>{postingId === p.id ? 'Saving…' : p.posted ? 'Unpost' : 'Mark as posted'}</button>}
                   {isStaff && (
                     <select
                       aria-label={`Payment status for ${p.purchaseNo}`}
@@ -1041,7 +1066,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                   <button type="button" onClick={() => setViewing(p)} className={btnGhost}>
                     <Eye className="w-3.5 h-3.5" /> View
                   </button>
-                  <button
+                  {canEditFinancialRecord(currentUser.role, currentUser.id, p.createdBy, 'purchase') && <button
                     type="button"
                     onClick={() => {
                       setForm(toForm(p));
@@ -1050,7 +1075,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                     className={btnGhost}
                   >
                     <Pencil className="w-3.5 h-3.5" /> Edit
-                  </button>
+                  </button>}
                   {isAdmin && (
                     <button type="button" onClick={() => removePurchase(p)} className={btnDanger}>
                       <Trash2 className="w-3.5 h-3.5" />
@@ -2063,12 +2088,15 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                 <Pill tone={viewing.status === 'paid' ? 'green' : viewing.status === 'partial' ? 'blue' : 'amber'}>
                   {viewing.status === 'paid' ? 'Paid' : viewing.status === 'partial' ? 'Partially Paid' : 'Unpaid / Credit'}
                 </Pill>
+                <Pill tone={viewing.posted ? 'green' : 'slate'}>{viewing.posted ? '✓ Posted' : 'Not posted'}</Pill>
+                {viewing.posted && viewing.postedBy && <span className="text-xs text-slate-500">Posted by {empName.get(viewing.postedBy) || 'Accounts'} · {niceDate(viewing.postedAt)}</span>}
                 <span className="text-xs text-slate-500">
                   Date: <b>{niceDate(viewing.purchaseDate)}</b> · Created by{' '}
                   <b>{empName.get(viewing.createdBy) || 'Employee'}</b>
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                {isStaff && <button type="button" className={btnGhost} disabled={postingId !== null} onClick={() => void changePurchasePosting(viewing)}>{postingId === viewing.id ? 'Saving…' : viewing.posted ? 'Unpost' : 'Mark as posted'}</button>}
                 <button
                   type="button"
                   onClick={() => {

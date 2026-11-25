@@ -71,7 +71,7 @@ export async function checkEmployeePin(employeeId, pin) {
 
 export async function checkAdminPin(adminId, pin) {
   const row = await checkEmployeePin(adminId, pin);
-  if (row.role !== 'admin') {
+  if (row.role !== 'admin' && row.role !== 'superadmin') {
     const err = new Error('Administrator PIN required.');
     err.status = 403;
     throw err;

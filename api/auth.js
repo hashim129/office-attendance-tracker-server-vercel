@@ -1,6 +1,6 @@
 import { isSupabaseConfigured, supabaseFetch } from './_supabase.js';
 import { getClientIp } from './_cloud.js';
-import { issueSession } from './_session.js';
+import { issueSession, isSiteDisabled } from './_session.js';
 import {
   autoTokenFor, checkAdminPin, checkEmployeePin, checkLock, clearFailures, getEmployeeRow, hashPin,
   isValidNewPin, migratePlaintextPins, recordFailure, verifyPinHash,
@@ -9,7 +9,7 @@ import {
 async function findByIdentifier(identifier) {
   const needle = String(identifier || '').trim().toLowerCase();
   if (!needle) return null;
-  const rows = await supabaseFetch('/employees?deleted_at=is.null&is_active=eq.true&select=id,employee_code,email');
+  const rows = await supabaseFetch('/employees?deleted_at=is.null&is_active=eq.true&select=id,employee_code,email,role');
   return (rows || []).find((r) => String(r.employee_code || '').toLowerCase() === needle || String(r.email || '').toLowerCase() === needle) || null;
 }
 
@@ -21,10 +21,15 @@ export default async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
     const { action } = body;
     await migratePlaintextPins();
+    const siteDisabled = await isSiteDisabled();
+    if (siteDisabled && action !== 'lookup' && action !== 'verify') {
+      return res.status(503).json({ error: 'The office portal is temporarily disabled by its Super Admin.' });
+    }
 
     // Sign in / confirm a PIN for a known employee id
     if (action === 'verify') {
       const row = await checkEmployeePin(String(body.employeeId || ''), String(body.pin ?? '').trim());
+      if (siteDisabled && row.role !== 'superadmin') return res.status(503).json({ error: 'The office portal is temporarily disabled by its Super Admin.' });
       return res.status(200).json({ ok: true, employeeId: row.id, session: issueSession(row.id) });
     }
 
@@ -32,8 +37,10 @@ export default async function handler(req, res) {
     if (action === 'lookup') {
       const found = await findByIdentifier(body.identifier);
       if (!found) return res.status(404).json({ error: 'No active employee found with this ID or Email.' });
+      const siteDisabled = await isSiteDisabled();
+      if (siteDisabled && found.role !== 'superadmin') return res.status(503).json({ error: 'The office portal is temporarily disabled by its Super Admin.' });
       const row = await checkEmployeePin(found.id, String(body.pin ?? '').trim());
-      return res.status(200).json({ ok: true, employeeId: row.id, session: issueSession(row.id) });
+      return res.status(200).json({ ok: true, employeeId: row.id, session: issueSession(row.id), employee: { id:row.id, employeeCode:row.employee_code, name:row.name, email:row.email||'', role:row.role==='superadmin'?'admin':row.role, isSuperAdmin:row.role==='superadmin', department:row.department||'', designation:row.designation||'', shiftId:row.shift_id||'shift-std', phone:row.phone||'', hourlyRate:Number(row.hourly_rate)||0, isActive:true, joinedDate:row.joined_date||'', pin:'', hasPin:true, featureAccess:row.page_access||{} } });
     }
 
     // Lobby kiosk: identify the person from the PIN alone
@@ -41,7 +48,7 @@ export default async function handler(req, res) {
       const key = `lock:kiosk:${getClientIp(req) || 'unknown'}`;
       const prev = await checkLock(key);
       const pin = String(body.pin ?? '').trim();
-      const rows = await supabaseFetch('/employees?deleted_at=is.null&is_active=eq.true&pin_hash=not.is.null&select=id,pin_hash');
+      const rows = await supabaseFetch('/employees?deleted_at=is.null&is_active=eq.true&pin_hash=not.is.null&role=neq.superadmin&select=id,pin_hash');
       const hit = pin.length >= 4 ? (rows || []).find((r) => verifyPinHash(pin, r.pin_hash)) : null;
       if (!hit) {
         await recordFailure(key, prev);
@@ -56,7 +63,7 @@ export default async function handler(req, res) {
       const key = `lock:adminpin:${getClientIp(req) || 'unknown'}`;
       const prev = await checkLock(key);
       const pin = String(body.pin ?? '').trim();
-      const rows = await supabaseFetch('/employees?deleted_at=is.null&is_active=eq.true&role=eq.admin&pin_hash=not.is.null&select=id,pin_hash');
+      const rows = await supabaseFetch('/employees?deleted_at=is.null&is_active=eq.true&role=in.(admin,superadmin)&pin_hash=not.is.null&select=id,pin_hash');
       const hit = (rows || []).find((r) => verifyPinHash(pin, r.pin_hash));
       if (!hit) {
         await recordFailure(key, prev);
@@ -86,6 +93,7 @@ export default async function handler(req, res) {
       await checkAdminPin(String(body.adminId || ''), String(body.adminPin ?? '').trim());
       const target = await getEmployeeRow(String(body.employeeId || ''));
       if (!target) return res.status(404).json({ error: 'Employee not found.' });
+      if (target.role === 'superadmin' && target.id !== String(body.adminId || '')) return res.status(403).json({ error: 'Only the Super Admin can change this protected account.' });
       await supabaseFetch(`/employees?id=eq.${encodeURIComponent(target.id)}`, {
         method: 'PATCH',
         body: JSON.stringify({ pin_hash: hashPin(newPin), pin_len: newPin.length, pin: '', legacy_auto_tokens: [], record_updated_at: new Date().toISOString() }),

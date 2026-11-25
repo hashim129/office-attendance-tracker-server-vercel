@@ -1,4 +1,4 @@
-import { getSessionEmployee } from './_session.js';
+import { getSessionEmployee, isSiteDisabled } from './_session.js';
 import {
   evaluateAttendancePresenceAndAutoClose,
   format12h,
@@ -576,6 +576,10 @@ export default async function handler(req, res) {
       if (req.method === 'GET') {
         const sessionToken = String(req.headers['x-session-token'] || '').trim();
         const sessionEmployee = sessionToken ? await getSessionEmployee(sessionToken) : null;
+        const siteDisabled = await isSiteDisabled();
+        if (siteDisabled && !sessionEmployee?.isSuperAdmin) {
+          return res.status(200).json({ authRequired: true, siteDisabled: true, employees: [] });
+        }
         let currentSupaDb = await readSupabaseDb(DEFAULT_DB);
 
         // If Supabase was just initialized (only 1 default admin employee), auto-migrate all 17 employees and attendance from Gist
@@ -610,6 +614,7 @@ export default async function handler(req, res) {
             updatedAt: currentSupaDb.updatedAt,
             employees: (currentSupaDb.employees || [])
               .filter((e) => e && e.isActive !== false)
+              .filter((e) => e.role !== 'admin' || !e.isSuperAdmin)
               .map((e) => ({
                 id: e.id,
                 employeeCode: e.employeeCode,
@@ -628,19 +633,20 @@ export default async function handler(req, res) {
         }
 
         if (Array.isArray(currentSupaDb.attendance)) {
+          const responseDb=sessionEmployee?.isSuperAdmin?currentSupaDb:{...currentSupaDb,employees:(currentSupaDb.employees||[]).filter(e=>!e.isSuperAdmin)};
           const { records: displayRecs } = evaluateAttendancePresenceAndAutoClose(
             currentSupaDb.attendance,
             currentSupaDb.settings,
-            currentSupaDb.employees,
+            responseDb.employees,
             currentSupaDb.shifts
           );
           await persistAutoClosures(currentSupaDb.attendance, displayRecs);
           return res.status(200).json({
-            ...currentSupaDb,
+            ...responseDb,
             attendance: displayRecs,
           });
         }
-        return res.status(200).json(currentSupaDb);
+        return res.status(200).json(sessionEmployee?.isSuperAdmin?currentSupaDb:{...currentSupaDb,employees:(currentSupaDb.employees||[]).filter(e=>!e.isSuperAdmin)});
       }
 
       if (req.method === 'POST') {
@@ -837,6 +843,7 @@ export default async function handler(req, res) {
             }
           } else if (scope === 'employee_delete') {
             const targetId = incoming.deletedEmployeeId || incoming.employeeId;
+            if (finalEmployees.some((e)=>e.id===targetId&&e.isSuperAdmin) && incoming.actorRole !== 'superadmin') throw new Error('Only the Super Admin can remove this protected account.');
             const remainingAdmins = finalEmployees.filter((e) => e.role === 'admin' && e.isActive !== false && e.id !== targetId);
             if (targetId && remainingAdmins.length === 0 && finalEmployees.some((e) => e.id === targetId && e.role === 'admin')) {
               rejectionReason = 'At least one active administrator must remain.';
