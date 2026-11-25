@@ -226,6 +226,8 @@ export interface CrmInvoice {
   taxRate: number;
   discount: number;
   advancePaid: number;
+  /** Every payment received on this invoice (oldest first). advancePaid is their total. */
+  payments?: InvoicePayment[];
   subtotal: number;
   taxAmount: number;
   total: number;
@@ -250,6 +252,19 @@ export interface CrmInvoice {
   visaProgress?: VisaProgress | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface InvoicePayment {
+  id: string;
+  date: string; // YYYY-MM-DD, the day the money was received
+  amount: number;
+  note: string;
+  method: 'cash' | 'bank' | '';
+  receiptId: string | null;
+  receiptNo: string | null;
+  by: string;
+  byName: string;
+  at: string; // ISO, when it was recorded
 }
 
 export interface InvoiceVendor {
@@ -281,6 +296,8 @@ export interface CrmReceipt {
   referenceNo: string;
   hasProof: boolean;
   purpose: string;
+  /** Set when this receipt is counted as a payment on an invoice */
+  linkedInvoiceId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -446,7 +463,13 @@ export interface CrmData {
   currencies: string[];
   badges: CrmBadges;
   business?: CrmBusiness | null;
+  /** Live Dashboard positions, sizes and colours saved by an administrator for everyone */
+  dashboardLayout?: DashboardLayout | null;
+  me?: { id: string; role: string; salesTeam?: '' | 'B2C' | 'B2B'; salesTeamHead?: boolean } | null;
 }
+
+export interface DashboardWidgetLayout { order: number; span: number; h: number; color: string; hidden: boolean }
+export interface DashboardLayout { items: Record<string, DashboardWidgetLayout>; updatedAt?: string; updatedByName?: string }
 
 export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0, salesNew: 0, invoiceNew: 0, receiptNew: 0, customersNew: 0, salesPending: 0, unreadTotal: 0, upcoming: [], unreadLatest: [] };
 

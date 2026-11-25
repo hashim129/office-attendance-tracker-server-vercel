@@ -4,7 +4,10 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmInventoryRequest, InventoryStatus, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
-import { ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, inputCls } from './ui';
+import { CreatedStamp, ErrorNote, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, inputCls } from './ui';
+import { ExportPanel } from './ExportPanel';
+import { inventoryCells, inventoryColumns, inventorySearch } from './exportConfigs';
+
 
 interface Props {
   crm: CrmState;
@@ -182,7 +185,14 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
           <button className={chip(tab === 'mine')} onClick={() => setTab('mine')}>Requested by me</button>
           {canReview && <button className={chip(tab === 'assigned')} onClick={() => setTab('assigned')}>Assigned to me</button>}
         </div>
-        <button className={btnPrimary} onClick={openForm}><Plus className="w-4 h-4" /> New inventory request</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportPanel
+            title="Inventory requests" rows={crm.data.inventory} columns={inventoryColumns()} toCells={(r) => inventoryCells(r, (id) => empName.get(id) || 'Former employee')}
+            getCreatedAt={(r) => r.createdAt} getCreatorId={(r) => r.requestedBy} searchFields={inventorySearch} searchHint="Item name"
+            employees={employees} currentUser={currentUser} companyName={crm.data.company.name}
+          />
+          <button className={btnPrimary} onClick={openForm}><Plus className="w-4 h-4" /> New inventory request</button>
+        </div>
       </div>
 
       {/* Live Inventory Product Catalog Bar (Admins & Accounts Only) */}
@@ -273,7 +283,7 @@ export const InventoryView: React.FC<Props> = ({ crm, employees, currentUser }) 
                       {r.items.map((l) => <Pill key={l.item} tone="slate">{l.qty} × {l.item}</Pill>)}
                     </div>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Requested by <b className="text-slate-700 dark:text-slate-200">{empName.get(r.requestedBy) || 'Former employee'}</b> · for {empName.get(r.assignedTo) || 'Former employee'}
+                      Requested for <b className="text-slate-700 dark:text-slate-200">{empName.get(r.assignedTo) || 'Former employee'}</b> · <CreatedStamp at={r.createdAt} by={empName.get(r.requestedBy) || 'Former employee'} />
                     </p>
                     {r.note && <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">{r.note}</p>}
                     {r.decisionRemarks && (

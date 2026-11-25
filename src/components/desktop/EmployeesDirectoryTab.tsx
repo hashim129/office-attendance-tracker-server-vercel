@@ -89,6 +89,8 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     teamPresenceAccess: false,
     leaderboardAccess: false,
     payablesAccess: false,
+    salesTeam: '' as '' | 'B2C' | 'B2B',
+    salesTeamHead: false,
     birthday: '',
   });
 
@@ -130,6 +132,8 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       teamPresenceAccess: false,
       leaderboardAccess: false,
       payablesAccess: false,
+      salesTeam: '',
+      salesTeamHead: false,
       birthday: '',
     });
     setIsAddModalOpen(true);
@@ -156,6 +160,8 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       teamPresenceAccess: Boolean(emp.teamPresenceAccess),
       leaderboardAccess: Boolean(emp.leaderboardAccess),
       payablesAccess: Boolean(emp.payablesAccess),
+      salesTeam: (emp.salesTeam === 'B2C' || emp.salesTeam === 'B2B' ? emp.salesTeam : '') as '' | 'B2C' | 'B2B',
+      salesTeamHead: Boolean(emp.salesTeam && emp.salesTeamHead),
       birthday: emp.birthday || '',
     });
   };
@@ -750,6 +756,35 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   />
                 </label>
               ))}
+              <div className="rounded-lg border border-indigo-200/80 dark:border-indigo-900/60 bg-white/60 dark:bg-slate-900/40 p-3 space-y-2" data-sales-team-box>
+                <label className="block text-xs font-bold text-slate-900 dark:text-slate-100">
+                  Sales team
+                  <select
+                    value={formData.salesTeam}
+                    onChange={(e) => setFormData({ ...formData, salesTeam: e.target.value as '' | 'B2C' | 'B2B', salesTeamHead: e.target.value ? formData.salesTeamHead : false })}
+                    className="mt-1 block w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-normal"
+                    data-sales-team
+                  >
+                    <option value="">Not in a sales team</option>
+                    <option value="B2C">B2C sales team</option>
+                    <option value="B2B">B2B sales team</option>
+                  </select>
+                </label>
+                <label className={`flex items-start justify-between gap-3 select-none ${formData.salesTeam ? 'cursor-pointer' : 'opacity-50'}`}>
+                  <div className="flex-1">
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">Sales Team Head</span>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">The head also sees the Customers section of everyone in their team (view only). Pick a team first.</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    disabled={!formData.salesTeam}
+                    checked={Boolean(formData.salesTeam && formData.salesTeamHead)}
+                    onChange={(e) => setFormData({ ...formData, salesTeamHead: e.target.checked })}
+                    className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    data-sales-team-head
+                  />
+                </label>
+              </div>
               <label className="block text-xs font-bold text-slate-900 dark:text-slate-100">
                 Birthday (optional)
                 <input

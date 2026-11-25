@@ -27,6 +27,7 @@ import {
   AttendanceRecord,
   CeoComment,
   Employee,
+  LeaveRequest,
   OfficeSettings,
   ShiftSchedule,
 } from '../../types';
@@ -46,6 +47,7 @@ import { exportAttendanceToCsv } from '../../lib/exportUtils';
 import { downloadOfficialTimesheetPdf } from '../../lib/pdfTimesheet';
 import { Modal } from '../common/Modal';
 import { RemarksReport } from './RemarksReport';
+import { DailyAttendancePdf } from './DailyAttendancePdf';
 
 interface ReportsTabProps {
   employees: Employee[];
@@ -57,6 +59,7 @@ interface ReportsTabProps {
   onAddCeoComment?: (comment: Omit<CeoComment, 'id' | 'createdAt'>) => void;
   onUpdateRecord?: (updated: AttendanceRecord) => void;
   isNetworkOnline?: boolean;
+  leaves?: LeaveRequest[];
 }
 
 export const ReportsTab: React.FC<ReportsTabProps> = ({
@@ -69,6 +72,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   onAddCeoComment,
   onUpdateRecord,
   isNetworkOnline = true,
+  leaves,
 }) => {
   const [period, setPeriod] = useState<'month' | 'last_month' | 'all' | 'custom'>('month');
   const [customStart, setCustomStart] = useState<string>('');
@@ -462,6 +466,8 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
           </button>
         </div>
       </div>
+
+      <DailyAttendancePdf employees={employees} records={records} leaves={leaves} shifts={shifts} currentUser={currentUser} />
 
       <RemarksReport employees={employees} records={records} />
 

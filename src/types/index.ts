@@ -146,6 +146,8 @@ export interface Employee {
   teamPresenceAccess?: boolean; // Admin-selected: may view Team Presence; hidden for employees by default
   leaderboardAccess?: boolean; // Admin-selected: may see the sales leaderboard
   payablesAccess?: boolean; // Admin-selected: may see the payables-due calendar
+  salesTeam?: '' | 'B2C' | 'B2B'; // Sales team the employee belongs to (set by an administrator)
+  salesTeamHead?: boolean; // Heads of the B2C / B2B team also see the customers of their whole team
   birthday?: string; // YYYY-MM-DD, optional (used for birthday cards)
   gameCharacterId?: string; // Employee Universe Beta avatar selection
   gamePetId?: string; // Employee Universe Beta optional companion

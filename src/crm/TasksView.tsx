@@ -5,7 +5,10 @@ import { Modal } from '../components/common/Modal';
 import { CrmFollowup, FollowupKind, FollowupStatus, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { FollowupModal } from './FollowupModal';
-import { AddToCalendar, Countdown, ErrorNote, StatBar, Field, KIND_BAR, KIND_LABEL, KIND_TONE, Pill, STATUS_LABEL, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { AddToCalendar, CreatedStamp, Countdown, ErrorNote, StatBar, Field, KIND_BAR, KIND_LABEL, KIND_TONE, Pill, STATUS_LABEL, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { ExportPanel } from './ExportPanel';
+import { followupCells, followupColumns, followupSearch } from './exportConfigs';
+
 
 interface Props {
   crm: CrmState;
@@ -175,7 +178,15 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
           <div className="flex flex-wrap gap-1.5">
             {scopes.map((s) => <button key={s.id} className={chip(scope === s.id)} onClick={() => setScope(s.id)}>{s.label}</button>)}
           </div>
-          <button className={btnPrimary} onClick={() => { setEditing(null); setFormOpen(true); }}><Plus className="w-4 h-4" /> New follow-up</button>
+          <div className="flex flex-wrap items-center gap-2">
+            <ExportPanel
+              title="Follow-ups" rows={crm.data.followups} columns={followupColumns()}
+              toCells={(f) => followupCells(f, (id) => empName.get(id) || 'Former employee', (cid) => (cid ? crm.data.customers.find((c) => c.id === cid)?.customerName || '' : ''), KIND_LABEL as Record<string, string>, STATUS_LABEL as Record<string, string>)}
+              getCreatedAt={(f) => f.createdAt} getCreatorId={(f) => f.createdBy} searchFields={followupSearch} searchHint="Subject or words in the follow-up"
+              employees={employees} currentUser={currentUser} companyName={crm.data.company.name} landscape
+            />
+            <button className={btnPrimary} onClick={() => { setEditing(null); setFormOpen(true); }}><Plus className="w-4 h-4" /> New follow-up</button>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mr-1">Category</span>
@@ -289,11 +300,12 @@ export const TasksView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                       <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
                         <CalendarClock className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
                         <div className="min-w-0">
-                          <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Due · Created by {creatorName}</span>
+                          <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Due</span>
                           <span className="block text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{fmtDateTime(f.dueAt)}</span>
                         </div>
                       </div>
                     </div>
+                    <p><CreatedStamp at={f.createdAt} by={creatorName} /></p>
 
                     {/* Highlighted Reason / Task Summary */}
                     {(f.remarks || f.outcomeRemarks) && (

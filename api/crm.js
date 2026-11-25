@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { confirmOpenWork, isSupabaseConfigured, supabaseFetch, sweepShiftReminders } from './_supabase.js';
 import { format12h, getShiftEndWindowMs } from './_cloud.js';
 import { getSessionEmployee } from './_session.js';
+import { PaymentError, assertWithinTotal, buildPayments, cleanStored, receiptProblem, sumPayments } from './_invoicePayments.js';
 
 const KINDS = ['meeting', 'corporate', 'internal', 'regular', 'personal'];
 const KIND_LABEL = { meeting: 'Meeting follow-up', corporate: 'Corporate follow-up', internal: 'Internal follow-up', regular: 'Regular customers follow-up', personal: 'Personal follow-up' };
@@ -435,6 +436,27 @@ const flagOf = (e, name) => {
 };
 // Sales: Admin, Accounts and CEO always; any other employee only when an administrator has switched it on for them.
 // Customer Portal (Beta) staff view: Admin always; everyone else only when an admin switched it on for them.
+// Sales teams: an employee can belong to the B2C or the B2B sales team; a team head also sees the customers of their whole team.
+const SALES_TEAMS = ['B2C', 'B2B'];
+const parsePending = (e) => {
+  let p = e && e.pending_device_request;
+  if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+  return p && typeof p === 'object' ? p : {};
+};
+const teamInfo = (e) => { const p = parsePending(e); return { team: SALES_TEAMS.includes(p.salesTeam) ? p.salesTeam : '', head: Boolean(p.salesTeamHead) }; };
+const teamMemberIds = async (team) => ((await supabaseFetch('/employees?deleted_at=is.null&is_active=eq.true&select=id,pending_device_request')) || []).filter((e) => teamInfo(e).team === team).map((e) => e.id);
+// Live Dashboard layout (positions, sizes, colours) that an administrator saves for everyone.
+const DASH_COLORS = ['blue', 'emerald', 'violet', 'amber', 'rose', 'sky', 'teal', 'slate'];
+const cleanLayout = (raw) => {
+  const items = {};
+  const src = raw && typeof raw === 'object' && raw.items && typeof raw.items === 'object' ? raw.items : {};
+  for (const [k, v] of Object.entries(src).slice(0, 60)) {
+    if (!/^[a-z0-9-]{1,40}$/.test(k) || !v || typeof v !== 'object') continue;
+    const clamp = (n, lo, hi, d) => { const x = Number(n); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, Math.round(x))) : d; };
+    items[k] = { order: clamp(v.order, -1000, 100000, 0), span: clamp(v.span, 2, 12, 12), h: v.h ? clamp(v.h, 80, 1400, 0) : 0, color: DASH_COLORS.includes(v.color) ? v.color : '', hidden: v.hidden === true };
+  }
+  return { items, updatedAt: String(raw?.updatedAt || ''), updatedBy: String(raw?.updatedBy || ''), updatedByName: String(raw?.updatedByName || '').slice(0, 80) };
+};
 const hasPortalAccess = (e) => Boolean(e) && (e.role === 'admin' || flagOf(e, 'customerPortalAccess'));
 const hasSalesAccess = (e) => Boolean(e) && (['admin', 'accounts', 'ceo'].includes(e.role) || flagOf(e, 'salesAccess'));
 const DEFAULT_COMPANY = {
@@ -442,11 +464,17 @@ const DEFAULT_COMPANY = {
   address: '', phone: '', email: '', website: '', bankDetails: '', terms: '', footer: 'Thanking you',
 };
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+// Payments of an invoice. Older invoices only have a single "advance received" amount: it is shown as the first payment.
+const paymentsOf = (r) => {
+  const list = asArray(r.payments).map(cleanStored).filter((p) => p.id);
+  if (list.length || !(num(r.advance_paid) > 0) || r.kind === 'vendor') return list;
+  return [cleanStored({ id: 'pay-legacy', date: String(r.invoice_date || '').slice(0, 10), amount: num(r.advance_paid), note: 'Advance received', by: r.created_by, at: r.created_at })];
+};
 const mapInvoice = (r, visaProgress = null) => ({
   id: r.id, kind: r.kind === 'vendor' ? 'vendor' : 'customer', crmId: r.crm_id || '', queryCode: r.query_code || '', invoiceNo: r.invoice_no, createdBy: r.created_by, customerName: r.customer_name, customerPhone: r.customer_phone || '',
   customerAddress: r.customer_address || '', customerNtn: r.customer_ntn || '', reference: r.reference || '',
   invoiceDate: r.invoice_date, dueDate: r.due_date || null, travelDate: r.travel_date || null, currency: r.currency, sections: asArray(r.sections),
-  taxLabel: r.tax_label || 'Tax', taxRate: num(r.tax_rate), discount: num(r.discount), advancePaid: num(r.advance_paid),
+  taxLabel: r.tax_label || 'Tax', taxRate: num(r.tax_rate), discount: num(r.discount), advancePaid: num(r.advance_paid), payments: paymentsOf(r),
   subtotal: num(r.subtotal), taxAmount: num(r.tax_amount), total: num(r.total), balance: num(r.balance), notes: r.notes || '',
   vendors: asArray(r.vendors), ntn: r.ntn === null || r.ntn === undefined ? null : String(r.ntn), showNtn: r.show_ntn !== false,
   status: r.status, paymentReceived: Boolean(r.payment_received), paymentReceivedAt: r.payment_received_at || null, paymentReceivedBy: r.payment_received_by || null, paymentReceivedAuto: Boolean(r.payment_received_auto), travelers: asArray(r.travelers), vendorPosted: Boolean(r.vendor_posted), vendorPostedAt: r.vendor_posted_at || null, vendorPostedBy: r.vendor_posted_by || null, vendorStatus: r.vendor_status === 'paid' ? 'paid' : 'unpaid', vendorPaidAt: r.vendor_paid_at || null, vendorPaidBy: r.vendor_paid_by || null,
@@ -458,7 +486,7 @@ const mapReceipt = (r) => ({
   id: r.id, receiptNo: r.receipt_no, createdBy: r.created_by, queryCode: r.query_code, clientName: r.client_name, items: asArray(r.items), otherItem: r.other_item || '',
   paymentType: r.payment_type === 'partial' ? 'partial' : 'full', currency: r.currency, totalAmount: num(r.total_amount), amountReceived: num(r.amount_received),
   method: r.method === 'bank' ? 'bank' : 'cash', bankName: r.bank_name || '', referenceNo: r.reference_no || '', hasProof: Boolean(r.has_proof), purpose: r.purpose || '',
-  createdAt: r.created_at, updatedAt: r.updated_at,
+  linkedInvoiceId: r.linked_invoice_id || null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const mapSale = (r) => ({
   id: r.id, couponNo: r.coupon_no, createdBy: r.created_by, saleType: r.sale_type, otherType: r.other_type || '',
@@ -628,6 +656,12 @@ async function notifyOverlap(refId, what, startMs, clashes, exceptId) {
   await notify(people, 'meeting', refId, `⚠ Meeting time overlap: ${what} at ${pktClock(startMs)} clashes with ${names}.`, exceptId);
 }
 
+// Keeps receipts and invoices in step: a receipt attached as a payment is marked with the invoice, and freed again when that payment is removed.
+async function syncReceiptLinks(invoiceId, added, removed) {
+  for (const p of added) if (p.receiptId) await supabaseFetch(`/crm_receipts?id=eq.${encodeURIComponent(p.receiptId)}`, { method: 'PATCH', body: JSON.stringify({ linked_invoice_id: invoiceId }) });
+  for (const p of removed) if (p.receiptId) await supabaseFetch(`/crm_receipts?id=eq.${encodeURIComponent(p.receiptId)}&linked_invoice_id=eq.${encodeURIComponent(invoiceId)}`, { method: 'PATCH', body: JSON.stringify({ linked_invoice_id: null }) });
+}
+
 function readMeetingInput(m, { requireEnd = true } = {}) {
   const startAt = isoOrNull(m?.startAt, 'Start time', { required: true });
   const endAt = isoOrNull(m?.endAt, 'End time', { required: requireEnd });
@@ -655,7 +689,9 @@ export default async function handler(req, res) {
     const isAdmin = me.role === 'admin' || me.role === 'ceo'; // the CEO has every administrator right in the CRM and Office sections
     const seeAllCust = isAdmin || me.role === 'accounts' || me.role === 'ceo';
     // Everyone can add customers; they see their own plus the ones shared with them. Admin, CEO and Accounts see all.
-    const canSeeCust = (c) => seeAllCust || c.created_by === me.id || asArray(c.shared_with).includes(me.id);
+    const myTeam = teamInfo(me);
+    const teamIds = myTeam.head && myTeam.team ? new Set(await teamMemberIds(myTeam.team)) : null;
+    const canSeeCust = (c) => seeAllCust || c.created_by === me.id || asArray(c.shared_with).includes(me.id) || Boolean(teamIds && teamIds.has(c.created_by));
     const canSales = hasSalesAccess(me);
     const { action } = body;
 
@@ -726,7 +762,7 @@ export default async function handler(req, res) {
         const [invRows, companyRow, receiptRows, catalogItems, allPurchases, purchaseSchema, betaEnabled, allPortalQueries, visaRowsAll] = await Promise.all([
           getAll('crm_invoices'),
           getOne('crm_company', 'main'),
-          supabaseFetch(`/crm_receipts?select=id,receipt_no,created_by,query_code,client_name,items,other_item,payment_type,currency,total_amount,amount_received,method,bank_name,reference_no,has_proof,purpose,created_at,updated_at&order=created_at.desc&limit=${LIMIT}`),
+          supabaseFetch(`/crm_receipts?select=id,receipt_no,created_by,query_code,client_name,items,other_item,payment_type,currency,total_amount,amount_received,method,bank_name,reference_no,has_proof,purpose,linked_invoice_id,created_at,updated_at&order=created_at.desc&limit=${LIMIT}`),
           getInventoryCatalog(),
           getAllPurchases(),
           getPurchaseSchema(),
@@ -786,6 +822,7 @@ export default async function handler(req, res) {
         inventoryItems = catalogItems;
       }
       // Times the CEO is busy with a Meeting follow-up: shown in the Meetings portal to everyone (details only to people involved).
+      const dashboardLayout = cleanLayout(parseJsonObj((await getOne('crm_company', 'dashboard-layout').catch(() => null))?.data, {}));
       const ceoIdsNow = await ceoIdList();
       const bookedSlots = ceoFollowupSlots(followups, ceoIdsNow).filter((x) => x.end >= Date.now() - 45 * 24 * 3600 * 1000).map((x) => {
         const f = followups.find((r) => r.id === x.id);
@@ -798,9 +835,17 @@ export default async function handler(req, res) {
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
-        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales, portalAccess: hasPortalAccess(me) }, customers, followups: visibleFollowups, meetings: visibleMeetings, bookedSlots, inventory: visibleInventory, inventoryItems, sales, purchases, portalQueries, portalInvoices, purchaseCustomFields, purchaseCustomCategories, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES, business,
+        ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales, portalAccess: hasPortalAccess(me), salesTeam: myTeam.team, salesTeamHead: myTeam.head }, dashboardLayout, customers, followups: visibleFollowups, meetings: visibleMeetings, bookedSlots, inventory: visibleInventory, inventoryItems, sales, purchases, portalQueries, portalInvoices, purchaseCustomFields, purchaseCustomCategories, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES, business,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
+    }
+
+    // Live Dashboard layout (Admin / CEO): saved once and shown to everybody.
+    if (action === 'dashboard_layout_save') {
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can change the dashboard layout.');
+      const layout = cleanLayout({ items: body.layout?.items, updatedAt: nowIso(), updatedBy: me.id, updatedByName: me.name });
+      await upsert('crm_company', { id: 'dashboard-layout', data: layout, updated_at: nowIso() });
+      return res.status(200).json({ ok: true, dashboardLayout: layout });
     }
 
     // Monthly sales targets (Admin / CEO). Same target every month until changed.
@@ -1399,11 +1444,11 @@ export default async function handler(req, res) {
         }
       }
       const discount = money(x.discount, 'Discount');
-      const advancePaid = money(x.advancePaid, 'Advance received');
+      let advancePaid = money(x.advancePaid, 'Advance received');
       const taxAmount = r2(taxable * taxRate / 100);
       const total = r2(subtotal + taxAmount - discount);
       if (total < 0) throw bad('The discount is larger than the invoice total.');
-      const balance = r2(Math.max(0, total - advancePaid));
+      let balance = r2(Math.max(0, total - advancePaid));
       const dateOnly = (v, name, required) => {
         const d = String(v || '').slice(0, 10);
         if (!d) { if (required) throw bad(`${name} is required.`); return null; }
@@ -1411,6 +1456,30 @@ export default async function handler(req, res) {
         return d;
       };
       const crmQuery = str(x.crmId || x.queryCode, 80, { name: 'CRM ID / Query Code' });
+      // Payment history: several payments received at different times, each with its own date. The running total is kept in advance_paid.
+      let paymentsOut = null;
+      let paymentsAdded = [];
+      let paymentsRemoved = [];
+      const attachedReceipts = new Map();
+      if (!vendorBill && Array.isArray(x.payments)) {
+        try {
+          const wantedIds = [...new Set(x.payments.filter((p) => p && p.receiptId && !(existing ? paymentsOf(existing) : []).some((e) => e && e.id === p.id)).map((p) => String(p.receiptId)))];
+          for (const rid of wantedIds) {
+            const rc = await getOne('crm_receipts', rid);
+            const problem = receiptProblem(rc, { invoiceId: existing?.id || '', invoiceCurrency: currency, customerName: str(x.customerName, 160), crmQuery, canSee: Boolean(rc) && (isAdmin || me.role === 'accounts' || rc.created_by === me.id) });
+            if (problem) throw bad(problem);
+            attachedReceipts.set(rid, rc);
+          }
+          const built = buildPayments({ existing: existing ? paymentsOf(existing) : [], incoming: x.payments, privileged: isAdmin || me.role === 'accounts', actor: me, nowIso: nowIso(), receipts: attachedReceipts });
+          assertWithinTotal(built.payments, total);
+          paymentsOut = built.payments; paymentsAdded = built.added; paymentsRemoved = built.removed;
+        } catch (e) {
+          if (e instanceof PaymentError) throw bad(e.message);
+          throw e;
+        }
+        advancePaid = sumPayments(paymentsOut);
+        balance = r2(Math.max(0, total - advancePaid));
+      }
       // Vendors we pay for this invoice: office record only, never printed on the customer's PDF.
       const vendors = vendorBill ? [] : (Array.isArray(x.vendors) ? x.vendors.slice(0, 20) : []).map((v, vi) => {
         const name = str(v?.name, 160, { name: `Vendor ${vi + 1} name` });
@@ -1436,7 +1505,7 @@ export default async function handler(req, res) {
         // one box on the form: "CRM ID / Query Code" (kept in both columns so searches and reports find it either way)
         reference: str(x.reference, 120, { name: 'Reference' }), crm_id: crmQuery, query_code: crmQuery,
         ntn: str(x.ntn, 60, { name: 'NTN' }), show_ntn: x.showNtn !== false, vendors, invoice_date: dateOnly(x.invoiceDate, 'Invoice date', true), due_date: dateOnly(x.dueDate, 'Due date', false), travel_date: vendorBill ? null : dateOnly(x.travelDate, 'Travel date', false),
-        currency, sections, travelers: asArray(x.travelers).map((name) => str(name, 120, { name: 'Traveler name' })).filter(Boolean).slice(0, 100), tax_label: str(x.taxLabel, 40, { name: 'Tax label' }) || 'Tax', tax_rate: taxRate, discount, advance_paid: advancePaid,
+        currency, sections, travelers: asArray(x.travelers).map((name) => str(name, 120, { name: 'Traveler name' })).filter(Boolean).slice(0, 100), tax_label: str(x.taxLabel, 40, { name: 'Tax label' }) || 'Tax', tax_rate: taxRate, discount, advance_paid: advancePaid, ...(paymentsOut ? { payments: paymentsOut } : {}),
         subtotal: r2(subtotal), tax_amount: taxAmount, total, balance, notes: str(x.notes, 1500, { name: 'Notes' }),
         payment_received: existing ? (existing.created_by === me.id && existing.status === 'unpaid' ? Boolean(x.paymentReceived) : Boolean(existing.payment_received)) : Boolean(x.paymentReceived),
         payment_received_at: existing ? (existing.created_by === me.id && existing.status === 'unpaid' ? (x.paymentReceived ? (existing.payment_received_at || at) : null) : existing.payment_received_at) : (x.paymentReceived ? at : null),
@@ -1563,6 +1632,7 @@ export default async function handler(req, res) {
       if (existing) {
         const row = { ...existing, ...base, updated_at: at };
         await upsert('crm_invoices', row);
+        await syncReceiptLinks(row.id, paymentsAdded, paymentsRemoved);
         if (visaOp === 'delete') {
           await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(`visa-${row.id}`)}`, { method: 'DELETE' });
         } else if (visaOp === 'upsert' && visaObj) {
@@ -1570,7 +1640,7 @@ export default async function handler(req, res) {
         }
         const what = changedBits([
           [vendorBill ? 'vendor' : 'customer', existing.customer_name, base.customer_name], ['currency', existing.currency, base.currency], ['total', num(existing.total), num(base.total)],
-          ['discount', num(existing.discount), num(base.discount)], ['advance', num(existing.advance_paid), num(base.advance_paid)], ['due', existing.due_date, base.due_date], ['travel date', existing.travel_date, base.travel_date],
+          ['discount', num(existing.discount), num(base.discount)], ['advance', num(existing.advance_paid), num(base.advance_paid)], ['due', existing.due_date, base.due_date], ['travel date', existing.travel_date, base.travel_date], ['payments', paymentsOf(existing).length, asArray(base.payments ?? paymentsOf(existing)).length],
           ['query code', existing.query_code, base.query_code], ['notes', existing.notes, base.notes],
         ]);
         await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'Someone'} edited ${vendorBill ? 'vendor payable' : 'invoice'} ${row.invoice_no}${what ? ` (${what})` : ' (details updated)'}.`, me.id);
@@ -1579,6 +1649,7 @@ export default async function handler(req, res) {
       const invoiceNo = await supabaseFetch(vendorBill ? '/rpc/crm_next_payable_no' : '/rpc/crm_next_invoice_no', { method: 'POST', body: '{}' });
       const row = { id: id('inv'), kind, invoice_no: String(invoiceNo), created_by: me.id, status: 'unpaid', created_at: at, updated_at: at, ...base };
       await upsert('crm_invoices', row);
+      await syncReceiptLinks(row.id, paymentsAdded, paymentsRemoved);
       if (visaOp === 'upsert' && visaObj) {
         await upsert('crm_company', { id: `visa-${row.id}`, data: visaObj, updated_at: visaObj.updatedAt });
       }
@@ -1764,10 +1835,57 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
 
+    // A payment received later on an existing invoice (several payments at different times), optionally from a receipt already on file.
+    if (action === 'invoice_payment_add' || action === 'invoice_payment_remove') {
+      const existing = await getOne('crm_invoices', body.id);
+      if (!existing) throw notFound('Invoice not found.');
+      if (existing.kind === 'vendor') throw bad('Payments are recorded on customer invoices.');
+      if (existing.status === 'cancelled') throw bad('A cancelled invoice cannot take payments.');
+      const privileged = isAdmin || me.role === 'accounts';
+      if (!privileged && existing.created_by !== me.id) throw forbidden('Only the person who made the invoice, Accounts or an administrator can record payments.');
+      if (action === 'invoice_payment_remove' && !privileged) throw forbidden('Only Accounts or an administrator can remove a saved payment.');
+      const at = nowIso();
+      const current = paymentsOf(existing);
+      let incoming;
+      const attached = new Map();
+      if (action === 'invoice_payment_add') {
+        const p = body.payment || {};
+        if (p.receiptId) {
+          const rc = await getOne('crm_receipts', String(p.receiptId));
+          const problem = receiptProblem(rc, { invoiceId: existing.id, invoiceCurrency: existing.currency, customerName: existing.customer_name, crmQuery: existing.crm_id || existing.query_code, canSee: Boolean(rc) && (privileged || rc.created_by === me.id) });
+          if (problem) throw bad(problem);
+          attached.set(String(p.receiptId), rc);
+        }
+        incoming = [...current, { receiptId: p.receiptId || null, amount: p.amount, date: p.date, note: p.note, method: p.method }];
+      } else {
+        const pid = String(body.paymentId || '');
+        if (!current.some((p) => p.id === pid)) throw notFound('That payment was not found.');
+        if (!String(body.remarks || '').trim()) throw bad('Please write why this payment is being removed.');
+        incoming = current.filter((p) => p.id !== pid);
+      }
+      let built;
+      try {
+        built = buildPayments({ existing: current, incoming, privileged, actor: me, nowIso: at, receipts: attached });
+        assertWithinTotal(built.payments, num(existing.total));
+      } catch (e) {
+        if (e instanceof PaymentError) throw bad(e.message);
+        throw e;
+      }
+      const paid = sumPayments(built.payments);
+      const row = { ...existing, payments: built.payments, advance_paid: paid, balance: r2(Math.max(0, num(existing.total) - paid)), updated_at: at };
+      await upsert('crm_invoices', row);
+      await syncReceiptLinks(row.id, built.added, built.removed);
+      const what = action === 'invoice_payment_add' ? built.added[0] : built.removed[0];
+      const verb = action === 'invoice_payment_add' ? 'recorded' : `removed (${str(body.remarks, 300)})`;
+      await notify([...(await salesStaffIds()), existing.created_by], 'invoice', row.id, `${me.name || 'Someone'} ${verb} a payment of ${existing.currency} ${what ? what.amount : ''} on invoice ${existing.invoice_no}. Balance now ${existing.currency} ${row.balance}.`, me.id);
+      return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
+    }
+
     if (action === 'invoice_delete') {
       if (!isAdmin) throw forbidden('Only an administrator can delete an invoice. You can cancel it instead.');
       const existing = await getOne('crm_invoices', body.id);
       if (!existing) throw notFound('Invoice not found.');
+      await supabaseFetch(`/crm_receipts?linked_invoice_id=eq.${encodeURIComponent(existing.id)}`, { method: 'PATCH', body: JSON.stringify({ linked_invoice_id: null }) });
       await supabaseFetch(`/crm_invoices?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
       await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(`visa-${existing.id}`)}`, { method: 'DELETE' });
       return res.status(200).json({ ok: true });
@@ -1798,6 +1916,9 @@ export default async function handler(req, res) {
       const totalAmount = x.totalAmount !== undefined && x.totalAmount !== null && x.totalAmount !== '' && num(x.totalAmount) >= amountReceived
         ? money(x.totalAmount, 'Total payment sold for')
         : (existing && num(existing.total_amount) > amountReceived ? num(existing.total_amount) : amountReceived);
+      if (existing && existing.linked_invoice_id && (num(existing.amount_received) !== amountReceived || String(existing.currency).toUpperCase() !== currency)) {
+        throw bad('This receipt is already counted as a payment on an invoice, so its amount and currency cannot be changed. Remove it from the invoice first.');
+      }
       const method = x.method === 'bank' ? 'bank' : 'cash';
       let proof = existing ? existing.proof_image || null : null;
       if (x.removeProof) proof = null;
@@ -1854,6 +1975,7 @@ export default async function handler(req, res) {
       if (!isAdmin) throw forbidden('Only an administrator can delete a receipt.');
       const existing = await getOne('crm_receipts', body.id);
       if (!existing) throw notFound('Receipt not found.');
+      if (existing.linked_invoice_id) throw bad('This receipt is counted as a payment on an invoice. Remove it from that invoice first.');
       await supabaseFetch(`/crm_receipts?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
       return res.status(200).json({ ok: true });
     }

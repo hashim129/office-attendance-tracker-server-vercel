@@ -6,6 +6,7 @@ import { CrmState } from '../../crm/useCrm';
 import { crmCall } from '../../crm/crmApi';
 import { CountUp } from '../common/CountUp';
 import { EmployeeAvatar } from '../common/EmployeeIdentity';
+import { DashWidget, DashboardGrid } from './DashboardGrid';
 
 type State = 'in' | 'out' | 'leave' | 'absent' | 'waiting' | 'off';
 
@@ -65,6 +66,11 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
   }, []);
   const today = getTodayDateString();
   const isAdmin = ['admin', 'ceo'].includes(currentUser.role);
+  // Admin / CEO can rearrange, resize and colour the boxes; the saved layout is shown to everyone.
+  const saveLayout = async (layout: { items: Record<string, import('../../crm/crmApi').DashboardWidgetLayout> }) => {
+    await crmCall('dashboard_layout_save', { layout });
+    await crm.refresh();
+  };
 
   const rows: Row[] = useMemo(() => {
     const shiftMap = new Map(shifts.map((s) => [s.id, s]));
@@ -221,6 +227,8 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
 
   return (
     <div className={`space-y-5 ${redesignedUiBetaEnabled ? "live-dashboard-beta" : ""}`}>
+      <DashboardGrid layout={crm.data.dashboardLayout} canEdit={isAdmin} onSave={saveLayout}>
+        <DashWidget id="header" label="Title and leave alert" span={12}>
       <div data-dashboard-header className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 p-4 sm:p-5 shadow-xs">
         <div>
           <h2 className="text-lg font-extrabold text-slate-900 dark:text-slate-100">Live Dashboard</h2>
@@ -232,17 +240,28 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
           </button>
         )}
       </div>
+        </DashWidget>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Stat label="Working now" value={inNow} tone="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" icon={<CheckCircle2 className="w-4 h-4" />} />
-        <Stat label="Late today" value={late} tone="bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" icon={<Clock3 className="w-4 h-4" />} />
-        <Stat label="Not in yet" value={absent} tone="bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300" icon={<UserX className="w-4 h-4" />} />
-        <Stat label="On leave" value={onLeave} tone="bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300" icon={<CalendarOff className="w-4 h-4" />} />
-        <Stat label="Working from home" value={wfh} tone="bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" icon={<Home className="w-4 h-4" />} />
-        <Stat label="Finished" value={done} tone="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" icon={<LogOut className="w-4 h-4" />} />
-      </div>
+        <DashWidget id="stat-in" label="Working now" span={2} kind="stat">
+          <Stat label="Working now" value={inNow} tone="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" icon={<CheckCircle2 className="w-4 h-4" />} />
+        </DashWidget>
+        <DashWidget id="stat-late" label="Late today" span={2} kind="stat">
+          <Stat label="Late today" value={late} tone="bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" icon={<Clock3 className="w-4 h-4" />} />
+        </DashWidget>
+        <DashWidget id="stat-absent" label="Not in yet" span={2} kind="stat">
+          <Stat label="Not in yet" value={absent} tone="bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300" icon={<UserX className="w-4 h-4" />} />
+        </DashWidget>
+        <DashWidget id="stat-leave" label="On leave" span={2} kind="stat">
+          <Stat label="On leave" value={onLeave} tone="bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300" icon={<CalendarOff className="w-4 h-4" />} />
+        </DashWidget>
+        <DashWidget id="stat-wfh" label="Working from home" span={2} kind="stat">
+          <Stat label="Working from home" value={wfh} tone="bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300" icon={<Home className="w-4 h-4" />} />
+        </DashWidget>
+        <DashWidget id="stat-done" label="Finished" span={2} kind="stat">
+          <Stat label="Finished" value={done} tone="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" icon={<LogOut className="w-4 h-4" />} />
+        </DashWidget>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <DashWidget id="team-pulse" label="Team Pulse" span={6}>
         <Card title="Team Pulse · Live Presence" icon={<Users className="w-4 h-4 text-blue-600" />} right={<span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" /> LIVE</span>}>
           <div className="mb-3 grid grid-cols-2 sm:grid-cols-5 gap-2">
             {groups.map((g) => {
@@ -258,7 +277,8 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
           </div>
           {groups.every((g) => g.items.length === 0) && <div className="rounded-xl border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500 dark:border-slate-700">🎉 No team presence updates to show right now.</div>}
         </Card>
-
+        </DashWidget>
+        <DashWidget id="trend" label="Last 14 days" span={6}>
         <Card title="Last 14 days" icon={<CalendarClock className="w-4 h-4 text-indigo-600" />} right={<span className="text-[11px] text-slate-400">People who punched in</span>}>
           <div className="flex items-end gap-1.5 h-36">
             {trend.map((t) => (
@@ -273,10 +293,10 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
           </div>
           <p className="mt-2 text-[11px] text-slate-400"><span className="inline-block w-2 h-2 rounded-sm bg-amber-400 mr-1" />Amber part of a bar = arrived late.</p>
         </Card>
-      </div>
+        </DashWidget>
 
-      {biz && (biz.targets || biz.me || biz.leaderboard) && (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {biz && (biz.targets || biz.me || biz.leaderboard) && (
+          <DashWidget id="sales-target" label="Sales target" span={6}>
           <Card
             title={`Sales target · ${monthLabel}`}
             icon={<Target className="w-4 h-4 text-emerald-600" />}
@@ -329,8 +349,11 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
               </div>
             )}
           </Card>
+          </DashWidget>
+        )}
 
-          {biz.leaderboard && (
+        {biz && biz.leaderboard && (
+          <DashWidget id="leaderboard" label="Sales leaderboard" span={6}>
             <Card title="Sales leaderboard" icon={<Trophy className="w-4 h-4 text-amber-500" />} right={<span className="text-[11px] text-slate-400">{monthLabel}</span>}>
               {biz.leaderboard.length === 0 ? (
                 <p className="text-xs text-slate-500">No approved sales this month yet.</p>
@@ -359,11 +382,11 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
                 </ol>
               )}
             </Card>
-          )}
-        </div>
-      )}
+          </DashWidget>
+        )}
 
-      {payables && (
+        {payables && (
+          <DashWidget id="payables" label="Payables due" span={12}>
         <Card title="Payables due" icon={<AlertTriangle className="w-4 h-4 text-rose-500" />} right={<span className="text-[11px] text-slate-400">{sortedPay.length} unpaid vendor bill{sortedPay.length === 1 ? '' : 's'}</span>}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="w-full max-w-xs mx-auto lg:mx-0">
@@ -404,9 +427,11 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
             </ul>
           </div>
         </Card>
-      )}
+          </DashWidget>
+        )}
 
-      <div className="space-y-4">
+        <DashWidget id="command-tiles" label="Command centre tiles" span={12}>
+          <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
           <div><p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-400">Operations command center</p><h3 className="text-lg font-extrabold text-slate-900 dark:text-slate-100">What needs attention next?</h3><p className="text-xs text-slate-500 dark:text-slate-400">Deadlines, approvals and work that could slip through the cracks.</p></div>
           <span className="text-[11px] text-slate-500 dark:text-slate-400">Live overview · refreshed with dashboard data</span>
@@ -417,8 +442,9 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
           <button type="button" onClick={() => onNavigate('crm-invoices')} className="text-left rounded-2xl border border-sky-200 dark:border-sky-900/60 bg-gradient-to-br from-sky-50 to-white dark:from-sky-950/30 dark:to-slate-900 p-3.5 hover:-translate-y-0.5 transition-transform"><span className="flex justify-between text-sky-700 dark:text-sky-300"><CalendarDays className="w-4 h-4"/><small className="font-bold uppercase">Next 7 days</small></span><strong className="block mt-2 text-2xl font-black text-slate-900 dark:text-white">{deadlineCount}</strong><span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Upcoming deadlines & events</span></button>
           <button type="button" onClick={() => onNavigate(isAdmin ? 'crm-sales' : 'leaves')} className="text-left rounded-2xl border border-violet-200 dark:border-violet-900/60 bg-gradient-to-br from-violet-50 to-white dark:from-violet-950/30 dark:to-slate-900 p-3.5 hover:-translate-y-0.5 transition-transform"><span className="flex justify-between text-violet-700 dark:text-violet-300"><CheckCircle2 className="w-4 h-4"/><small className="font-bold uppercase">Action queue</small></span><strong className="block mt-2 text-2xl font-black text-slate-900 dark:text-white">{actionCount}</strong><span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Required actions</span></button>
         </div>
-        <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
-          <div className="xl:col-span-3 space-y-4">
+          </div>
+        </DashWidget>
+        <DashWidget id="priority" label="Priority action queue" span={7}>
             <Card title="Priority action queue" icon={<AlertTriangle className="w-4 h-4 text-rose-500"/>} right={<span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold ${actionCount ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'}`}>{actionCount} open</span>}>
               <div className="space-y-2">
                 {pendingLeaves > 0 && <button type="button" onClick={() => onNavigate('leaves')} className="w-full flex items-center justify-between rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/20 p-3 text-left"><span><strong className="block text-xs text-slate-900 dark:text-slate-100">{pendingLeaves} leave request{pendingLeaves === 1 ? '' : 's'} awaiting review</strong><small className="text-[10px] text-slate-500">Review and decide</small></span><ArrowRight className="w-4 h-4 text-amber-600"/></button>}
@@ -434,14 +460,8 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
                 {actionCount > 0 && <p className="pt-1 text-[10px] text-slate-400">Highest-priority items first. Open each workspace to review the full list.</p>}
               </div>
             </Card>
-            <Card title="Upcoming tasks" icon={<CalendarCheck2 className="w-4 h-4 text-indigo-600"/>} right={<button type="button" onClick={() => onNavigate('crm-tasks')} className="text-[11px] font-bold text-blue-600 hover:underline">View all</button>}>
-              <div className="space-y-2">
-                {upcomingTasks.length === 0 && <p className="text-xs text-slate-500 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 p-4">No upcoming follow-ups scheduled.</p>}
-                {upcomingTasks.map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full text-left flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/30 px-3 py-2.5 hover:bg-blue-50/70 dark:hover:bg-blue-950/20"><span className="min-w-0"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{f.subject || f.remarks || 'Follow-up'}</strong><small className="text-[10px] text-slate-500">{employees.find((e) => e.id === f.assignedTo)?.name || 'Assigned employee'}</small></span><span className="text-[10px] text-slate-500 shrink-0">{f.dueAt ? new Date(f.dueAt).toLocaleString() : ''}</span></button>)}
-              </div>
-            </Card>
-          </div>
-          <div className="xl:col-span-2 space-y-4">
+        </DashWidget>
+        <DashWidget id="deadline-radar" label="Deadline radar" span={5}>
             <Card title="Deadline radar · next 7 days" icon={<CalendarClock className="w-4 h-4 text-sky-600"/>} right={<span className="text-[10px] font-bold text-slate-400">{deadlineCount} tracked</span>}>
               <div className="space-y-2">
                 {dueTodayFollowups.slice(0,3).map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 p-2.5 text-left"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{f.subject || f.remarks || 'Follow-up due today'}</strong><small className="text-[10px] text-amber-700 dark:text-amber-300">Due today · {f.dueAt ? new Date(f.dueAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : ''}</small></button>)}
@@ -452,7 +472,16 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
                 {deadlineCount === 0 && <p className="rounded-xl border border-dashed border-slate-200 dark:border-slate-700 p-4 text-xs text-slate-500">No deadlines in the next seven days. Time to get ahead.</p>}
               </div>
             </Card>
-            {unscheduledFollowups.length > 0 && <Card title="Follow-ups without a deadline" icon={<Timer className="w-4 h-4 text-amber-600"/>} right={<span className="text-[10px] font-bold text-amber-600">{unscheduledFollowups.length} need scheduling</span>}><p className="mb-2 text-xs text-slate-500">Open follow-ups without due dates can quietly get missed. Add a date so they appear in the deadline radar.</p><button type="button" onClick={() => onNavigate('crm-tasks')} className="inline-flex items-center gap-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 text-xs font-bold">Schedule follow-ups <ArrowRight className="w-3.5 h-3.5"/></button></Card>}
+        </DashWidget>
+        <DashWidget id="upcoming" label="Upcoming tasks" span={7}>
+            <Card title="Upcoming tasks" icon={<CalendarCheck2 className="w-4 h-4 text-indigo-600"/>} right={<button type="button" onClick={() => onNavigate('crm-tasks')} className="text-[11px] font-bold text-blue-600 hover:underline">View all</button>}>
+              <div className="space-y-2">
+                {upcomingTasks.length === 0 && <p className="text-xs text-slate-500 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 p-4">No upcoming follow-ups scheduled.</p>}
+                {upcomingTasks.map((f) => <button key={f.id} type="button" onClick={() => onNavigate('crm-tasks')} className="w-full text-left flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/30 px-3 py-2.5 hover:bg-blue-50/70 dark:hover:bg-blue-950/20"><span className="min-w-0"><strong className="block text-xs text-slate-900 dark:text-slate-100 truncate">{f.subject || f.remarks || 'Follow-up'}</strong><small className="text-[10px] text-slate-500">{employees.find((e) => e.id === f.assignedTo)?.name || 'Assigned employee'}</small></span><span className="text-[10px] text-slate-500 shrink-0">{f.dueAt ? new Date(f.dueAt).toLocaleString() : ''}</span></button>)}
+              </div>
+            </Card>
+        </DashWidget>
+        <DashWidget id="business-pulse" label="Business pulse" span={5}>
             <Card title="Business pulse" icon={<TrendingUp className="w-4 h-4 text-emerald-600"/>}>
               <div className="grid grid-cols-2 gap-3">
                 <button type="button" onClick={() => onNavigate('crm-invoices')} className="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 text-left"><FileText className="w-4 h-4 text-blue-600"/><strong className="block mt-2 text-xl text-slate-900 dark:text-slate-100">{customerDues.length}</strong><span className="text-[10px] text-slate-500">Unpaid customer invoices</span></button>
@@ -461,9 +490,13 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
                 <button type="button" onClick={() => onNavigate('crm-tasks')} className="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 text-left"><PackageCheck className="w-4 h-4 text-indigo-600"/><strong className="block mt-2 text-xl text-slate-900 dark:text-slate-100">{openFollowups.length}</strong><span className="text-[10px] text-slate-500">Open follow-ups</span></button>
               </div>
             </Card>
-          </div>
-        </div>
-      </div>
+        </DashWidget>
+        {unscheduledFollowups.length > 0 && (
+          <DashWidget id="unscheduled" label="Follow-ups without a deadline" span={12}>
+            <Card title="Follow-ups without a deadline" icon={<Timer className="w-4 h-4 text-amber-600"/>} right={<span className="text-[10px] font-bold text-amber-600">{unscheduledFollowups.length} need scheduling</span>}><p className="mb-2 text-xs text-slate-500">Open follow-ups without due dates can quietly get missed. Add a date so they appear in the deadline radar.</p><button type="button" onClick={() => onNavigate('crm-tasks')} className="inline-flex items-center gap-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 text-xs font-bold">Schedule follow-ups <ArrowRight className="w-3.5 h-3.5"/></button></Card>
+          </DashWidget>
+        )}
+      </DashboardGrid>
     </div>
   );
 };

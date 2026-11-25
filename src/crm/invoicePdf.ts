@@ -229,7 +229,20 @@ export async function buildInvoicePdf(inv: CrmInvoice, company: CompanyProfile, 
     y -= 20;
   };
   totalRow('Total', fmtAmount(inv.total), true);
-  if (inv.advancePaid > 0) totalRow(vendor ? 'Paid' : 'Advance', `-${fmtAmount(inv.advancePaid)}`, true);
+  // Every payment received is listed on its own line with its date, like the sample invoice ("1st payment 30-09-26  -100,000")
+  const pays = !vendor ? (inv.payments || []) : [];
+  if (pays.length) {
+    const ordinal = (n: number) => `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] || 'th'}`;
+    pays.forEach((p, i) => {
+      ensure(24);
+      gridRow(16);
+      const short = (d: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || ''); return m ? `${m[3]}-${m[2]}-${m[1].slice(2)}` : niceDate(d); }; // 30-09-26, like the sample
+      const label = p.id === 'pay-legacy' ? `Advance ${short(p.date)}` : `${ordinal(i + 1)} payment ${short(p.date)}${p.receiptNo ? `  (Receipt ${p.receiptNo})` : ''}`;
+      text(wrap(reg, label, 8.5, COLS[1] + COLS[2] - 10)[0], colX(1) + 4, y - 11.5, 8.5, reg);
+      right(`-${fmtAmount(p.amount)}`, amountRight, y - 11.5, 9, reg);
+      y -= 16;
+    });
+  } else if (inv.advancePaid > 0) totalRow(vendor ? 'Paid' : 'Advance', `-${fmtAmount(inv.advancePaid)}`, true);
 
   // payment instruction box
   const payTo = company.payTo || company.name;

@@ -12,7 +12,10 @@ import {
   crmCall,
 } from './crmApi';
 import { CrmState } from './useCrm';
-import { ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
+import { CreatedStamp, ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
+import { ExportPanel } from './ExportPanel';
+import { purchaseCells, purchaseColumns, purchaseSearch, purchaseSummary } from './exportConfigs';
+
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
 
 interface Props {
@@ -719,7 +722,12 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportPanel
+            title="Purchases" rows={crm.data.purchases} columns={purchaseColumns()} toCells={(p) => purchaseCells(p, (id) => empName.get(id) || 'Former employee')}
+            getCreatedAt={(p) => p.createdAt} getCreatorId={(p) => p.createdBy} searchFields={purchaseSearch} searchHint="Purchase no., CRM ID or customer"
+            employees={employees} currentUser={currentUser} companyName={crm.data.company.name} summaryOf={purchaseSummary} landscape
+          />
           <button
             type="button"
             onClick={() => {
@@ -1011,8 +1019,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                   </div>
                   <div className="text-[11px] text-slate-500 mt-1">
                     Purchase Date: <b>{niceDate(p.purchaseDate)}</b> · {items.length}{' '}
-                    {items.length === 1 ? 'product entry' : 'product entries'} · recorded by{' '}
-                    <b>{empName.get(p.createdBy) || 'Employee'}</b>
+                    {items.length === 1 ? 'product entry' : 'product entries'} · <CreatedStamp at={p.createdAt} by={empName.get(p.createdBy) || 'Employee'} />
                   </div>
                 </div>
 

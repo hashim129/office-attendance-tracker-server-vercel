@@ -4,7 +4,10 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmMeeting, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
-import { AddToCalendar, Countdown, ErrorNote, StatBar, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, fromLocalInput, inputCls, toLocalInput, useNow } from './ui';
+import { AddToCalendar, CreatedStamp, Countdown, ErrorNote, StatBar, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, fromLocalInput, inputCls, toLocalInput, useNow } from './ui';
+import { ExportPanel } from './ExportPanel';
+import { meetingCells, meetingColumns, meetingSearch } from './exportConfigs';
+
 
 interface Props {
   crm: CrmState;
@@ -243,7 +246,7 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-300">{fmtDay(m.startAt)} · {fmtTime(m.startAt)} – {fmtTime(m.endAt)}{m.location ? ` · ${m.location}` : ''}</p>
             {attendLine(m, who.slice(m.attendeeIds.length)) && <p className="text-xs font-medium text-slate-700 dark:text-slate-200">{attendLine(m, who.slice(m.attendeeIds.length))}</p>}
-            {m.requestedBy && <p className="text-[11px] text-slate-500 dark:text-slate-400">Requested by {empName.get(m.requestedBy) || 'Former employee'}</p>}
+            <p className="text-[11px]"><CreatedStamp at={m.createdAt} by={empName.get(m.createdBy || m.requestedBy || '') || 'Former employee'} />{m.requestedBy && m.requestedBy !== m.createdBy ? <span className="text-slate-500 dark:text-slate-400"> · requested by {empName.get(m.requestedBy) || 'Former employee'}</span> : null}</p>
             {m.notes && <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-words">{m.notes}</p>}
             {(m.noteLog || []).length > 0 && <div className="mt-2 space-y-1 border-l-2 border-blue-200 pl-2.5 max-h-40 overflow-y-auto">{(m.noteLog || []).map((n) => <p key={n.id} className="text-[11px] text-slate-500"><b>{empName.get(n.by) || 'Former employee'}</b> · {fmtDateTime(n.at)} — {n.text}</p>)}</div>}
             {m.decisionNote && <p className="text-xs text-slate-600 dark:text-slate-400 border-l-2 border-slate-300 dark:border-slate-700 pl-2">Admin note: {m.decisionNote}</p>}
@@ -280,7 +283,13 @@ export const MeetingsView: React.FC<Props> = ({ crm, employees, currentUser }) =
             <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2"><CalendarClock className="w-4 h-4 text-blue-600" /> CEO availability</h2>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">Blue blocks are CEO meetings and purple blocks are Meeting follow-ups, so both show the CEO as booked. Pick a free time to request your own meeting. The bar stretches when a meeting falls outside 8am - 8pm.</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <ExportPanel
+              title="Meetings" rows={crm.data.meetings} columns={meetingColumns()}
+              toCells={(m) => meetingCells(m, (id) => empName.get(id) || 'Former employee', (cid) => (cid ? crm.data.customers.find((c) => c.id === cid)?.customerName || '' : ''))}
+              getCreatedAt={(m) => m.createdAt} getCreatorId={(m) => m.createdBy || m.requestedBy || ''} searchFields={meetingSearch} searchHint="Meeting title"
+              employees={employees} currentUser={currentUser} companyName={crm.data.company.name} landscape
+            />
             {isAdmin && <button className={btnPrimary} onClick={() => openForm('admin')}><Plus className="w-4 h-4" /> Schedule CEO meeting</button>}
             {!isAdmin && <button className={btnPrimary} onClick={() => openForm('request')}><Plus className="w-4 h-4" /> Request a meeting</button>}
           </div>

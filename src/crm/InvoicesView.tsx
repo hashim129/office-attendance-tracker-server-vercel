@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, FileDown, Share2, Eye, Pencil, Building2, FileText, X, Lock, Info, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
-import { CompanyProfile, CrmInvoice, InvoiceSection, VisaProgressStatus, crmCall, updateInvoiceVisaProgress } from './crmApi';
+import { CompanyProfile, CrmInvoice, CrmReceipt, InvoicePayment, InvoiceSection, VisaProgressStatus, crmCall, updateInvoiceVisaProgress } from './crmApi';
 import { crmQueryOf, ntnShown } from './invoiceHelpers';
 import { PortalInvoiceModal } from './PortalInvoiceModal';
 // The PDF maker is large, so it is only loaded when someone actually downloads or shares an invoice.
@@ -10,7 +10,11 @@ const downloadInvoicePdf = async (...a: Parameters<typeof import('./invoicePdf')
 const downloadVendorPayablesPdf = async (...a: Parameters<typeof import('./invoicePdf').downloadVendorPayablesPdf>) => (await import('./invoicePdf')).downloadVendorPayablesPdf(...a);
 const invoicePdfFile = async (...a: Parameters<typeof import('./invoicePdf').invoicePdfFile>) => (await import('./invoicePdf')).invoicePdfFile(...a);
 import { CrmState } from './useCrm';
-import { ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
+import { ExportPanel } from './ExportPanel';
+import { invoiceCells, invoiceColumns, invoiceSearch, invoiceSummary, receivablesPayablesSections } from './exportConfigs';
+import { downloadReportPdf } from '../lib/reportPdf';
+import { PaymentHistory, PaymentsLedger, QuickPayment } from './PaymentsLedger';
+import { CreatedStamp, ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
 
 interface Props {
@@ -21,6 +25,8 @@ interface Props {
 }
 
 interface FormLine { description: string; unitPrice: string; units: string; currency: string; rate: string; taxable: boolean; note: boolean; key: string; locked: boolean }
+/** One payment received on a customer invoice (a row of the payment history). Saved rows have an id and are locked for the person who made the invoice. */
+interface FormPayment { id: string; date: string; amount: string; note: string; method: 'cash' | 'bank' | ''; receiptId: string | null; receiptNo: string | null; byName: string; at: string }
 interface FormSection { title: string; key: string; locked: boolean; lines: FormLine[] }
 interface FormVendor { name: string; description: string; unitPrice: string; units: string; amount: string; currency: string; bank: string }
 interface FormState {
@@ -35,6 +41,8 @@ interface FormState {
   invoiceDate: string; dueDate: string; travelDate: string; currency: string;
   sections: FormSection[];
   taxLabel: string; taxRate: string; discount: string; advancePaid: string; notes: string;
+  /** Payments received at different times (customer invoices only) */
+  payments: FormPayment[];
   paymentApproved: boolean;
   paymentApprovedDate: string;
   paymentReceived: boolean;
@@ -170,7 +178,7 @@ const newSection = (title: string, currency: string): FormSection => ({ title, k
 const blankVendor = (currency: string): FormVendor => ({ name: '', description: '', unitPrice: '', units: '', amount: '', currency, bank: '' });
 const blankForm = (kind: 'customer' | 'vendor' = 'customer', companyNtn = ''): FormState => ({
   kind, crmId: '', customerName: '', customerPhone: '', reference: '', ntn: companyNtn, showNtn: true, vendors: kind === 'customer' ? [blankVendor('PKR')] : [], invoiceDate: today(), dueDate: '', travelDate: '', currency: 'PKR',
-  sections: [{ title: '', key: uid(), locked: false, lines: [blankLine('PKR')] }], taxLabel: 'Tax', taxRate: kind === 'vendor' ? '' : '6', discount: '', advancePaid: '', notes: '',
+  sections: [{ title: '', key: uid(), locked: false, lines: [blankLine('PKR')] }], taxLabel: 'Tax', taxRate: kind === 'vendor' ? '' : '6', discount: '', advancePaid: '', notes: '', payments: [],
   paymentApproved: false, paymentApprovedDate: '', paymentReceived: false, travelerNames: '',
   visaEnabled: false, visaStatus: 'not_started', visaInProgressDate: '', visaIssuedDate: '',
   hotelEnabled: false, hotelStatus: 'not_started', hotelName: '', hotelCheckInDate: '', hotelCheckOutDate: '', hotelInProgressDate: '', hotelIssuedDate: '',
@@ -181,6 +189,12 @@ const blankForm = (kind: 'customer' | 'vendor' = 'customer', companyNtn = ''): F
 });
 const PRESETS = ['Package', 'Visa Charges', 'Air Tickets', 'Hotel', 'Transfers', 'Insurance', 'Service Charges'];
 const num = (v: string) => (v.trim() === '' ? NaN : Number(v));
+
+/** 30-09-26 */
+const fmtDayShort = (ymd: string) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd || ''); return m ? `${m[3]}-${m[2]}-${m[1].slice(2)}` : ''; };
+const sumFormPayments = (list: FormPayment[]) => Math.round(list.reduce((a, p) => a + (Number.isFinite(num(p.amount)) ? num(p.amount) : 0), 0) * 100) / 100;
+const ordinal = (n: number) => `${n}${[11, 12, 13].includes(n % 100) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] || 'th'}`;
+const payRow = (p: InvoicePayment): FormPayment => ({ id: p.id, date: p.date, amount: String(p.amount), note: p.note || '', method: p.method || '', receiptId: p.receiptId, receiptNo: p.receiptNo, byName: p.byName || '', at: p.at || '' });
 
 function compute(f: FormState) {
   let subtotal = 0;
@@ -199,7 +213,7 @@ function compute(f: FormState) {
   const taxRate = Number.isFinite(num(f.taxRate)) ? num(f.taxRate) : 0;
   const tax = Math.round(taxable * taxRate) / 100;
   const discount = Number.isFinite(num(f.discount)) ? num(f.discount) : 0;
-  const advance = Number.isFinite(num(f.advancePaid)) ? num(f.advancePaid) : 0;
+  const advance = f.kind === 'customer' ? sumFormPayments(f.payments) : (Number.isFinite(num(f.advancePaid)) ? num(f.advancePaid) : 0);
   const total = Math.round((subtotal + tax - discount) * 100) / 100;
   return { amounts, subtotal: Math.round(subtotal * 100) / 100, tax, total, balance: Math.max(0, Math.round((total - advance) * 100) / 100) };
 }
@@ -227,6 +241,7 @@ function toForm(inv: CrmInvoice, companyNtn = ''): FormState {
       })),
     })),
     taxLabel: inv.taxLabel, taxRate: inv.taxRate ? String(inv.taxRate) : '', discount: inv.discount ? String(inv.discount) : '', advancePaid: inv.advancePaid ? String(inv.advancePaid) : '', notes: inv.notes,
+    payments: kind === 'customer' ? (inv.payments || []).map(payRow) : [],
     paymentApproved: Boolean(inv.visaProgress?.paymentApproved) || inv.status === 'paid' || inv.advancePaid > 0,
     paymentApprovedDate: inv.visaProgress?.paymentApprovedDate || '',
     paymentReceived: Boolean(inv.paymentReceived),
@@ -320,7 +335,16 @@ const InvoicePreview: React.FC<{ inv: CrmInvoice; company: CompanyProfile; by: s
             {inv.taxAmount > 0 && <tr className="font-bold"><td className={`${cell} py-1.5`} /><td className="px-1.5 py-1.5">{(inv.taxLabel || 'Tax').toUpperCase()}</td><td className={cell} /><td className={cell} /><td className={`${cell} text-right px-1.5 font-normal`}>{fmtAmount(inv.taxAmount)}</td></tr>}
             {inv.discount > 0 && <tr className="font-bold"><td className={`${cell} py-1.5`} /><td className="px-1.5 py-1.5">DISCOUNT</td><td className={cell} /><td className={cell} /><td className={`${cell} text-right px-1.5 font-normal`}>-{fmtAmount(inv.discount)}</td></tr>}
             <tr className="border-t border-slate-700 font-bold"><td className={cell} /><td className={cell} /><td className="border-slate-700" /><td className="text-center py-1.5">Total</td><td className="border border-slate-700 text-right px-1.5">{fmtAmount(inv.total)}</td></tr>
-            {inv.advancePaid > 0 && <tr className="border-t border-slate-700 font-bold"><td className={cell} /><td className={cell} /><td /><td className="text-center py-1.5">{vendor ? 'Paid' : 'Advance'}</td><td className="border border-slate-700 text-right px-1.5">-{fmtAmount(inv.advancePaid)}</td></tr>}
+            {!vendor && (inv.payments || []).length > 0
+              ? (inv.payments || []).map((p, pi) => (
+                <tr key={p.id || pi} className="border-t border-slate-700 font-bold" data-payment-line>
+                  <td className={cell} /><td className={cell} /><td />
+                  <td className="text-center py-1.5 whitespace-nowrap">{p.id === 'pay-legacy' ? 'Advance' : `${ordinal(pi + 1)} payment`} <span className="font-normal">{fmtDayShort(p.date)}</span></td>
+                  <td className="border border-slate-700 text-right px-1.5">-{fmtAmount(p.amount)}</td>
+                </tr>
+              ))
+              : inv.advancePaid > 0 && <tr className="border-t border-slate-700 font-bold"><td className={cell} /><td className={cell} /><td /><td className="text-center py-1.5">{vendor ? 'Paid' : 'Advance'}</td><td className="border border-slate-700 text-right px-1.5">-{fmtAmount(inv.advancePaid)}</td></tr>}
+            {!vendor && (inv.payments || []).length > 0 && <tr className="border-t border-slate-700 font-bold"><td className={cell} /><td className={cell} /><td /><td className="text-center py-1.5">Balance</td><td className="border border-slate-700 text-right px-1.5">{fmtAmount(inv.balance)}</td></tr>}
             <tr className="border-t border-slate-700">
               <td className={cell} />
               <td colSpan={3} className={`${cell} px-1.5 py-4 align-bottom text-[11px]`}>
@@ -354,6 +378,16 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
   const vendorSide = side === 'vendor';
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const currencies = useMemo(() => allCurrencies(), []);
+  const nameOf = (id: string) => empName.get(id) || 'Former employee';
+  const customerNumbers = useMemo(() => new Map(crm.data.customers.map((c) => [c.customerName.trim().toLowerCase(), c.customerNumber || ''])), [crm.data.customers]);
+  const downloadTotalsPdf = async () => {
+    try {
+      const { sections, summary } = receivablesPayablesSections(allInvoices, nameOf);
+      await downloadReportPdf({ title: 'Receivables & payables', subtitle: `Money still to come in from customers and still owed to vendors, as of today. ${seesAll ? 'All records.' : 'Only your own records.'}`, companyName: company.name, generatedBy: currentUser.name, columns: [], rows: [], sections, summary, landscape: true }, `receivables-payables_${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (err: any) {
+      setError(err?.message || 'Could not create the PDF.');
+    }
+  };
 
   const [form, setForm] = useState<FormState | null>(null);
   // Cards start folded so the page stays short; people open the ones they need.
@@ -395,6 +429,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
     >
   >({});
   const [visaBusyId, setVisaBusyId] = useState<string | null>(null);
+  const [payFor, setPayFor] = useState<string | null>(null);
 
   useEffect(() => { void crm.refresh(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -477,7 +512,8 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
         : { description: l.description, unitPrice: Number(l.unitPrice) || 0, units: l.units.trim() === '' ? 1 : Number(l.units) || 0, currency: l.currency, rate: l.currency === form.currency ? 1 : Number(l.rate) || 0, amount: calc.amounts[si][li] ?? 0, taxable: l.taxable }
       )).filter((l) => l.description.trim() || (l.amount ?? 0) > 0),
     })).filter((sec) => sec.title.trim() || sec.lines.length),
-    taxLabel: form.taxLabel, taxRate: Number(form.taxRate) || 0, discount: Number(form.discount) || 0, advancePaid: Number(form.advancePaid) || 0,
+    taxLabel: form.taxLabel, taxRate: Number(form.taxRate) || 0, discount: Number(form.discount) || 0, advancePaid: form.kind === 'customer' ? sumFormPayments(form.payments) : Number(form.advancePaid) || 0,
+    payments: form.kind === 'customer' ? form.payments.filter((p) => Number.isFinite(num(p.amount)) && num(p.amount) > 0).map((p) => ({ id: p.id || uid(), date: p.date, amount: num(p.amount), note: p.note, method: p.method, receiptId: p.receiptId, receiptNo: p.receiptNo, by: '', byName: p.byName, at: p.at })) : [],
     subtotal: calc.subtotal, taxAmount: calc.tax, total: calc.total, balance: calc.balance, notes: form.notes, status: 'unpaid', createdAt: '', updatedAt: '',
   } : null;
 
@@ -635,6 +671,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
       paymentApproved,
       paymentApprovedDate,
       paymentReceived,
+      payments,
       travelerNames,
       visaEnabled,
       visaStatus,
@@ -676,6 +713,9 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
     return {
       ...rest,
       paymentReceived: Boolean(paymentReceived),
+      ...(form!.kind === 'customer'
+        ? { payments: payments.filter((p) => p.id || (Number.isFinite(num(p.amount)) && num(p.amount) > 0) || p.receiptId).map((p) => ({ id: p.id || undefined, date: p.date || today(), amount: Number.isFinite(num(p.amount)) ? num(p.amount) : 0, note: p.note, method: p.method, receiptId: p.receiptId || undefined })) }
+        : {}),
       travelers: travelerNames.split(/\r?\n/).map((name) => name.trim()).filter(Boolean).slice(0, 100),
       vendors: (form!.vendors || []).filter((v) => v.name.trim() || v.description.trim() || v.unitPrice.trim() || v.units.trim() || v.amount.trim() || v.bank.trim()),
       sections: form!.sections.map((s, si) => {
@@ -782,13 +822,15 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
   };
   const save = async (e: React.FormEvent) => { e.preventDefault(); await persist(null, true); };
 
-  const act = async (action: string, payload: Record<string, unknown>) => {
+  const act = async (action: string, payload: Record<string, unknown>): Promise<boolean> => {
     setError('');
     try {
       await crmCall(action, payload);
       await crm.refresh();
+      return true;
     } catch (err: any) {
       setError(err?.message || 'That did not work. Please try again.');
+      return false;
     }
   };
 
@@ -850,6 +892,12 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
         </div>
         <div className="flex flex-wrap gap-2">
           <button className={btnGhost} onClick={() => setOpenIds((prev) => (prev.size ? new Set() : new Set(shown.map((x) => x.id))))}><ChevronsUpDown className="w-3.5 h-3.5" /> {openIds.size ? 'Collapse all' : 'Expand all'}</button>
+          <ExportPanel
+            title={vendorSide ? 'Vendor payables' : 'Invoices'} rows={invoices} columns={invoiceColumns()} toCells={(i) => invoiceCells(i, nameOf)}
+            getCreatedAt={(i) => i.createdAt} getCreatorId={(i) => i.createdBy} searchFields={invoiceSearch(customerNumbers)} searchHint="Invoice no., CRM ID / query code or customer no."
+            employees={employees} currentUser={currentUser} companyName={company.name} summaryOf={invoiceSummary} landscape
+          />
+          <button className={btnGhost} onClick={() => void downloadTotalsPdf()} data-totals-pdf><FileDown className="w-3.5 h-3.5" /> Receivables &amp; payables PDF</button>
           {isAdmin && <button className={btnGhost} onClick={() => { setCompanyForm({ ...company }); setError(''); }}><Building2 className="w-3.5 h-3.5" /> Company details</button>}
           <button className={btnPrimary} onClick={() => { setForm(blankForm(side, company.ntn || '')); setError(''); setNotice(''); }}><Plus className="w-3.5 h-3.5" /> {vendorSide ? 'New vendor payable' : 'New invoice'}</button>
         </div>
@@ -1068,7 +1116,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                           {i.reference && <Pill tone="slate">Ref {i.reference}</Pill>}
                         </div>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {niceDate(i.invoiceDate)}{i.dueDate ? ` · due ${niceDate(i.dueDate)}` : ''}{i.travelDate ? ` · travels ${niceDate(i.travelDate)}` : ''} · created by <b className="text-slate-700 dark:text-slate-200">{by(i) || 'Former employee'}</b>
+                          {niceDate(i.invoiceDate)}{i.dueDate ? ` · due ${niceDate(i.dueDate)}` : ''}{i.travelDate ? ` · travels ${niceDate(i.travelDate)}` : ''} · <CreatedStamp at={i.createdAt} by={by(i) || 'Former employee'} />
                         </p>
                       </div>
                       <div className={`sm:text-right shrink-0 rounded-lg px-2.5 py-1.5 border ${i.status === 'paid' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60' : 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-100 dark:border-blue-900/50'}`}>
@@ -1915,11 +1963,23 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                       </div>
                     )}
 
+                    {!vendorSide && (i.payments || []).length > 0 && (
+                      <PaymentHistory payments={i.payments || []} currency={i.currency} balance={i.balance} canRemove={isStaff && i.status !== 'cancelled'}
+                        onRemove={(paymentId) => { const remarks = window.prompt('Why is this payment being removed? (required)'); if (remarks && remarks.trim()) void act('invoice_payment_remove', { id: i.id, paymentId, remarks: remarks.trim() }); }} />
+                    )}
+                    {payFor === i.id && (
+                      <QuickPayment currency={i.currency} balance={i.balance} receipts={crm.data.receipts} crmQuery={crmQueryOf(i)} customerName={i.customerName} invoiceId={i.id}
+                        attachedIds={(i.payments || []).map((p) => p.receiptId).filter(Boolean) as string[]} today={today()} onClose={() => setPayFor(null)}
+                        onSubmit={async (payment) => { if (await act('invoice_payment_add', { id: i.id, payment })) setPayFor(null); }} />
+                    )}
                     <div className="flex flex-wrap items-center gap-1.5 pt-1">
                       <button className={btnGhost} onClick={() => setView(i)}><Eye className="w-3.5 h-3.5" /> {vendorSide ? 'View payable' : 'View'}</button>
                       <button className={btnPrimary} onClick={() => void pdf(i)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
                       {canShare && <button className={btnGhost} onClick={() => void share(i)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
                       {canEdit(i) && <button className={btnGhost} onClick={() => { setForm(toForm(i, company.ntn || '')); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
+                      {!vendorSide && i.status !== 'cancelled' && i.balance > 0 && (isStaff || i.createdBy === currentUser.id) && (
+                        <button className={btnGhost} onClick={() => setPayFor(payFor === i.id ? null : i.id)} data-card-add-payment>Add payment</button>
+                      )}
                       {isAdmin && (
                         <select
                           aria-label={`Invoice status for ${i.invoiceNo}`}
@@ -2485,7 +2545,7 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                 <Field label="Tax name"><input className={inputCls} value={form.taxLabel} onChange={(e) => patch({ taxLabel: e.target.value })} maxLength={40} placeholder="Tax" /></Field>
                 <Field label="Tax % (on lines ticked Tax — Service Charges are ticked automatically)"><input className={inputCls} type="number" inputMode="decimal" step="any" min="0" max="100" value={form.taxRate} onChange={(e) => patch({ taxRate: e.target.value })} /></Field>
                 <Field label={`Discount (${form.currency})`}><input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={form.discount} onChange={(e) => patch({ discount: e.target.value })} /></Field>
-                <Field label={`Advance received (${form.currency})`}><input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={form.advancePaid} onChange={(e) => patch({ advancePaid: e.target.value })} /></Field>
+                {form.kind === 'vendor' && <Field label={`Advance received (${form.currency})`}><input className={inputCls} type="number" inputMode="decimal" step="0.01" min="0" value={form.advancePaid} onChange={(e) => patch({ advancePaid: e.target.value })} /></Field>}
                 <div className="col-span-2"><Field label="Notes (optional)"><textarea className={inputCls} rows={2} value={form.notes} onChange={(e) => patch({ notes: e.target.value })} maxLength={1500} /></Field></div>
               </div>
               <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-1.5 text-xs self-start">
@@ -2495,10 +2555,17 @@ export const InvoicesView: React.FC<Props> = ({ crm, employees, currentUser, cus
                 {calc.tax > 0 && <div className="flex justify-between"><span>{form.taxLabel || 'Tax'} ({form.taxRate}%)</span><b className="font-mono">{fmtAmount(calc.tax)}</b></div>}
                 {num(form.discount) > 0 && <div className="flex justify-between"><span>Discount</span><b className="font-mono">-{fmtAmount(num(form.discount))}</b></div>}
                 <div className="flex justify-between border-t border-slate-200 dark:border-slate-700 pt-1.5"><span className="font-semibold">Total</span><b className="font-mono">{form.currency} {fmtAmount(calc.total)}</b></div>
-                {num(form.advancePaid) > 0 && <div className="flex justify-between"><span>Advance received</span><b className="font-mono">-{fmtAmount(num(form.advancePaid))}</b></div>}
+                {form.kind === 'customer'
+                  ? form.payments.filter((p) => num(p.amount) > 0).map((p, pi) => <div key={p.id || pi} className="flex justify-between"><span>{ordinal(pi + 1)} payment {fmtDayShort(p.date)}</span><b className="font-mono">-{fmtAmount(num(p.amount))}</b></div>)
+                  : num(form.advancePaid) > 0 && <div className="flex justify-between"><span>Advance received</span><b className="font-mono">-{fmtAmount(num(form.advancePaid))}</b></div>}
                 <div className="flex justify-between text-sm"><span className="font-semibold">Balance due</span><b className="font-mono text-blue-600 dark:text-blue-400">{form.currency} {fmtAmount(calc.balance)}</b></div>
               </div>
             </div>
+
+            {form.kind === 'customer' && (
+              <PaymentsLedger payments={form.payments} onChange={(next) => patch({ payments: next })} currency={form.currency} total={calc?.total ?? 0}
+                canChangeSaved={isAdmin} receipts={crm.data.receipts} crmQuery={form.crmId} customerName={form.customerName} invoiceId={form.id} today={today()} />
+            )}
 
             {notice && <p className="text-xs text-emerald-700 dark:text-emerald-400 font-semibold">{notice}</p>}
             {error && <ErrorNote message={error} />}
