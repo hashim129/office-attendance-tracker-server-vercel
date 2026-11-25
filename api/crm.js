@@ -455,7 +455,8 @@ const cleanLayout = (raw) => {
   for (const [k, v] of Object.entries(src).slice(0, 60)) {
     if (!/^[a-z0-9-]{1,40}$/.test(k) || !v || typeof v !== 'object') continue;
     const clamp = (n, lo, hi, d) => { const x = Number(n); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, Math.round(x))) : d; };
-    items[k] = { order: clamp(v.order, -1000, 100000, 0), span: clamp(v.span, 2, 12, 12), h: v.h ? clamp(v.h, 80, 1400, 0) : 0, color: DASH_COLORS.includes(v.color) ? v.color : '', hidden: v.hidden === true };
+    const free = v.x !== undefined && v.x !== null && v.y !== undefined && v.y !== null && Number.isFinite(Number(v.x)) && Number.isFinite(Number(v.y));
+    items[k] = { order: clamp(v.order, -1000, 100000, 0), span: clamp(v.span, 2, 12, 12), h: v.h ? clamp(v.h, 80, 1400, 0) : 0, color: DASH_COLORS.includes(v.color) ? v.color : '', hidden: v.hidden === true, ...(free ? { x: clamp(v.x, 0, 10, 0), y: clamp(v.y, 0, 20000, 0) } : {}) };
   }
   return { items, updatedAt: String(raw?.updatedAt || ''), updatedBy: String(raw?.updatedBy || ''), updatedByName: String(raw?.updatedByName || '').slice(0, 80) };
 };

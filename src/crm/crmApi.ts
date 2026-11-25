@@ -475,7 +475,8 @@ export interface CrmData {
   me?: { id: string; role: string; salesTeam?: '' | 'B2C' | 'B2B'; salesTeamHead?: boolean } | null;
 }
 
-export interface DashboardWidgetLayout { order: number; span: number; h: number; color: string; hidden: boolean }
+/** x = starting column (0-11), y = distance from the top in pixels; both are set once an Admin has placed the box freely */
+export interface DashboardWidgetLayout { order: number; span: number; h: number; color: string; hidden: boolean; x?: number; y?: number }
 export interface DashboardLayout { items: Record<string, DashboardWidgetLayout>; updatedAt?: string; updatedByName?: string }
 
 export const EMPTY_BADGES: CrmBadges = { tasksOpen: 0, tasksNew: 0, meetingsNew: 0, meetingsPending: 0, inventoryNew: 0, inventoryPending: 0, salesNew: 0, invoiceNew: 0, receiptNew: 0, customersNew: 0, salesPending: 0, unreadTotal: 0, upcoming: [], unreadLatest: [] };
