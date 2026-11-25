@@ -1,5 +1,7 @@
 // All dimensions are in scene units. The avatar faces local +Z.
 import * as T from 'three';
+import { sculpt } from './sculptAvatar.js';
+import { wardrobe } from './avatarWardrobe.js';
 import { SVGRenderer } from 'three/addons/renderers/SVGRenderer.js';
 import { HUMAN_CHARACTERS, LEGACY_CHARACTER_IDS, humanCharacter } from './universeCharacters.js';
 
@@ -15,17 +17,21 @@ function group(parent,x=0,y=0,z=0) {
 const oval=(p,c,...v)=>mesh(p,sphere,c,...v);
 const block=(p,c,...v)=>mesh(p,box,c,...v);
 const fur={fox:'#e98740', tiger:'#e9aa42', panda:'#ecebea', dragon:'#59aa76', koala:'#aab3bd', unicorn:'#f4cfeb'};
-export function studio(id, portrait=false) {
+export function studio(id, portrait=false, appearance={}) {
   const legacy=LEGACY_CHARACTER_IDS.indexOf(id);
   const a=humanCharacter(id)||HUMAN_CHARACTERS[Math.max(0,legacy)*3];
-  const skin=fur[id]||a.skin, hair=a.hair, navy='#30394f', ink='#282533';
+  const v={...Object.fromEntries(Object.entries(wardrobe).map(([key,values])=>[key,values[0]])),skin:a.skin,hairColor:a.hair,fabric:a.outfit,hairStyle:wardrobe.hairStyle[a.style],glasses:a.accessory%3===1?'Round':'None',...appearance};
+  const custom=!fur[id] || !!appearance?.model;
+  const skin=custom?v.skin:fur[id], hair=v.hairColor, navy=v.pants, ink='#282533';
   const scene=new T.Scene(); scene.background=new T.Color(portrait?'#e3e8fa':'#c5d7ed');
   scene.add(new T.HemisphereLight(0xfff6ec,0xaab5d4,2.0));
   const sun=new T.DirectionalLight(0xfff0dd,2.1); sun.position.set(-3,6,5); scene.add(sun);
   const camera=new T.OrthographicCamera(-2.7,2.7,1.65,-1.65,.1,50);
   camera.position.set(3,2.65,6); camera.lookAt(0,1.25,0);
   const body=group(scene), torso=group(body), head=group(torso,0,.89,0);
-  oval(torso,a.outfit,0,.29,0,.32,.49,.21);
+  oval(torso,v.fabric,0,.29,0,.32,.49,.21);
+  if(custom) sculpt(head,torso,v);
+  else {
   block(torso,'#fcf5ea',0,.54,.17,.11,.18,.035);
   oval(head,skin,0,.12,0,.32,.385,.3);
   for(const s of [-1,1]){
@@ -51,13 +57,15 @@ export function studio(id, portrait=false) {
       const ring=mesh(head,glasses,'#363342',s*.125,.153,.314,.079,.067,.028); ring.rotation.z=s*.04;
     }
   }
+  }
+  torso.scale.x=v.body==='Broad'?1.15:v.body==='Slender'?.88:1;
   const legs=[],arms=[];
   for(const s of [-1,1]){
     const hip=group(body,s*.147,-.09,0), knee=group(hip,0,-.41,0);
     oval(hip,navy,0,-.20,0,.135,.25,.135); oval(knee,navy,0,-.19,0,.106,.23,.105);
-    oval(knee,'#eef0f4',0,-.39,.055,.129,.086,.203); legs.push([hip,knee]);
+    oval(knee,v.shoes,0,-.39,.055,.129,.086,.203); legs.push([hip,knee]);
     const shoulder=group(torso,s*.302,.52,0), elbow=group(shoulder,0,-.295,0);
-    oval(shoulder,a.outfit,0,-.13,0,.106,.19,.108); oval(elbow,skin,0,-.13,0,.078,.164,.081);
+    oval(shoulder,v.top==='Varsity'?'#ece2cd':v.fabric,0,-.13,0,.106,.19,.108); oval(elbow,['Hoodie','Varsity','Suit'].includes(v.top)?(v.top==='Varsity'?'#ece2cd':v.fabric):skin,0,-.13,0,.078,.164,.081);
     oval(elbow,skin,0,-.28,0,.081,.092,.073); arms.push([shoulder,elbow]);
   }
   const mug=group(arms[1][1],0,-.31,.05);
@@ -74,7 +82,7 @@ export function studio(id, portrait=false) {
   block(scene,'#c2cfe0',0,-.068,0,5.8,.13,2.5);
   block(scene,'#84c3d0',0,-.035,1.22,5.8,.06,.03);
   if(portrait){desk.visible=chair.visible=false; camera.position.set(.68,2.12,5);camera.lookAt(0,1.23,0);}
-  return {scene,camera,body,torso,head,legs,arms,mug,lid,portrait};
+  return {scene,camera,body,torso,head,legs,arms,mug,lid,portrait,closeup:false};
 }
 const glasses=new T.TorusGeometry(1,.14,5,20), cup=new T.CylinderGeometry(1,.83,1,16);
 const clamp=x=>Math.max(0,Math.min(1,x));
@@ -102,7 +110,7 @@ export function paint(canvas,rig){
     catch {renderer=new SVGRenderer();renderer.setQuality('low');}
   }
   const w=canvas.width,h=canvas.height;
-  const half=rig.portrait?1.34:1.43;
+  const half=rig.closeup?.62:rig.portrait?1.29:1.43;
   rig.camera.top=half;rig.camera.bottom=-half;rig.camera.left=-half*w/h;rig.camera.right=half*w/h;rig.camera.updateProjectionMatrix();
   renderer.setSize(w,h,false); renderer.render(rig.scene,rig.camera);
   if(renderer.domElement instanceof HTMLCanvasElement) canvas.getContext('2d').drawImage(renderer.domElement,0,0);

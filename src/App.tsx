@@ -89,6 +89,7 @@ const SmartInsightsTab = lazy(() => import('./components/desktop/SmartInsightsTa
 const OfficeSettingsTab = lazy(() => import('./components/desktop/OfficeSettingsTab').then((m) => ({ default: m.OfficeSettingsTab })));
 const PrintableTimesheetModal = lazy(() => import('./components/desktop/PrintableTimesheetModal').then((m) => ({ default: m.PrintableTimesheetModal })));
 const FaceScanModal = lazy(() => import('./components/common/FaceScanModal').then((m) => ({ default: m.FaceScanModal })));
+const StatsAvatar = lazy(() => import('./components/desktop/UniverseOffice').then(m=>({default:m.AvatarStage})));
 const PersonalDesk = lazy(() => import('./components/desktop/UniverseOffice').then(m=>({default:m.PersonalDesk})));
 const LiveDashboardTab = lazy(() => import('./components/desktop/LiveDashboardTab').then((m) => ({ default: m.LiveDashboardTab })));
 const CrmPage = lazy(() => import('./crm/CrmPage').then((m) => ({ default: m.CrmPage })));
@@ -1182,6 +1183,7 @@ export default function App() {
                   <Suspense fallback={<TabLoader />}>
                 {activeTab === 'clock' && (
                 <>
+                {currentUser && settings.employeeUniverseBetaEnabled === true && <PersonalDesk employee={currentUser} record={records.find(r=>r.employeeId===currentUser.id && r.date===getTodayDateString())} settings={settings} online={isNetworkOnline}/>}
                 <PunchClockTab
                   onRecheckNetwork={handleRecheckNetwork}
                   currentUser={currentUser}
@@ -1202,11 +1204,11 @@ export default function App() {
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                 />
-                {currentUser && settings.employeeUniverseBetaEnabled === true && <PersonalDesk employee={currentUser} record={records.find(r=>r.employeeId===currentUser.id && r.date===getTodayDateString())} settings={settings} online={isNetworkOnline}/>}
                 </>
               )}
 
-              {activeTab === 'my-attendance' && (
+              {activeTab === 'my-attendance' && (<>
+                {settings.employeeUniverseBetaEnabled === true && <div className="mb-3 w-48"><StatsAvatar id={currentUser.gameCharacterId||'human-1'} appearance={currentUser.avatarAppearance} animated label={currentUser.name+' · attendance avatar'}/></div>}
                 <MyAttendanceTab
                   currentUser={currentUser}
                   records={records}
@@ -1217,10 +1219,10 @@ export default function App() {
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                   isNetworkOnline={isNetworkOnline}
-                />
+                /></>
               )}
 
-              {activeTab === 'employee-profile' && currentUser && <EmployeeProfileTab employee={currentUser} onSaved={(profile) => {
+              {activeTab === 'employee-profile' && currentUser && <EmployeeProfileTab beta={settings.employeeUniverseBetaEnabled===true} employee={currentUser} onSaved={(profile) => {
                 setCurrentUser(user => user ? {...user,...profile} : user);
                 setEmployees(list => list.map(employee => employee.id===currentUser.id ? {...employee,...profile} : employee));
               }} />}

@@ -149,6 +149,7 @@ export interface Employee {
   salesTeam?: '' | 'B2C' | 'B2B'; // Sales team the employee belongs to (set by an administrator)
   salesTeamHead?: boolean; // Heads of the B2C / B2B team also see the customers of their whole team
   birthday?: string; // YYYY-MM-DD, optional (used for birthday cards)
+  avatarAppearance?: Record<string,string>;
   gameCharacterId?: string; // Employee Universe Beta avatar selection
   gamePetId?: string; // Employee Universe Beta optional companion
   isSuperAdmin?: boolean;
