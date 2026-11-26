@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { AckBadge, AfterCreateInfo, AfterCreatePrompt, guessPhone } from './AfterCreate';
 import { canEditFinancialRecord } from '../lib/financePermissions.js';
 import { Plus, Trash2, Eye, Pencil, ShoppingBag, X, Check, Plane, Building2, Stamp, Bus, ShieldCheck, Package, CreditCard, Search, Columns3, FolderPlus } from 'lucide-react';
 import { Employee } from '../types';
@@ -251,7 +252,13 @@ const getCustomFieldValue = (it: Pick<CrmPurchaseItem, 'customValues'>, cf: Purc
   return it.customValues[cf.id] ?? it.customValues[cf.label] ?? '';
 };
 
-export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
+export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, employees, currentUser, portalEnabled = false }) => {
+  const [after, setAfter] = useState<AfterCreateInfo | null>(null);
+  const purchaseAfter = (x: CrmPurchase): AfterCreateInfo => ({
+    kind: 'purchase', id: x.id, title: `Purchase ${x.purchaseNo}`, customerName: x.customerName,
+    phone: guessPhone(crm.data, x.customerName, x.crmId), trackingId: x.crmId,
+    summary: `${x.currency} ${fmtAmount(x.totalReceivable || x.totalPayable)}`,
+  });
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo';
   const isStaff = isAdmin || currentUser.role === 'accounts';
   const seesAll = isStaff || currentUser.role === 'ceo';
@@ -682,8 +689,10 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
 
       const saved = await crmCall<{ purchase: CrmPurchase }>('purchase_save', payload);
       await crm.refresh();
+      const wasNew = !form?.id;
       setForm(null);
-      setViewing(saved.purchase || (saved as unknown as CrmPurchase));
+      const savedPurchase = saved.purchase || (saved as unknown as CrmPurchase);
+      if (wasNew && savedPurchase?.id) setAfter(purchaseAfter(savedPurchase)); else setViewing(savedPurchase);
     } catch (e: any) {
       setError(e?.message || 'Could not save vendor purchase.');
     } finally {
@@ -726,6 +735,7 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
 
   return (
     <div className="space-y-4">
+      <AfterCreatePrompt info={after} companyName={crm.data.company.name} portalEnabled={portalEnabled} ack={after ? crm.data.acks?.[after.id] : undefined} onClose={() => setAfter(null)} onSent={() => void crm.refresh()} />
       {/* Header Card */}
       <div className={`${cardCls} p-4 flex flex-wrap items-center justify-between gap-3`}>
         <div className="flex items-center gap-2.5">
@@ -1066,6 +1076,8 @@ export const PurchasesView: React.FC<Props> = ({ crm, employees, currentUser }) 
                   <button type="button" onClick={() => setViewing(p)} className={btnGhost}>
                     <Eye className="w-3.5 h-3.5" /> View
                   </button>
+                  <button type="button" onClick={() => setAfter(purchaseAfter(p))} className={btnGhost} data-card-whatsapp>WhatsApp / Accounts</button>
+                  <AckBadge kind="purchase" id={p.id} crm={crm} canRequest={false} />
                   {canEditFinancialRecord(currentUser.role, currentUser.id, p.createdBy, 'purchase') && <button
                     type="button"
                     onClick={() => {

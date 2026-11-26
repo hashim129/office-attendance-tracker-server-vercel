@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { canEditFinancialRecord } from '../lib/financePermissions.js';
 import { Plus, Trash2, FileDown, Share2, Eye, Pencil, Building2, FileText, X, Lock, Info, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { Employee } from '../types';
@@ -17,6 +17,9 @@ import { downloadReportPdf } from '../lib/reportPdf';
 import { PaymentHistory, PaymentsLedger, QuickPayment } from './PaymentsLedger';
 import { CreatedStamp, ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
+import { AckBadge, AfterCreateInfo, AfterCreatePrompt } from './AfterCreate';
+import { LinePax, cleanLinePax, isStay, paxPricing, paxText } from './paxDetails';
+import { PaxPicker } from './PaxPicker';
 
 interface Props {
   crm: CrmState;
@@ -25,7 +28,7 @@ interface Props {
   customerPortalBetaEnabled?: boolean;
 }
 
-interface FormLine { description: string; unitPrice: string; units: string; currency: string; rate: string; taxable: boolean; note: boolean; key: string; locked: boolean }
+interface FormLine { description: string; unitPrice: string; units: string; currency: string; rate: string; taxable: boolean; note: boolean; key: string; locked: boolean; pax?: LinePax }
 /** One payment received on a customer invoice (a row of the payment history). Saved rows have an id and are locked for the person who made the invoice. */
 interface FormPayment { id: string; date: string; amount: string; note: string; method: 'cash' | 'bank' | ''; receiptId: string | null; receiptNo: string | null; byName: string; at: string }
 interface FormSection { title: string; key: string; locked: boolean; lines: FormLine[] }
@@ -239,7 +242,7 @@ function toForm(inv: CrmInvoice, companyNtn = ''): FormState {
       title: s.title, key: s.key || uid(), locked: Boolean(s.locked),
       lines: s.lines.map((l) => ({ key: l.key || uid(), locked: Boolean(l.locked),
         description: l.description, unitPrice: l.note ? '' : String(l.unitPrice ?? ''), units: l.note ? '1' : String(l.units ?? 1), currency: l.currency || inv.currency,
-        rate: l.currency && l.currency !== inv.currency ? String(l.rate ?? '') : '', taxable: Boolean(l.taxable), note: Boolean(l.note),
+        rate: l.currency && l.currency !== inv.currency ? String(l.rate ?? '') : '', taxable: Boolean(l.taxable), note: Boolean(l.note), pax: l.pax || undefined,
       })),
     })),
     taxLabel: inv.taxLabel, taxRate: inv.taxRate ? String(inv.taxRate) : '', discount: inv.discount ? String(inv.discount) : '', advancePaid: inv.advancePaid ? String(inv.advancePaid) : '', notes: inv.notes,
@@ -326,7 +329,7 @@ const InvoicePreview: React.FC<{ inv: CrmInvoice; company: CompanyProfile; by: s
                 {sec.lines.map((l, li) => (
                   <tr key={li}>
                     <td className={`${cell} py-1.5`} />
-                    <td className={`px-1.5 py-1.5 ${l.note ? 'font-bold' : ''}`}>{l.description}</td>
+                    <td className={`px-1.5 py-1.5 ${l.note ? 'font-bold' : ''}`}>{l.description}{!l.note && l.pax && <span className="block text-[10px] text-slate-600" data-pax-line>{paxText(l.pax, l.currency || inv.currency, fmtAmount, isStay(`${sec.title} ${l.description}`))}</span>}</td>
                     <td className={`${cell} text-center`}>{l.note ? '' : (<>{l.currency} {fmtAmount(l.unitPrice || 0)}{l.currency !== inv.currency && l.rate ? <span className="block text-[9px] text-slate-500">1 {l.currency} = {fmtAmount(l.rate)} {inv.currency}</span> : null}</>)}</td>
                     <td className={`${cell} text-center`}>{l.note ? '' : fmtAmount(l.units ?? 1)}</td>
                     <td className={`${cell} text-right px-1.5`}>{l.note ? '' : fmtAmount(l.amount || 0)}</td>
@@ -396,6 +399,9 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
   const toggleOpen = (id: string) => setOpenIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [view, setView] = useState<CrmInvoice | null>(allInvoices.find((i) => i.id === focusId) || null);
+  /** "Share on WhatsApp / Send to Accounts" right after a new invoice is created */
+  const [after, setAfter] = useState<AfterCreateInfo | null>(null);
+  const createdNow = useRef<string | null>(null);
   const [portalFor, setPortalFor] = useState<CrmInvoice | null>(null);
   const canPortalCtl = currentUser.role === 'admin' || currentUser.role === 'ceo' || Boolean(currentUser.customerPortalAccess);
   const [companyForm, setCompanyForm] = useState<CompanyProfile | null>(null);
@@ -511,7 +517,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
       title: s.title,
       lines: s.lines.map((l, li) => (l.note
         ? { description: l.description, note: true }
-        : { description: l.description, unitPrice: Number(l.unitPrice) || 0, units: l.units.trim() === '' ? 1 : Number(l.units) || 0, currency: l.currency, rate: l.currency === form.currency ? 1 : Number(l.rate) || 0, amount: calc.amounts[si][li] ?? 0, taxable: l.taxable }
+        : { description: l.description, unitPrice: Number(l.unitPrice) || 0, units: l.units.trim() === '' ? 1 : Number(l.units) || 0, currency: l.currency, rate: l.currency === form.currency ? 1 : Number(l.rate) || 0, amount: calc.amounts[si][li] ?? 0, taxable: l.taxable, pax: cleanLinePax(l.pax) }
       )).filter((l) => l.description.trim() || (l.amount ?? 0) > 0),
     })).filter((sec) => sec.title.trim() || sec.lines.length),
     taxLabel: form.taxLabel, taxRate: Number(form.taxRate) || 0, discount: Number(form.discount) || 0, advancePaid: form.kind === 'customer' ? sumFormPayments(form.payments) : Number(form.advancePaid) || 0,
@@ -726,7 +732,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
           title: s.title, key: s.key, locked: s.locked || lockThis,
           lines: s.lines.filter((l) => l.description.trim() || l.unitPrice.trim()).map((l) => (l.note
             ? { description: l.description, key: l.key, locked: l.locked || lockThis }
-            : { description: l.description, unitPrice: l.unitPrice, units: l.units, currency: l.currency, rate: l.rate, taxable: l.taxable, key: l.key, locked: l.locked || lockThis })),
+            : { description: l.description, unitPrice: l.unitPrice, units: l.units, currency: l.currency, rate: l.rate, taxable: l.taxable, key: l.key, locked: l.locked || lockThis, ...(cleanLinePax(l.pax) ? { pax: cleanLinePax(l.pax) } : {}) })),
         };
       }),
       ...(customerPortalBetaEnabled && form!.kind === 'customer'
@@ -807,11 +813,16 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
     setError('');
     setNotice('');
     try {
+      const wasNew = !form.id;
       const r = await crmCall<{ invoice: CrmInvoice }>('invoice_save', { invoice: buildPayload(lockIdx) });
+      if (wasNew) createdNow.current = r.invoice.id;
       await crm.refresh();
       if (close) {
         setForm(null);
-        setView(r.invoice);
+        if (createdNow.current === r.invoice.id) {
+          createdNow.current = null;
+          setAfter(afterInfo(r.invoice));
+        } else setView(r.invoice);
       } else {
         setForm(toForm(r.invoice, company.ntn || ''));
         setNotice(`Saved and locked. ${r.invoice.invoiceNo} is stored; locked lines can no longer be edited (only an administrator can unlock them), but you can keep adding new lines.`);
@@ -853,6 +864,13 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
       setError(err?.message || 'Could not create the vendor PDF.');
     }
   };
+  const afterInfo = (i: CrmInvoice): AfterCreateInfo => ({
+    kind: 'invoice', id: i.id, title: `${i.kind === 'vendor' ? 'Vendor payable' : 'Invoice'} ${i.invoiceNo}`, customerName: i.customerName,
+    phone: i.customerPhone || '', trackingId: crmQueryOf(i) || i.invoiceNo,
+    summary: `Total ${i.currency} ${fmtAmount(i.total)}${i.balance > 0 && i.balance < i.total ? ` · Balance ${i.currency} ${fmtAmount(i.balance)}` : ''}`,
+    makePdf: i.kind === 'vendor' ? undefined : () => invoicePdfFile(i, company, by(i)),
+    customerFacing: i.kind !== 'vendor',
+  });
   const share = async (i: CrmInvoice) => {
     try {
       const file = await invoicePdfFile(i, company, by(i));
@@ -1983,6 +2001,8 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                       <button className={btnGhost} onClick={() => setView(i)}><Eye className="w-3.5 h-3.5" /> {vendorSide ? 'View payable' : 'View'}</button>
                       <button className={btnPrimary} onClick={() => void pdf(i)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
                       {canShare && <button className={btnGhost} onClick={() => void share(i)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
+                      {i.status !== 'cancelled' && <button className={btnGhost} onClick={() => setAfter(afterInfo(i))} data-card-whatsapp>WhatsApp / Accounts</button>}
+                      <AckBadge kind="invoice" id={i.id} crm={crm} canRequest={false} />
                       {canEdit(i) && <button className={btnGhost} onClick={() => { setForm(toForm(i, company.ntn || '')); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
                       {!vendorSide && i.status !== 'cancelled' && i.balance > 0 && (isStaff || i.createdBy === currentUser.id) && (
                         <button className={btnGhost} onClick={() => setPayFor(payFor === i.id ? null : i.id)} data-card-add-payment>Add payment</button>
@@ -2106,6 +2126,8 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
         </div>
       )}
 
+      <AfterCreatePrompt info={after} companyName={company.name} portalEnabled={customerPortalBetaEnabled} ack={after ? crm.data.acks?.[after.id] : undefined}
+        onClose={() => setAfter(null)} onSent={() => void crm.refresh()} />
       <PortalInvoiceModal invoice={portalFor} settings={portalFor ? crm.data.portalInvoices?.[portalFor.id] : undefined} onClose={() => setPortalFor(null)} onSaved={() => void crm.refresh()} />
 
       {/* ---------- preview */}
@@ -2230,6 +2252,13 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                             <input className={`${inputCls} w-32`} type="number" inputMode="decimal" step="any" min="0" placeholder="rate" value={l.rate} onChange={(e) => setLine(si, li, { rate: e.target.value })} required={l.unitPrice.trim() !== ''} disabled={l.locked} />
                             <span>{form.currency}</span>
                           </div>
+                        )}
+                        {!l.note && (
+                          <PaxPicker value={l.pax} currency={l.currency} stay={isStay(`${s.title} ${l.description}`)} disabled={l.locked}
+                            onChange={(pax) => {
+                              const priced = paxPricing(pax);
+                              setLine(si, li, priced ? { pax, unitPrice: String(priced.unitPrice), units: String(priced.units) } : { pax });
+                            }} />
                         )}
                       </div>
                     );

@@ -103,7 +103,12 @@ export interface CrmBadges {
   /** My open deadlines (follow-ups / meetings) within the next 3 days, plus just-missed ones. */
   upcoming: CrmUpcoming[];
   unreadLatest: { id: string; category: CrmCategory; refId?: string; message: string }[];
+  /** Records sent to Accounts that this person (an Accounts officer) still has to acknowledge */
+  ackPending?: AckPending[];
 }
+export type AckKind = 'invoice' | 'receipt' | 'sale' | 'purchase';
+export interface AckPending { refId: string; kind: AckKind; label: string; no: string; name: string; byName: string; at: string }
+export interface AckStatus { requestedAt: string; requestedByName: string; ackAt: string | null; ackByName: string }
 
 export type CrmCategory = 'followup' | 'meeting' | 'inventory' | 'sale' | 'reminder' | 'invoice' | 'receipt' | 'customer';
 
@@ -144,6 +149,8 @@ export interface InvoiceLine {
   description: string;
   /** A text-only row (no price), e.g. a route or a sub-heading. */
   note?: boolean;
+  /** Optional travellers (adults / children / infants, with prices) and dates; see paxDetails.ts */
+  pax?: import('./paxDetails').LinePax;
   unitPrice?: number;
   units?: number;
   currency?: string;
@@ -472,6 +479,8 @@ export interface CrmData {
   business?: CrmBusiness | null;
   /** Live Dashboard positions, sizes and colours saved by an administrator for everyone */
   dashboardLayout?: DashboardLayout | null;
+  /** "Send to Accounts" status per record id */
+  acks?: Record<string, AckStatus>;
   me?: { id: string; role: string; salesTeam?: '' | 'B2C' | 'B2B'; salesTeamHead?: boolean } | null;
 }
 

@@ -1926,9 +1926,13 @@ function PortalInner() {
 
   // 3. Ready — Bahaar Journeys Public Customer Portal
   const activeTheme = portalConfig.theme === 'auto' || !portalConfig.theme ? themeFor() : portalConfig.theme;
+  // Tell the office who is writing: reference number and the customer's name from the tracked booking
+  const waRefTail = foundData
+    ? ` (Ref: ${foundData.query}${foundData.customerName ? ` · Name: ${foundData.customerName}` : ''})`
+    : '';
   const waDigitsStr = portalConfig.whatsappNumber.replace(/\D+/g, '');
   const waHref = waDigitsStr
-    ? `https://wa.me/${waDigitsStr}?text=${encodeURIComponent(`${portalConfig.whatsappMessage || 'Hello Bahaar Journeys, I need help with my booking.'}${foundData ? ` (Ref: ${foundData.query})` : ''}`)}`
+    ? `https://wa.me/${waDigitsStr}?text=${encodeURIComponent(`${portalConfig.whatsappMessage || 'Hello Bahaar Journeys, I need help with my booking.'}${waRefTail}`)}`
     : '';
   const activeMatchedSet = new Set(matchedDestinationIds);
 
@@ -1947,7 +1951,7 @@ function PortalInner() {
       <WhatsAppFab
         onTap={() => sendPortalEvent('wa_click')}
         number={portalConfig.whatsappNumber}
-        message={`${portalConfig.whatsappMessage || 'Hello Bahaar Journeys, I need help with my booking.'}${foundData ? ` (Ref: ${foundData.query})` : ''}`}
+        message={`${portalConfig.whatsappMessage || 'Hello Bahaar Journeys, I need help with my booking.'}${waRefTail}`}
       />
       {/* Screen Header */}
       {portalConfig.announcement && !bannerHidden && (

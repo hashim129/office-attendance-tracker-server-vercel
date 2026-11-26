@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { AckBadge, AfterCreateInfo, AfterCreatePrompt, guessPhone } from './AfterCreate';
 import { canEditFinancialRecord } from '../lib/financePermissions.js';
 import { Plus, Trash2, FileDown, Share2, Eye, Pencil, ReceiptText, Upload, X } from 'lucide-react';
 import { Employee } from '../types';
@@ -78,7 +79,8 @@ const Group: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
 
 const niceDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
-export const ReceiptsView: React.FC<Props & { focusId?: string }> = ({ crm, employees, currentUser, focusId }) => {
+export const ReceiptsView: React.FC<Props & { focusId?: string; portalEnabled?: boolean }> = ({ crm, employees, currentUser, focusId, portalEnabled = false }) => {
+  const [after, setAfter] = useState<AfterCreateInfo | null>(null);
   const isStaff = currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.role === 'ceo';
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const seesAll = isStaff || currentUser.role === 'ceo';
@@ -155,7 +157,7 @@ export const ReceiptsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
       });
       await crm.refresh();
       setForm(null);
-      setView(r.receipt);
+      if (!form.id) setAfter(afterInfo(r.receipt)); else setView(r.receipt);
     } catch (err: any) {
       setError(err?.message || 'Could not save the receipt.');
     } finally {
@@ -171,6 +173,12 @@ export const ReceiptsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
       setError(err?.message || 'Could not create the PDF.');
     }
   };
+  const afterInfo = (r: CrmReceipt): AfterCreateInfo => ({
+    kind: 'receipt', id: r.id, title: `Receipt ${r.receiptNo}`, customerName: r.clientName,
+    phone: guessPhone(crm.data, r.clientName, r.queryCode), trackingId: r.queryCode,
+    summary: `Received ${r.currency} ${fmtAmount(r.amountReceived)}`,
+    makePdf: () => receiptPdfFile(r, company, by(r)),
+  });
   const share = async (r: CrmReceipt) => {
     try {
       const file = await receiptPdfFile(r, company, by(r));
@@ -207,6 +215,7 @@ export const ReceiptsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
 
   return (
     <div className="space-y-4">
+      <AfterCreatePrompt info={after} companyName={company.name} portalEnabled={portalEnabled} ack={after ? crm.data.acks?.[after.id] : undefined} onClose={() => setAfter(null)} onSent={() => void crm.refresh()} />
       <div className={`${cardCls} p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3`}>
         <div>
           <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 inline-flex items-center gap-2"><ReceiptText className="w-4 h-4 text-blue-600" /> Receipts</h2>
@@ -256,6 +265,8 @@ export const ReceiptsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                 <button className={btnGhost} onClick={() => setView(r)}><Eye className="w-3.5 h-3.5" /> View</button>
                 <button className={btnPrimary} onClick={() => void pdf(r)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
                 {canShare && <button className={btnGhost} onClick={() => void share(r)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
+                <button className={btnGhost} onClick={() => setAfter(afterInfo(r))} data-card-whatsapp>WhatsApp / Accounts</button>
+                <AckBadge kind="receipt" id={r.id} crm={crm} canRequest={false} />
                 {canEdit(r) && <button className={btnGhost} onClick={() => { setForm(toForm(r)); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
                 {isStaff && (
                   <select

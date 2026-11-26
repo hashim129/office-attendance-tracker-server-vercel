@@ -61,6 +61,8 @@ interface CoworkerPresenceItem {
 }
 
 interface PunchClockTabProps {
+  /** The personal Universe desk (small, shown on the left of the punch card) */
+  desk?: React.ReactNode;
   currentUser: Employee;
   allEmployees?: Employee[];
   shifts: ShiftSchedule[];
@@ -82,6 +84,7 @@ interface PunchClockTabProps {
 }
 
 export const PunchClockTab: React.FC<PunchClockTabProps> = ({
+  desk,
   currentUser,
   allEmployees = [],
   shifts,
@@ -402,88 +405,8 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     ? `Your shift starts at ${formatTime12h(userShift.startTime)}. Press Time In when you are ready.`
     : 'Press Time In when you are ready to start your day.';
 
-  return (
-    <div className="w-full min-w-0 space-y-4 sm:space-y-5">
-      {/* Friendly greeting */}
-      <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">{((settings.employeeUniverseBetaEnabled === true && currentUser.gameCharacterId) || hasProfilePicture(currentUser.avatarAppearance)) && <EmployeeAvatar characterId={currentUser.gameCharacterId} petId={currentUser.gamePetId} appearance={currentUser.avatarAppearance} name={currentUser.name} size="sm" />}<h2 className="text-lg sm:text-xl font-bold leading-tight">{greetingWord}, {firstName}!</h2></div>
-          <p className="text-xs sm:text-sm text-blue-100 mt-0.5">{greetingLine}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
-          <StreakChip streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr)} />
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
-            <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
-            {coworkerCounts.in} online now
-          </span>
-          {coworkerCounts.offline > 0 && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
-              <span className="w-2 h-2 rounded-full bg-slate-300" />
-              {coworkerCounts.offline} offline
-            </span>
-          )}
-        </div>
-      </div>
-
-      <MomentCards employees={allEmployees.length ? allEmployees : [currentUser]} currentUserId={currentUser.id} todayStr={todayStr} />
-      {celebrate && (
-        <PunchCelebration
-          name={firstName}
-          late={celebrate.late}
-          streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr) + (todayRecord?.timeIn ? 0 : 1)}
-          timeLabel={celebrate.timeLabel}
-          onDone={() => setCelebrate(null)}
-        />
-      )}
-
-      {/* Unread Executive Directives Banner */}
-      {myDirectives.length > 0 && (
-        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 shadow-xs space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold text-xs">
-              <Crown className="w-4 h-4 text-amber-600" />
-              <span>Executive Directives & Mentions ({myDirectives.length})</span>
-            </div>
-            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium uppercase tracking-wider">
-              Immediate Action
-            </span>
-          </div>
-          <div className="space-y-2">
-            {myDirectives.map((comment) => (
-              <div
-                key={comment.id}
-                className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 flex items-start justify-between gap-3 shadow-2xs"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                      {comment.fromName} ({comment.fromRole.toUpperCase()})
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">
-                    "{comment.message}"
-                  </p>
-                </div>
-                {onMarkCeoCommentRead && (
-                  <button
-                    onClick={() => onMarkCeoCommentRead(comment.id)}
-                    className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 text-xs font-bold transition-colors cursor-pointer"
-                    title="Acknowledge directive"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Acknowledge</span>
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Top Banner: Welcome & Live Windows Clock */}
+  const welcomeBanner = (
+    <>
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6">
         <div>
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-100/90 dark:bg-emerald-950/80 border-2 border-emerald-400 dark:border-emerald-600 shadow-2xs">
@@ -530,11 +453,11 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
           </span>
         </div>
       </div>
-
-      {/* Main Punch Interaction Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 items-start">
-        {/* Left 2 Cols: Punch Clock Card */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 space-y-5">
+    </>
+  );
+  const punchCard = (
+    <>
+        <div className={`${desk ? '' : 'lg:col-span-2'} min-w-0 bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 space-y-5`}>
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <Clock className="w-4 h-4 text-blue-600" />
@@ -908,8 +831,10 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
             )}
           </div>
         </div>
-
-        {/* Right Col: Today's Timeline Card */}
+    </>
+  );
+  const timelineCard = (
+    <>
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 space-y-4">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <Timer className="w-4 h-4 text-slate-500" />
@@ -992,7 +917,111 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
             </div>
           </div>
         </div>
+    </>
+  );
+
+  return (
+    <div className="w-full min-w-0 space-y-4 sm:space-y-5">
+      {/* Friendly greeting */}
+      <div className="rounded-2xl p-4 sm:p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">{((settings.employeeUniverseBetaEnabled === true && currentUser.gameCharacterId) || hasProfilePicture(currentUser.avatarAppearance)) && <EmployeeAvatar characterId={currentUser.gameCharacterId} petId={currentUser.gamePetId} appearance={currentUser.avatarAppearance} name={currentUser.name} size="sm" />}<h2 className="text-lg sm:text-xl font-bold leading-tight">{greetingWord}, {firstName}!</h2></div>
+          <p className="text-xs sm:text-sm text-blue-100 mt-0.5">{greetingLine}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold shrink-0">
+          <StreakChip streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr)} />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
+            <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+            {coworkerCounts.in} online now
+          </span>
+          {coworkerCounts.offline > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 border border-white/20">
+              <span className="w-2 h-2 rounded-full bg-slate-300" />
+              {coworkerCounts.offline} offline
+            </span>
+          )}
+        </div>
       </div>
+
+      <MomentCards employees={allEmployees.length ? allEmployees : [currentUser]} currentUserId={currentUser.id} todayStr={todayStr} />
+      {celebrate && (
+        <PunchCelebration
+          name={firstName}
+          late={celebrate.late}
+          streak={computeStreak(records, currentUser.id, userShift, userShift?.workDays || [1, 2, 3, 4, 5], todayStr) + (todayRecord?.timeIn ? 0 : 1)}
+          timeLabel={celebrate.timeLabel}
+          onDone={() => setCelebrate(null)}
+        />
+      )}
+
+      {/* Unread Executive Directives Banner */}
+      {myDirectives.length > 0 && (
+        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border-2 border-amber-300 dark:border-amber-700 shadow-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold text-xs">
+              <Crown className="w-4 h-4 text-amber-600" />
+              <span>Executive Directives & Mentions ({myDirectives.length})</span>
+            </div>
+            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium uppercase tracking-wider">
+              Immediate Action
+            </span>
+          </div>
+          <div className="space-y-2">
+            {myDirectives.map((comment) => (
+              <div
+                key={comment.id}
+                className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 flex items-start justify-between gap-3 shadow-2xs"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                      {comment.fromName} ({comment.fromRole.toUpperCase()})
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium">
+                    "{comment.message}"
+                  </p>
+                </div>
+                {onMarkCeoCommentRead && (
+                  <button
+                    onClick={() => onMarkCeoCommentRead(comment.id)}
+                    className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-200 text-xs font-bold transition-colors cursor-pointer"
+                    title="Acknowledge directive"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Acknowledge</span>
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {desk ? (
+        <>
+          {/* Small Universe desk on the left, punch card on the right, the rest below */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] gap-4 sm:gap-5 items-start" data-punch-with-desk>
+            <div className="min-w-0">{desk}</div>
+            {punchCard}
+          </div>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-5 items-start">
+            {welcomeBanner}
+            {timelineCard}
+          </div>
+        </>
+      ) : (
+        <>
+          {welcomeBanner}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 items-start">
+            {punchCard}
+            {timelineCard}
+          </div>
+        </>
+      )}
 
       {/* Today's Team Live Presence Board (Today Only - Available to All Employees) */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4">

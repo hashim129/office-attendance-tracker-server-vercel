@@ -132,10 +132,14 @@ export function UniverseOffice({workers,viewerId}:{workers:Worker[];viewerId?:st
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">{shown.map(worker=><Desk key={worker.e.id} worker={worker} waved={waved.has(worker.e.id)} onWave={worker.e.id!==viewerId?()=>void wave(worker.e):undefined}/>)}</div>}
   </section>;
 }
-export function PersonalDesk({employee,record,settings,online}:{employee:Employee;record?:AttendanceRecord;settings:OfficeSettings;online:boolean}){
+export function PersonalDesk({employee,record,settings,online,compact=false}:{employee:Employee;record?:AttendanceRecord;settings:OfficeSettings;online:boolean;compact?:boolean}){
   const live=deriveLiveAttendanceState({record,settings,todayStr:getTodayDateString(),isCurrentUserOffline:!online,isCurrentUserConnected:online});
   const active=['in','break','no_internet'].includes(live);
   const first=employee.name.split(' ')[0]||employee.name;
+  if(compact) return <section data-personal-desk className="overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-fuchsia-50 p-2.5 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900">
+    <div className="mb-1.5 flex items-center justify-between gap-2 px-1"><h2 className="text-xs font-black text-indigo-900 dark:text-indigo-200">My desk</h2><span className="truncate text-[10px] text-slate-500">{active?`Have a great shift, ${first}! 🚀`:'Punch in to walk in 👉'}</span></div>
+    <Desk hd worker={{e:employee,live}}/>
+  </section>;
   return <section className="mb-4 overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-fuchsia-50 p-3 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900">
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1"><h2 className="text-sm font-black text-indigo-900 dark:text-indigo-200">My Universe desk</h2><span className="text-[11px] text-slate-500">{active?`You're in, ${first}. Have a great shift! 🚀`:`Punch in and watch ${first} walk in to work 👇`}</span></div>
     <div className="mx-auto max-w-2xl"><Desk hd worker={{e:employee,live}}/></div>
