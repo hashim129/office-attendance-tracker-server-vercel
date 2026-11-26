@@ -1849,7 +1849,7 @@ export default async function handler(req, res) {
         await notify(targets, 'invoice', row.id, `${me.name || 'Someone'} cancelled ${label} ${existing.invoice_no}. Remarks: ${row.cancel_remarks}`, me.id);
       } else if (existing.created_by === me.id && status === 'paid') {
         await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'Someone'} marked invoice ${existing.invoice_no} as RECEIVED.`, me.id);
-      } else if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Your invoice ${existing.invoice_no} was marked ${(status === 'paid' && existing.kind !== 'vendor' ? 'RECEIVED' : status.toUpperCase())}.`, me.id);
+      } else if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Your invoice ${existing.invoice_no} was marked ${existing.kind === 'vendor' ? status.toUpperCase() : (status === 'paid' ? 'RECEIVED' : 'NOT RECEIVED')}.`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
 
@@ -1942,7 +1942,7 @@ export default async function handler(req, res) {
       await syncReceiptLinks(row.id, built.added, built.removed);
       const what = action === 'invoice_payment_add' ? built.added[0] : built.removed[0];
       const verb = action === 'invoice_payment_add' ? 'recorded' : `removed (${str(body.remarks, 300)})`;
-      await notify([...(await salesStaffIds()), existing.created_by], 'invoice', row.id, `${me.name || 'Someone'} ${verb} a payment of ${existing.currency} ${what ? what.amount : ''} on invoice ${existing.invoice_no}. Balance now ${existing.currency} ${row.balance}.${row.status !== existing.status ? ` The invoice is now ${row.status === 'paid' ? 'RECEIVED (paid in full)' : 'UNPAID again'}.` : ''}`, me.id);
+      await notify([...(await salesStaffIds()), existing.created_by], 'invoice', row.id, `${me.name || 'Someone'} ${verb} a payment of ${existing.currency} ${what ? what.amount : ''} on invoice ${existing.invoice_no}. Balance now ${existing.currency} ${row.balance}.${row.status !== existing.status ? ` The invoice is now ${row.status === 'paid' ? 'RECEIVED (paid in full)' : 'NOT RECEIVED again'}.` : ''}`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
 

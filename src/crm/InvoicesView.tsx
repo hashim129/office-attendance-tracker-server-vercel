@@ -883,7 +883,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
     await act('invoice_status', { id: i.id, status: 'cancelled', remarks });
   };
 
-  const filters: ['all' | 'unpaid' | 'paid' | 'cancelled', string][] = [['all', 'All'], ['unpaid', 'Unpaid'], ['paid', 'Paid'], ['cancelled', 'Cancelled']];
+  const filters: ['all' | 'unpaid' | 'paid' | 'cancelled', string][] = [['all', 'All'], ['unpaid', vendorSide ? 'Unpaid' : 'Not received'], ['paid', vendorSide ? 'Paid' : 'Received'], ['cancelled', 'Cancelled']];
 
   return (
     <div className="space-y-4">
@@ -921,8 +921,8 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
           <StatBar
             title={`${seesAll ? 'All' : 'Your'} Customer Receivables`}
             segments={[
-              { label: 'Unpaid', count: receivableCounts.unpaid, tone: 'amber' },
-              { label: 'Paid', count: receivableCounts.paid, tone: 'green' },
+              { label: 'Not received', count: receivableCounts.unpaid, tone: 'amber' },
+              { label: 'Received', count: receivableCounts.paid, tone: 'green' },
               { label: 'Cancelled', count: receivableCounts.cancelled, tone: 'slate' },
             ]}
           />
@@ -1108,7 +1108,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                           </span>
                           <Pill tone="blue">CRM / Query: {crmQueryOf(i) || '—'}</Pill>
                           <span className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{i.customerName}</span>
-                          <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? (vendorSide ? 'Paid' : 'Paid · Received') : i.status === 'cancelled' ? 'Cancelled' : 'Unpaid'}</Pill>
+                          <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? (vendorSide ? 'Paid' : 'Received') : i.status === 'cancelled' ? 'Cancelled' : (vendorSide ? 'Unpaid' : 'Not received')}</Pill>
                           {showVisa && <Pill tone={visaTone(vStatus)}>Visa: {VISA_STATUS_LABEL[vStatus]}</Pill>}
                           {showHotel && <Pill tone={visaTone(hStatus)}>Hotel: {HOTEL_STATUS_LABEL[hStatus]}{savedHotelName ? ` (${savedHotelName.slice(0, 24)})` : ''}</Pill>}
                           {showTicket && <Pill tone={visaTone(tStatus)}>Ticket: {VISA_STATUS_LABEL[tStatus]}</Pill>}
@@ -1998,15 +1998,15 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                             void act('invoice_status', { id: i.id, status: next });
                           }}
                         >
-                          <option value="unpaid">Status: Unpaid</option>
-                          <option value="paid">Status: Paid (Payment Approved)</option>
+                          <option value="unpaid">{vendorSide ? 'Status: Unpaid' : 'Status: Not received'}</option>
+                          <option value="paid">{vendorSide ? 'Status: Paid (Payment Approved)' : 'Status: Received'}</option>
                           <option value="cancelled">Status: Cancelled</option>
                         </select>
                       )}
                       {i.status === 'unpaid' && (isAdmin || currentUser.role === 'accounts' || (!vendorSide && i.createdBy === currentUser.id)) && (
                         <button className={btnGhost} data-mark-received onClick={() => void act('invoice_status', { id: i.id, status: 'paid' })}>{vendorSide ? 'Mark as Paid' : 'Mark Received'}</button>
                       )}
-                      {isAdmin && i.status === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Mark unpaid</button>}
+                      {isAdmin && i.status === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>{vendorSide ? 'Mark unpaid' : 'Mark not received'}</button>}
                       {(isAdmin || i.createdBy === currentUser.id) && i.status === 'unpaid' && <button className={btnGhost} onClick={() => void cancelWithRemarks(i)}>Cancel invoice</button>}
                       {isAdmin && i.status === 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Reopen</button>}
                       {vendorSide && isStaff && i.status !== 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_vendor_posted', { id: i.id, posted: !i.vendorPosted })}>{i.vendorPosted ? '✓ Posted' : 'Mark as posted'}</button>}
