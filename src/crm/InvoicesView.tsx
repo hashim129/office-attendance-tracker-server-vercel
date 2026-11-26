@@ -1108,7 +1108,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                           </span>
                           <Pill tone="blue">CRM / Query: {crmQueryOf(i) || '—'}</Pill>
                           <span className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{i.customerName}</span>
-                          <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? 'Paid' : i.status === 'cancelled' ? 'Cancelled' : 'Unpaid'}</Pill>
+                          <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? (vendorSide ? 'Paid' : 'Paid · Received') : i.status === 'cancelled' ? 'Cancelled' : 'Unpaid'}</Pill>
                           {showVisa && <Pill tone={visaTone(vStatus)}>Visa: {VISA_STATUS_LABEL[vStatus]}</Pill>}
                           {showHotel && <Pill tone={visaTone(hStatus)}>Hotel: {HOTEL_STATUS_LABEL[hStatus]}{savedHotelName ? ` (${savedHotelName.slice(0, 24)})` : ''}</Pill>}
                           {showTicket && <Pill tone={visaTone(tStatus)}>Ticket: {VISA_STATUS_LABEL[tStatus]}</Pill>}
@@ -1120,6 +1120,11 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                         <p className="text-[11px] text-slate-500 dark:text-slate-400">
                           {niceDate(i.invoiceDate)}{i.dueDate ? ` · due ${niceDate(i.dueDate)}` : ''}{i.travelDate ? ` · travels ${niceDate(i.travelDate)}` : ''} · <CreatedStamp at={i.createdAt} by={by(i) || 'Former employee'} />
                         </p>
+                        {!vendorSide && i.status === 'paid' && (
+                          <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400" data-received-note>
+                            ✓ Payment received{i.paymentReceivedAt ? ` on ${niceDate(i.paymentReceivedAt.slice(0, 10))}` : ''}{i.paymentReceivedBy && empName.get(i.paymentReceivedBy) ? ` · marked by ${empName.get(i.paymentReceivedBy)}` : i.paymentReceivedAuto ? ' · paid in full' : ''}
+                          </p>
+                        )}
                       </div>
                       <div className={`sm:text-right shrink-0 rounded-lg px-2.5 py-1.5 border ${i.status === 'paid' ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60' : 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-100 dark:border-blue-900/50'}`}>
                         <p className="text-[11px] text-slate-500">{vendorSide ? 'Total payment' : 'Receivable Total'} <b className="font-mono text-slate-900 dark:text-slate-100">{i.currency} {fmtAmount(i.total)}</b></p>
@@ -1998,7 +2003,9 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                           <option value="cancelled">Status: Cancelled</option>
                         </select>
                       )}
-                      {(isAdmin || currentUser.role === 'accounts') && i.status === 'unpaid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'paid' })}>{vendorSide ? 'Mark as Paid' : currentUser.role === 'accounts' && !isAdmin ? 'Mark as Received' : 'Mark as Paid'}</button>}
+                      {i.status === 'unpaid' && (isAdmin || currentUser.role === 'accounts' || (!vendorSide && i.createdBy === currentUser.id)) && (
+                        <button className={btnGhost} data-mark-received onClick={() => void act('invoice_status', { id: i.id, status: 'paid' })}>{vendorSide ? 'Mark as Paid' : 'Mark Received'}</button>
+                      )}
                       {isAdmin && i.status === 'paid' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Mark unpaid</button>}
                       {(isAdmin || i.createdBy === currentUser.id) && i.status === 'unpaid' && <button className={btnGhost} onClick={() => void cancelWithRemarks(i)}>Cancel invoice</button>}
                       {isAdmin && i.status === 'cancelled' && <button className={btnGhost} onClick={() => void act('invoice_status', { id: i.id, status: 'unpaid' })}>Reopen</button>}
