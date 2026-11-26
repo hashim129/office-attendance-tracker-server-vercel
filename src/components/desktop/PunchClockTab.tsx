@@ -1003,15 +1003,13 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
       {desk ? (
         <>
-          {/* Small Universe desk on the left, punch card on the right, the rest below */}
+          {/* Date, welcome and live clock on top; then the small Universe desk on the left of the punch card; the rest below */}
+          {welcomeBanner}
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] gap-4 sm:gap-5 items-start" data-punch-with-desk>
             <div className="min-w-0">{desk}</div>
             {punchCard}
           </div>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-5 items-start">
-            {welcomeBanner}
-            {timelineCard}
-          </div>
+          {timelineCard}
         </>
       ) : (
         <>
