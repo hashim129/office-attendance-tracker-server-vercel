@@ -467,6 +467,18 @@ const DEFAULT_COMPANY = {
   address: '', phone: '', email: '', website: '', bankDetails: '', terms: '', footer: 'Thanking you',
 };
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+// A customer invoice that is paid in full (balance 0) becomes Received by itself; if a payment is taken off later it goes back to Unpaid.
+const settlePatch = (row, before, me, at) => {
+  if (row.kind === 'vendor' || row.status === 'cancelled') return {};
+  const settled = num(row.total) > 0 && num(row.balance) <= 0;
+  if (settled && row.status === 'unpaid') {
+    return { status: 'paid', payment_received: true, payment_received_at: row.payment_received_at || at, payment_received_by: row.payment_received_by || me.id, payment_received_auto: true };
+  }
+  if (!settled && row.status === 'paid' && before && num(before.total) > 0 && num(before.balance) <= 0) {
+    return { status: 'unpaid', payment_received: false, payment_received_at: null, payment_received_by: null, payment_received_auto: false };
+  }
+  return {};
+};
 // Payments of an invoice. Older invoices only have a single "advance received" amount: it is shown as the first payment.
 const paymentsOf = (r) => {
   const list = asArray(r.payments).map(cleanStored).filter((p) => p.id);
@@ -1658,7 +1670,8 @@ export default async function handler(req, res) {
         }
       }
       if (existing) {
-        const row = { ...existing, ...base, updated_at: at };
+        const merged = { ...existing, ...base, updated_at: at };
+        const row = { ...merged, ...settlePatch(merged, existing, me, at) };
         await upsert('crm_invoices', row);
         await syncReceiptLinks(row.id, paymentsAdded, paymentsRemoved);
         if (visaOp === 'delete') {
@@ -1675,7 +1688,8 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true, invoice: mapInvoice(row, visaObj) });
       }
       const invoiceNo = await supabaseFetch(vendorBill ? '/rpc/crm_next_payable_no' : '/rpc/crm_next_invoice_no', { method: 'POST', body: '{}' });
-      const row = { id: id('inv'), kind, invoice_no: String(invoiceNo), created_by: me.id, status: 'unpaid', created_at: at, updated_at: at, ...base };
+      const fresh = { id: id('inv'), kind, invoice_no: String(invoiceNo), created_by: me.id, status: 'unpaid', created_at: at, updated_at: at, ...base };
+      const row = { ...fresh, ...settlePatch(fresh, null, me, at) };
       await upsert('crm_invoices', row);
       await syncReceiptLinks(row.id, paymentsAdded, paymentsRemoved);
       if (visaOp === 'upsert' && visaObj) {
@@ -1809,7 +1823,10 @@ export default async function handler(req, res) {
       if (!['unpaid', 'paid', 'cancelled'].includes(status)) throw bad('Choose Unpaid, Paid or Cancelled.');
       const staff = isAdmin || me.role === 'accounts';
       if (me.role === 'accounts' && !isAdmin && status !== 'paid') throw forbidden('Accounts Officer can only mark an invoice as received.');
-      if (!staff && !(existing.created_by === me.id && status === 'cancelled' && existing.status === 'unpaid')) throw forbidden('Only Accounts or Admin can change the invoice status.');
+      const creatorCancels = existing.created_by === me.id && status === 'cancelled' && existing.status === 'unpaid';
+      // the person who made a customer invoice can also mark it Received (money came in)
+      const creatorReceives = existing.created_by === me.id && existing.kind !== 'vendor' && status === 'paid' && existing.status === 'unpaid';
+      if (!staff && !creatorCancels && !creatorReceives) throw forbidden('Only the creator, Accounts or Admin can mark this invoice received.');
       if (status === 'paid' && existing.status === 'cancelled') throw bad('A cancelled invoice cannot be marked as received.');
       const at = nowIso();
       const row = {
@@ -1830,6 +1847,8 @@ export default async function handler(req, res) {
         const label = existing.kind === 'vendor' ? 'vendor payable' : 'invoice';
         const targets = [...new Set([...(await salesStaffIds()), existing.created_by])];
         await notify(targets, 'invoice', row.id, `${me.name || 'Someone'} cancelled ${label} ${existing.invoice_no}. Remarks: ${row.cancel_remarks}`, me.id);
+      } else if (existing.created_by === me.id && status === 'paid') {
+        await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'Someone'} marked invoice ${existing.invoice_no} as RECEIVED.`, me.id);
       } else if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Your invoice ${existing.invoice_no} was marked ${(status === 'paid' && existing.kind !== 'vendor' ? 'RECEIVED' : status.toUpperCase())}.`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
@@ -1917,12 +1936,13 @@ export default async function handler(req, res) {
         throw e;
       }
       const paid = sumPayments(built.payments);
-      const row = { ...existing, payments: built.payments, advance_paid: paid, balance: r2(Math.max(0, num(existing.total) - paid)), updated_at: at };
+      const moved = { ...existing, payments: built.payments, advance_paid: paid, balance: r2(Math.max(0, num(existing.total) - paid)), updated_at: at };
+      const row = { ...moved, ...settlePatch(moved, existing, me, at) };
       await upsert('crm_invoices', row);
       await syncReceiptLinks(row.id, built.added, built.removed);
       const what = action === 'invoice_payment_add' ? built.added[0] : built.removed[0];
       const verb = action === 'invoice_payment_add' ? 'recorded' : `removed (${str(body.remarks, 300)})`;
-      await notify([...(await salesStaffIds()), existing.created_by], 'invoice', row.id, `${me.name || 'Someone'} ${verb} a payment of ${existing.currency} ${what ? what.amount : ''} on invoice ${existing.invoice_no}. Balance now ${existing.currency} ${row.balance}.`, me.id);
+      await notify([...(await salesStaffIds()), existing.created_by], 'invoice', row.id, `${me.name || 'Someone'} ${verb} a payment of ${existing.currency} ${what ? what.amount : ''} on invoice ${existing.invoice_no}. Balance now ${existing.currency} ${row.balance}.${row.status !== existing.status ? ` The invoice is now ${row.status === 'paid' ? 'RECEIVED (paid in full)' : 'UNPAID again'}.` : ''}`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
 
