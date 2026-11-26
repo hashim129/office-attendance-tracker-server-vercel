@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { AckBadge, AfterCreateInfo, AfterCreatePrompt, guessPhone } from './AfterCreate';
 import { Plus, Trash2, Check, X, Receipt } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
@@ -87,7 +88,8 @@ const BarChart: React.FC<{ groups: { label: string; sale: number; cost: number }
 
 const emptyForm = { saleType: '' as '' | SaleType, otherType: '', customerName: '', vendorName: '', packageDetails: '', paxName: '', currency: '', costAmount: '', saleAmount: '', queryCode: '', psfProfit: '' };
 
-export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
+export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, employees, currentUser, portalEnabled = false }) => {
+  const [after, setAfter] = useState<AfterCreateInfo | null>(null);
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const canReview = isAdmin || currentUser.role === 'accounts';
   const seesAll = canReview || currentUser.role === 'ceo';
@@ -158,14 +160,20 @@ export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   const profitPreview = form.costAmount !== '' && form.saleAmount !== '' && Number.isFinite(Number(form.costAmount)) && Number.isFinite(Number(form.saleAmount))
     ? Number(form.saleAmount) - Number(form.costAmount) : null;
 
+  const saleAfter = (x: CrmSale): AfterCreateInfo => ({
+    kind: 'sale', id: x.id, title: `Sales coupon ${x.couponNo}`, customerName: x.customerName,
+    phone: guessPhone(crm.data, x.customerName, x.queryCode), trackingId: x.queryCode,
+    summary: `${x.packageDetails ? `${x.packageDetails.slice(0, 60)} · ` : ''}${x.currency} ${Number(x.saleAmount).toLocaleString()}`,
+  });
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.saleType) { setError('Choose a sale type first.'); return; }
     setBusy(true);
     setError('');
     try {
-      await crmCall('sale_save', { sale: form });
+      const r = await crmCall<{ sale: CrmSale }>('sale_save', { sale: form });
       await crm.refresh();
+      if (r?.sale) setAfter(saleAfter(r.sale));
       setFormOpen(false);
       setForm(emptyForm);
     } catch (err: any) {
@@ -199,6 +207,7 @@ export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
 
   return (
     <div className="space-y-4">
+      <AfterCreatePrompt info={after} companyName={crm.data.company.name} portalEnabled={portalEnabled} ack={after ? crm.data.acks?.[after.id] : undefined} onClose={() => setAfter(null)} onSent={() => void crm.refresh()} />
       <div className={`${cardCls} p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3`}>
         <div>
           <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 inline-flex items-center gap-2"><Receipt className="w-4 h-4 text-blue-600" /> Sales</h2>
@@ -397,6 +406,8 @@ export const SalesView: React.FC<Props> = ({ crm, employees, currentUser }) => {
                       {canReview && s.status !== 'pending' && (
                         <button className={btnGhost} onClick={() => { setDeciding({ s, status: s.status === 'approved' ? 'declined' : 'approved' }); setRemarks(''); setError(''); }}>{s.status === 'approved' ? 'Decline instead' : 'Approve instead'}</button>
                       )}
+                      <button className={btnGhost} onClick={() => setAfter(saleAfter(s))} data-card-whatsapp>WhatsApp / Accounts</button>
+                      <AckBadge kind="sale" id={s.id} crm={crm} canRequest={false} />
                       {(isAdmin || (mineCoupon && s.status === 'pending')) && (
                         <button className={btnDanger} aria-label="Delete coupon" onClick={() => { if (window.confirm(`Delete coupon ${s.couponNo}?`)) void act('sale_delete', { id: s.id }); }}><Trash2 className="w-3.5 h-3.5" /></button>
                       )}

@@ -63,6 +63,7 @@ import { useCrm } from './crm/useCrm';
 import { PageHero } from './components/common/PageHero';
 import { DirectivePopup } from './components/common/DirectivePopup';
 import { LiveAlerts } from './crm/LiveAlerts';
+import { AccountsAckReminder } from './crm/AfterCreate';
 import {pageEnabled} from './lib/pageAccess';
 const EmployeeUniverse = lazy(() => import('./components/desktop/EmployeeUniverse').then(m=>({default:m.EmployeeUniverse})));
 const SuperAdminTab = lazy(() => import('./components/desktop/SuperAdminTab').then(m=>({default:m.SuperAdminTab})));
@@ -1184,8 +1185,8 @@ export default function App() {
                   <Suspense fallback={<TabLoader />}>
                 {activeTab === 'clock' && (
                 <>
-                {currentUser && settings.employeeUniverseBetaEnabled === true && <PersonalDesk employee={currentUser} record={records.find(r=>r.employeeId===currentUser.id && r.date===getTodayDateString())} settings={settings} online={isNetworkOnline}/>}
                 <PunchClockTab
+                  desk={currentUser && settings.employeeUniverseBetaEnabled === true ? <PersonalDesk compact employee={currentUser} record={records.find(r=>r.employeeId===currentUser.id && r.date===getTodayDateString())} settings={settings} online={isNetworkOnline}/> : null}
                   onRecheckNetwork={handleRecheckNetwork}
                   currentUser={currentUser}
                   allEmployees={statEmployees}
@@ -1349,6 +1350,7 @@ export default function App() {
                   </Suspense>
               </ErrorBoundary>
               {CRM_ENABLED && <LiveAlerts crm={crm} onOpen={setActiveTab} />}
+              {CRM_ENABLED && <AccountsAckReminder crm={crm} onOpen={setActiveTab} />}
               {currentUser && <DirectivePopup comments={ceoComments} userId={currentUser.id} onRead={handleMarkCeoCommentRead} />}
       <QuickJump currentUser={currentUser} crmEnabled={CRM_ENABLED} onSelectTab={setActiveTab} />
       {currentUser && settings.employeeUniverseBetaEnabled === true && (

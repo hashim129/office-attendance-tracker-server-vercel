@@ -62,6 +62,9 @@ async function loadLogo(pdf: PDFDocument) {
 }
 
 /** Builds the receipt as a one-page A4 PDF in the browser (same Bahaar Journeys logo, receipt layout). */
+/** Printed at the foot of every receipt page. */
+export const SYSTEM_LINE_RECEIPT = 'System Generated Receipt, stamps not required';
+
 export async function buildReceiptPdf(r: CrmReceipt, company: CompanyProfile, receivedBy: string): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   pdf.setTitle(`Receipt ${r.receiptNo}`);
@@ -179,6 +182,7 @@ export async function buildReceiptPdf(r: CrmReceipt, company: CompanyProfile, re
     const t = `${r.receiptNo}  ·  Page ${i + 1} of ${all.length}`;
     p.drawText(t, { x: A4[0] / 2 - reg.widthOfTextAtSize(t, 7) / 2, y: 20, size: 7, font: reg, color: SOFT });
     if (contact) p.drawText(contact, { x: A4[0] / 2 - reg.widthOfTextAtSize(contact, 7) / 2, y: 31, size: 7, font: reg, color: SOFT });
+    p.drawText(SYSTEM_LINE_RECEIPT, { x: A4[0] / 2 - bold.widthOfTextAtSize(SYSTEM_LINE_RECEIPT, 7.5) / 2, y: 43, size: 7.5, font: bold, color: SOFT });
   });
   return pdf.save();
 }

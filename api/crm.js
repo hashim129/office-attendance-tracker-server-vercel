@@ -702,6 +702,52 @@ function readMeetingInput(m, { requireEnd = true } = {}) {
   };
 }
 
+// Optional travel details on an invoice line: how many adults / children / infants (each with an optional price)
+// and check-in / check-out (or travel) dates. Anything empty or zero is dropped, so it never shows on the invoice.
+export function cleanPax(p) {
+  if (!p || typeof p !== 'object') return null;
+  const out = {};
+  for (const k of ['adults', 'children', 'infants']) {
+    const n = Math.round(Number(p[k]));
+    if (Number.isFinite(n) && n > 0) out[k] = Math.min(n, 999);
+  }
+  for (const k of ['adultPrice', 'childPrice', 'infantPrice']) {
+    const n = Number(p[k]);
+    if (Number.isFinite(n) && n > 0 && n <= 9999999999) out[k] = Math.round(n * 100) / 100;
+  }
+  for (const k of ['from', 'to']) {
+    const d = String(p[k] || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`))) out[k] = d;
+  }
+  if (out.from && out.to && out.to < out.from) delete out.to;
+  return Object.keys(out).length ? out : null;
+}
+
+// ---------------------------------------------------------------- "Send to Accounts" acknowledgements
+// One row per record in crm_company ("ack-<record id>"). Accounts officers are reminded until they press "Seen".
+const ACK_KINDS = { invoice: 'Invoice', receipt: 'Receipt', sale: 'Sales coupon', purchase: 'Purchase' };
+async function loadAcks() {
+  try {
+    const rows = (await supabaseFetch(`/crm_company?id=like.ack-*&select=id,data&order=updated_at.desc&limit=${LIMIT}`)) || [];
+    return rows.map((r) => parseJsonObj(r.data, null)).filter((a) => a && a.refId);
+  } catch {
+    return [];
+  }
+}
+/** Accounts officers get the reminders; with no Accounts officer, Admin/CEO get them instead. */
+async function ackOfficers() {
+  const people = await activeEmployees();
+  const acc = people.filter((e) => e.role === 'accounts').map((e) => e.id);
+  return acc.length ? acc : people.filter((e) => e.role === 'admin' || e.role === 'ceo').map((e) => e.id);
+}
+async function ackRecord(kind, refId) {
+  if (kind === 'invoice') { const r = await getOne('crm_invoices', refId); return r && { no: r.invoice_no, name: r.customer_name, createdBy: r.created_by, label: r.kind === 'vendor' ? 'Vendor payable' : 'Invoice' }; }
+  if (kind === 'receipt') { const r = await getOne('crm_receipts', refId); return r && { no: r.receipt_no, name: r.client_name, createdBy: r.created_by }; }
+  if (kind === 'sale') { const r = await getOne('crm_sales', refId); return r && { no: r.coupon_no, name: r.customer_name, createdBy: r.created_by }; }
+  if (kind === 'purchase') { const r = await getOne('crm_company', refId); const d = r?.data && typeof r.data === 'object' ? r.data : null; return d && String(refId).startsWith('pur-') && { no: d.purchaseNo, name: d.customerName, createdBy: d.createdBy }; }
+  return null;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -775,6 +821,11 @@ export default async function handler(req, res) {
         unreadLatest: [...mine].sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))).slice(0, 5).map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message })),
         upcoming,
       };
+      const acks = await loadAcks();
+      const officers = acks.some((a) => !a.ackAt) ? await ackOfficers() : [];
+      badges.ackPending = officers.includes(me.id)
+        ? acks.filter((a) => !a.ackAt).map((a) => ({ refId: a.refId, kind: a.kind, label: a.label, no: a.no, name: a.name, byName: a.requestedByName, at: a.requestedAt }))
+        : [];
       if (action === 'badges') return res.status(200).json({ ok: true, badges });
 
       const visibleFollowups = followups.filter((f) => isAdmin || f.assigned_to === me.id || f.created_by === me.id || asArray(f.participant_ids).includes(me.id)).map(mapFollowup);
@@ -873,6 +924,7 @@ export default async function handler(req, res) {
         .filter((m) => isAdmin || !['pending_approval', 'rejected'].includes(m.status) || m.requested_by === me.id)
         .map(mapMeeting);
       return res.status(200).json({
+        acks: Object.fromEntries(acks.map((a) => [a.refId, { requestedAt: a.requestedAt, requestedByName: a.requestedByName, ackAt: a.ackAt || null, ackByName: a.ackByName || '' }])),
         ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales, portalAccess: hasPortalAccess(me), salesTeam: myTeam.team, salesTeamHead: myTeam.head }, dashboardLayout, customers, followups: visibleFollowups, meetings: visibleMeetings, bookedSlots, inventory: visibleInventory, inventoryItems, sales, purchases, portalQueries, portalInvoices, purchaseCustomFields, purchaseCustomCategories, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES, business,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
@@ -1456,7 +1508,8 @@ export default async function handler(req, res) {
           const amount = r2(unitPrice * units * rate);
           subtotal += amount; priced++;
           if (l.taxable) taxable += amount;
-          return { description, unitPrice, units, currency: lineCur, rate, amount, taxable: Boolean(l.taxable), key: keyOf(l.key, 'ln'), locked: Boolean(l.locked) };
+          const pax = cleanPax(l.pax);
+          return { description, unitPrice, units, currency: lineCur, rate, amount, taxable: Boolean(l.taxable), key: keyOf(l.key, 'ln'), locked: Boolean(l.locked), ...(pax ? { pax } : {}) };
         });
         return { title: str(sec.title, 160, { name: 'Section title' }), key: keyOf(sec.key, 'sec'), locked: Boolean(sec.locked), lines };
       }).filter((sec) => sec.title || sec.lines.length);
@@ -1464,7 +1517,7 @@ export default async function handler(req, res) {
       // Save & lock: lines saved as locked cannot be changed or removed by the person who made the invoice, or by Accounts; new lines can always be added.
       // Admin / CEO may unlock a section or line (and then edit it); anything they leave locked stays locked.
       if (existing && !isAdmin) {
-        const sig = (l) => JSON.stringify([l.description, Boolean(l.note), l.unitPrice ?? null, l.units ?? null, l.currency ?? null, l.rate ?? null, Boolean(l.taxable)]);
+        const sig = (l) => JSON.stringify([l.description, Boolean(l.note), l.unitPrice ?? null, l.units ?? null, l.currency ?? null, l.rate ?? null, Boolean(l.taxable), l.pax ? Object.keys(l.pax).sort().map((k) => `${k}=${l.pax[k]}`).join('&') : null]);
         const newLineByKey = new Map();
         sections.forEach((sec) => sec.lines.forEach((l) => newLineByKey.set(l.key, { sec, l })));
         const newSecByKey = new Map(sections.map((sec) => [sec.key, sec]));
@@ -1814,6 +1867,41 @@ export default async function handler(req, res) {
       );
       await upsert('crm_company', { id: visaRowId, data: vpObj, updated_at: vpObj.updatedAt });
       return res.status(200).json({ ok: true, visaProgress: vpObj, invoice: mapInvoice(existing, vpObj) });
+    }
+
+    if (action === 'accounts_ack_request') {
+      const kind = String(body.kind || '');
+      const refId = String(body.id || '');
+      if (!ACK_KINDS[kind]) throw bad('Choose what to send to Accounts.');
+      const rec = await ackRecord(kind, refId);
+      if (!rec) throw notFound('That record was not found.');
+      if (rec.createdBy !== me.id && !isAdmin && me.role !== 'accounts') throw forbidden('Only the person who made it can send it to Accounts.');
+      const rowId = `ack-${refId}`;
+      const old = parseJsonObj((await getOne('crm_company', rowId))?.data, null);
+      if (old && !old.ackAt) return res.status(200).json({ ok: true, ack: old, already: true });
+      const at = nowIso();
+      const label = rec.label || ACK_KINDS[kind];
+      const ack = { refId, kind, label, no: rec.no || '', name: rec.name || '', requestedBy: me.id, requestedByName: me.name || '', requestedAt: at, ackAt: null, ackBy: null, ackByName: '' };
+      await upsert('crm_company', { id: rowId, data: ack, updated_at: at });
+      const cat = kind === 'receipt' ? 'receipt' : kind === 'sale' ? 'sale' : 'invoice';
+      await notify(await ackOfficers(), cat, refId, `${me.name || 'Someone'} sent ${label} ${ack.no}${ack.name ? ` (${ack.name})` : ''} to Accounts. Please acknowledge.`, me.id);
+      return res.status(200).json({ ok: true, ack });
+    }
+
+    if (action === 'accounts_ack') {
+      const refId = String(body.id || '');
+      const rowId = `ack-${refId}`;
+      const row = await getOne('crm_company', rowId);
+      const ack = parseJsonObj(row?.data, null);
+      if (!ack) throw notFound('Nothing is waiting for Accounts here.');
+      if (!(me.role === 'accounts' || isAdmin)) throw forbidden('Only Accounts can acknowledge.');
+      if (ack.ackAt) return res.status(200).json({ ok: true, ack });
+      const at = nowIso();
+      const next = { ...ack, ackAt: at, ackBy: me.id, ackByName: me.name || '' };
+      await upsert('crm_company', { id: rowId, data: next, updated_at: at });
+      const cat = ack.kind === 'receipt' ? 'receipt' : ack.kind === 'sale' ? 'sale' : 'invoice';
+      await notify([ack.requestedBy], cat, refId, `${me.name || 'Accounts'} has seen ${ack.label} ${ack.no}.`, me.id);
+      return res.status(200).json({ ok: true, ack: next });
     }
 
     if (action === 'invoice_status') {

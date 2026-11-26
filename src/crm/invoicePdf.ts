@@ -2,6 +2,7 @@ import { PDFDocument, PDFFont, PDFPage, StandardFonts, degrees, rgb } from 'pdf-
 import { CompanyProfile, CrmInvoice } from './crmApi';
 import { fmtAmount } from './currencies';
 import { crmQueryOf, ntnShown } from './invoiceHelpers';
+import { isStay, paxText } from './paxDetails';
 
 const A4: [number, number] = [595.28, 841.89];
 const M = 40; // page margin
@@ -65,6 +66,9 @@ async function loadLogo(pdf: PDFDocument) {
 }
 
 /** Builds the invoice as a PDF (A4). Works fully in the browser; nothing is uploaded anywhere. */
+/** Printed at the foot of every customer invoice page. */
+export const SYSTEM_LINE_INVOICE = 'System Generated Invoice, stamps not required';
+
 export async function buildInvoicePdf(inv: CrmInvoice, company: CompanyProfile, preparedBy: string): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   pdf.setTitle(`${inv.kind === 'vendor' ? 'Payable' : 'Invoice'} ${inv.invoiceNo}`);
@@ -180,10 +184,14 @@ export async function buildInvoicePdf(inv: CrmInvoice, company: CompanyProfile, 
     }
     for (const l of sec.lines) {
       const descLines = wrap(l.note ? bold : reg, l.description, 9, COLS[1] - 10);
+      // optional travellers / dates under the description (nothing when empty)
+      const extra = !l.note && l.pax ? paxText(l.pax, l.currency || cur, fmtAmount, isStay(`${sec.title} ${l.description}`)) : '';
+      const extraLines = extra ? wrap(reg, extra, 7.5, COLS[1] - 10) : [];
       const foreign = !l.note && (l.currency || cur) !== cur && Boolean(l.rate);
-      const h = Math.max(foreign ? ROW + 8 : ROW, descLines.length * 12 + 7);
+      const h = Math.max(foreign ? ROW + 8 : ROW, descLines.length * 12 + extraLines.length * 10 + 7);
       ensure(h);
       descLines.forEach((dl, i) => text(dl, colX(1) + 4, y - 13 - i * 12, 9, l.note ? bold : reg));
+      extraLines.forEach((el, i) => text(el, colX(1) + 4, y - 13 - descLines.length * 12 - i * 10 + 2, 7.5, reg, SOFT));
       if (!l.note) {
         center(`${l.currency || cur} ${fmtAmount(l.unitPrice || 0)}`, colX(2) + COLS[2] / 2, y - 13, 9, reg);
         center(fmtAmount(l.units ?? 1), colX(3) + COLS[3] / 2, y - 13, 9, reg);
@@ -315,6 +323,7 @@ export async function buildInvoicePdf(inv: CrmInvoice, company: CompanyProfile, 
     p.drawText(t, { x: A4[0] / 2 - reg.widthOfTextAtSize(t, 7) / 2, y: 20, size: 7, font: reg, color: SOFT });
     const contact = vendor ? '' : safe(reg, [company.address, company.phone, company.email, company.website].filter(Boolean).join('  |  '));
     if (contact) p.drawText(contact, { x: A4[0] / 2 - reg.widthOfTextAtSize(contact, 7) / 2, y: 31, size: 7, font: reg, color: SOFT });
+    if (!vendor) p.drawText(SYSTEM_LINE_INVOICE, { x: A4[0] / 2 - bold.widthOfTextAtSize(SYSTEM_LINE_INVOICE, 7.5) / 2, y: 43, size: 7.5, font: bold, color: SOFT });
   });
 
   return pdf.save();
