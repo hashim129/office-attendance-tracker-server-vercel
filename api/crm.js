@@ -855,6 +855,7 @@ export default async function handler(req, res) {
       const history = notifs.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 200)
         .map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at, read: Boolean(n.read_at) }));
       let invoices = [];
+      let invoiceDirectory = [];
       let receipts = [];
       let purchases = [];
       let portalQueries = [];
@@ -888,6 +889,12 @@ export default async function handler(req, res) {
         }
         // Receipts go to Accounts (and Admin / CEO); everyone else only sees the receipts they made themselves.
         receipts = (receiptRows || []).filter((x) => salesViewer || x.created_by === me.id).map(mapReceipt);
+        // For the purchase form's invoice picker: every open customer invoice, but only its number,
+        // customer name, creator, CRM ID and currency (no amounts, receivables or payments).
+        invoiceDirectory = invRows
+          .filter((r) => (r.kind || 'customer') !== 'vendor' && r.status !== 'cancelled')
+          .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+          .map((r) => ({ id: r.id, invoiceNo: r.invoice_no, customerName: r.customer_name, createdBy: r.created_by, crmId: r.crm_id || r.query_code || '', currency: r.currency || 'PKR' }));
         invoices = invRows
           .filter((x) => canSeeInvoice(x, me, salesViewer))
           .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
@@ -946,6 +953,7 @@ export default async function handler(req, res) {
         .map(mapMeeting);
       return res.status(200).json({
         acks: Object.fromEntries(acks.map((a) => [a.refId, { requestedAt: a.requestedAt, requestedByName: a.requestedByName, ackAt: a.ackAt || null, ackByName: a.ackByName || '' }])),
+        invoiceDirectory,
         ok: true, me: { id: me.id, role: me.role, customerAccess: true, salesAccess: canSales, portalAccess: hasPortalAccess(me), salesTeam: myTeam.team, salesTeamHead: myTeam.head }, dashboardLayout, customers, followups: visibleFollowups, meetings: visibleMeetings, bookedSlots, inventory: visibleInventory, inventoryItems, sales, purchases, portalQueries, portalInvoices, purchaseCustomFields, purchaseCustomCategories, history, invoices, receipts, company, saleTypes: SALE_TYPES, currencies: CURRENCIES, business,
         unread: mine.map((n) => ({ id: n.id, category: n.category, refId: n.ref_id, message: n.message, createdAt: n.created_at })), badges,
       });
@@ -2287,7 +2295,6 @@ export default async function handler(req, res) {
         linkedInvoice = await getOne('crm_invoices', wantedInvoiceId);
         if (!linkedInvoice || linkedInvoice.kind === 'vendor') throw bad('That invoice was not found. Pick an invoice from the list.');
         if (linkedInvoice.status === 'cancelled') throw bad(`Invoice ${linkedInvoice.invoice_no} is cancelled. Pick another invoice.`);
-        if (!canSeeInvoice(linkedInvoice, me, isAdmin || me.role === 'accounts')) throw forbidden('You can only use invoices you made or were tagged on.');
       } else if (!wantedInvoiceId && !existing?.invoiceId && !existing) {
         throw bad('Choose the invoice this purchase is for. Create the invoice first if it does not exist yet.');
       }

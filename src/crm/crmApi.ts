@@ -494,6 +494,8 @@ export interface CrmData {
   dashboardLayout?: DashboardLayout | null;
   /** "Send to Accounts" status per record id */
   acks?: Record<string, AckStatus>;
+  /** Every open customer invoice, number / customer / creator only (purchase form picker) */
+  invoiceDirectory?: InvoiceDirectoryEntry[];
   me?: { id: string; role: string; salesTeam?: '' | 'B2C' | 'B2B'; salesTeamHead?: boolean } | null;
 }
 
@@ -582,3 +584,5 @@ export async function updateInvoiceVisaProgress(
     payload
   );
 }
+
+export interface InvoiceDirectoryEntry { id: string; invoiceNo: string; customerName: string; createdBy: string; crmId: string; currency: string }
