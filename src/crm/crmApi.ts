@@ -543,7 +543,8 @@ export async function crmCall<T = any>(action: string, payload: Record<string, u
   }
   if (!res.ok || !data || data.ok === false) {
     // Signed out by Admin (or the session ended): go back to the sign-in screen.
-    if (res.status === 401 && data?.code === 'SESSION_REQUIRED') {
+    // Only on background reads: a save (e.g. an invoice being edited) just shows the message, so nothing typed is lost.
+    if (res.status === 401 && data?.code === 'SESSION_REQUIRED' && READ_ACTIONS.has(action)) {
       try { clearSession(); } catch { /* ignore */ }
       if (typeof window !== 'undefined') window.setTimeout(() => window.location.reload(), 300);
     }

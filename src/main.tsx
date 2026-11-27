@@ -2,6 +2,8 @@ import { Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import './index.css';
+import './themes.css';
+import { applyUiTheme } from './lib/uiTheme';
 
 const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
 const isCustomersRoute =
@@ -38,6 +40,7 @@ if (isCustomersRoute) {
     </ErrorBoundary>
   );
 } else {
+  applyUiTheme();
   createRoot(document.getElementById('root')!).render(
     <ErrorBoundary>
       <Suspense fallback={null}>
