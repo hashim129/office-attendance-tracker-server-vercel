@@ -54,6 +54,8 @@ import { getDeviceDetails } from './lib/deviceSecurity';
 import { WindowsTitleBar } from './components/common/WindowsTitleBar';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { LoginView } from './components/desktop/LoginView';
+import { AppLoginView } from './components/mobile/AppLoginView';
+import { isPhoneApp } from './lib/phoneLocation';
 import { DesktopHeader } from './components/desktop/DesktopHeader';
 import { DesktopSidebar } from './components/desktop/DesktopSidebar';
 import { PunchClockTab } from './components/desktop/PunchClockTab';
@@ -131,6 +133,8 @@ export default function App() {
 
   // Current Session & Workspace Navigation
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
+  // Android phone app (or ?applogin=1 for a preview) gets the phone-style sign-in screen
+  const useAppLogin = useMemo(() => isPhoneApp() || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('applogin') === '1'), []);
   const [siteDisabled, setSiteDisabled] = useState<boolean>(() => localStorage.getItem('office_site_disabled_v1') === 'true');
   // High-security face scan punch (admin turns it on in Office Settings; off by default)
   const [faceEnrolledIds, setFaceEnrolledIds] = useState<string[]>([]);
@@ -1171,7 +1175,15 @@ export default function App() {
         />
         </Suspense>
       ) : !currentUser ? (
-        <LoginView
+        useAppLogin ? (
+          <AppLoginView
+            employees={employees}
+            onLogin={handleLogin}
+            companyName={settings.companyName}
+            isSyncing={isInitialCloudSyncing}
+            siteDisabled={siteDisabled}
+          />
+        ) : <LoginView
           employees={employees}
           onLogin={handleLogin}
           companyName={settings.companyName}
