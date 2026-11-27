@@ -4,6 +4,7 @@ import type { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { crmCall } from './crmApi';
 import { btnGhost, btnPrimary, btnDanger, cardCls, inputCls, Field } from './ui';
+import { downloadReportPdf } from '../lib/reportPdf';
 
 /**
  * Media Team posting calendar: plan the week's posts per platform, mark each one posted with its live link,
@@ -14,7 +15,8 @@ type Post = {
   id: string; date: string; time: string; platform: string; kind: string; title: string; caption: string;
   assignee: string | null; status: 'planned' | 'ready' | 'posted' | 'skipped'; link: string; notes: string; createdBy: string | null; postedAt: string | null;
 };
-type Data = { today: string; weekStart: string; config: { platforms: Platform[] }; kinds: Record<string, string>; canManage: boolean; members: { id: string; name: string; media: boolean }[]; posts: Post[] };
+type Idea = { id: string; text: string; platform: string; byName: string; at: string };
+type Data = { ideas?: Idea[]; today: string; weekStart: string; config: { platforms: Platform[] }; kinds: Record<string, string>; canManage: boolean; members: { id: string; name: string; media: boolean }[]; posts: Post[] };
 
 const COLORS: Record<string, string> = { instagram: '#c13584', facebook: '#1877f2', tiktok: '#111827', youtube: '#e11d1d', linkedin: '#0a66c2', whatsapp: '#16a34a', x: '#334155', twitter: '#334155', snapchat: '#eab308', pinterest: '#e60023' };
 const colorOf = (id: string) => COLORS[id] || '#64748b';
@@ -37,6 +39,11 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
   const [targetsOpen, setTargetsOpen] = useState(false);
   const [targets, setTargets] = useState<Platform[]>([]);
   const [filter, setFilter] = useState<string>('all');
+  const [view, setView] = useState<'week' | 'month'>('week');
+  const [monthData, setMonthData] = useState<{ month: string; posts: Post[] } | null>(null);
+  const [ideaText, setIdeaText] = useState('');
+  const [fromIdea, setFromIdea] = useState<string | null>(null);
+  const [reportMonth, setReportMonth] = useState(() => { const d = new Date(Date.now() + 5 * 3600e3); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); });
 
   const load = useCallback(async (w?: string) => {
     try {
@@ -86,10 +93,39 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
   }, [data]);
   const maxHist = Math.max(totalTarget, ...history.map((h) => h.posted), 1);
 
+
+  const loadMonth = async (m: string) => { try { const r = await crmCall<{ month: string; posts: Post[] }>('media_month', { month: m }); setMonthData(r); } catch (e: any) { setError(e?.message || 'Could not load the month.'); } };
+  const monthReport = async () => {
+    try {
+      const r = await crmCall<{ month: string; posts: Post[]; members: { id: string; name: string }[]; config: { platforms: Platform[] } }>('media_month', { month: reportMonth });
+      const last = new Date(Date.UTC(Number(r.month.slice(0, 4)), Number(r.month.slice(5, 7)), 0)).getUTCDate();
+      const weeks = last / 7;
+      const label = new Date(`${r.month}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+      const missedIn = (p: Post) => (p.status === 'planned' || p.status === 'ready') && p.date < (data?.today || '');
+      const perPlat = r.config.platforms.map((pl) => { const ps = r.posts.filter((p) => p.platform === pl.id); const done = ps.filter((p) => p.status === 'posted').length; const target = Math.round(pl.target * weeks); return { platform: pl.name, posted: String(done), target: String(target), pct: target ? `${Math.round((done / target) * 100)}%` : '—', missed: String(ps.filter(missedIn).length) }; });
+      const perPerson = r.members.map((m) => { const ps = r.posts.filter((p) => p.assignee === m.id); return { name: m.name, posted: String(ps.filter((p) => p.status === 'posted').length), missed: String(ps.filter(missedIn).length) }; });
+      const posted = r.posts.filter((p) => p.status === 'posted').length;
+      const target = r.config.platforms.reduce((a, p) => a + Math.round(p.target * weeks), 0);
+      await downloadReportPdf({
+        title: `Media report · ${label}`, subtitle: 'Posts on our social media pages against the targets', companyName: 'Bahaar Journeys', generatedBy: currentUser.name,
+        summary: [['Posts done', `${posted} of ${target} target`], ['Missed', String(r.posts.filter(missedIn).length)], ['Planned in total', String(r.posts.length)]],
+        columns: [{ key: 'platform', label: 'Platform', width: 3 }, { key: 'posted', label: 'Posted', width: 1.2, align: 'right' }, { key: 'target', label: 'Target', width: 1.2, align: 'right' }, { key: 'pct', label: 'Done', width: 1.2, align: 'right' }, { key: 'missed', label: 'Missed', width: 1.2, align: 'right' }],
+        rows: perPlat,
+        sections: [
+          { heading: 'By person', columns: [{ key: 'name', label: 'Name', width: 3 }, { key: 'posted', label: 'Posted', width: 1.2, align: 'right' }, { key: 'missed', label: 'Missed', width: 1.2, align: 'right' }], rows: perPerson },
+          { heading: 'Every post', columns: [{ key: 'date', label: 'Date', width: 1.4 }, { key: 'platform', label: 'Platform', width: 1.6 }, { key: 'title', label: 'Title', width: 4 }, { key: 'status', label: 'Status', width: 1.3 }, { key: 'link', label: 'Link', width: 4 }], rows: r.posts.map((p) => ({ date: p.date, platform: r.config.platforms.find((x) => x.id === p.platform)?.name || p.platform, title: p.title, status: p.status === 'posted' ? 'Posted' : missedIn(p) ? 'Missed' : p.status === 'skipped' ? 'Skipped' : 'Planned', link: p.link || '' })) },
+        ],
+      }, `media-report-${r.month}`);
+    } catch (e: any) { setError(e?.message || 'Could not make the report.'); }
+  };
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editing) return;
-    if (await run(() => crmCall('media_save', { post: editing }))) setEditing(null);
+    if (await run(() => crmCall('media_save', { post: editing }))) {
+      setEditing(null);
+      if (fromIdea) { const idv = fromIdea; setFromIdea(null); await crmCall('media_idea_remove', { id: idv }).catch(() => null); await load(); }
+    }
   };
   const setStatus = async (p: Post, status: Post['status']) => {
     if (await run(() => crmCall('media_status', { id: p.id, status, link: status === 'posted' ? link.trim() : '' }))) { setOpen(null); setLink(''); }
@@ -141,6 +177,9 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
             <button className="px-2 text-xs font-semibold min-w-[120px]" onClick={() => void load(today)} title="Back to this week">{nice(week)} – {nice(addDays(week, 6))}</button>
             <button className="p-2" aria-label="Next week" onClick={() => void load(addDays(week, 7))}><ChevronRight className="w-4 h-4" /></button>
           </div>
+          <div className="inline-flex rounded-lg border border-slate-300 dark:border-slate-700 overflow-hidden text-xs font-semibold" data-view-toggle>
+            {(['week', 'month'] as const).map((v) => <button key={v} className={`px-3 py-2 ${view === v ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''}`} onClick={() => { setView(v); if (v === 'month') void loadMonth(week.slice(0, 7)); }}>{v === 'week' ? 'Week' : 'Month'}</button>)}
+          </div>
           {data.canManage && <button className={btnGhost} onClick={() => { setTargets(data.config.platforms.map((p) => ({ ...p }))); setTargetsOpen(true); }}><Target className="w-3.5 h-3.5" /> Targets</button>}
           {weekPosts.length === 0 && <button className={btnGhost} disabled={busy} onClick={() => void run(() => crmCall('media_copy_week', { weekStart: week }))} data-copy-week><Copy className="w-3.5 h-3.5" /> Copy last week</button>}
           <button className={btnPrimary} onClick={() => setEditing(emptyPost(days.find((d) => d >= today) || week, data.config.platforms[0]?.id || '', data.members.some((m) => m.id === me && m.media) ? me : ''))} data-plan-post><Plus className="w-3.5 h-3.5" /> Plan a post</button>
@@ -175,8 +214,42 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
         </div>
       </div>
 
+      {view === 'month' && monthData && (() => {
+        const m = monthData.month;
+        const first = new Date(`${m}-01T00:00:00Z`);
+        const lead = (first.getUTCDay() + 6) % 7;
+        const daysIn = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+        const cells = [...Array(lead).fill(null), ...Array.from({ length: daysIn }, (_, i) => `${m}-${String(i + 1).padStart(2, '0')}`)];
+        const shift = (n: number) => { const d = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + n, 1)); void loadMonth(d.toISOString().slice(0, 7)); };
+        return (
+          <div className={`${cardCls} p-3`} data-month-grid>
+            <div className="flex items-center justify-between mb-2">
+              <button className="p-1.5" aria-label="Previous month" onClick={() => shift(-1)}><ChevronLeft className="w-4 h-4" /></button>
+              <p className="text-sm font-semibold">{first.toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })}</p>
+              <button className="p-1.5" aria-label="Next month" onClick={() => shift(1)}><ChevronRight className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center text-[10.5px] text-slate-500 mb-1">{DAY.map((d) => <span key={d}>{d}</span>)}</div>
+            <div className="grid grid-cols-7 gap-1">
+              {cells.map((d, i) => {
+                if (!d) return <span key={`x${i}`} />;
+                const ps = monthData.posts.filter((p) => p.date === d);
+                const done = ps.filter((p) => p.status === 'posted').length;
+                const late = ps.filter((p) => missed(p, today)).length;
+                return (
+                  <button key={d} onClick={() => { setView('week'); void load(d); }} className={`rounded-lg border p-1 min-h-[52px] text-left ${d === today ? 'border-blue-400' : 'border-slate-200 dark:border-slate-800'}`}>
+                    <span className="block text-[11px] font-semibold">{Number(d.slice(8))}</span>
+                    <span className="flex flex-wrap gap-0.5 mt-0.5">{ps.slice(0, 6).map((p) => <i key={p.id} className="w-1.5 h-1.5 rounded-full" style={{ background: colorOf(p.platform), opacity: p.status === 'posted' ? 1 : 0.35 }} />)}</span>
+                    {ps.length > 0 && <span className={`block text-[9.5px] mt-0.5 ${late ? 'text-red-600' : 'text-slate-500'}`}>{done}/{ps.length}{late ? ` · ${late} missed` : ''}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* the week */}
-      <div className="grid gap-3 md:grid-cols-7" data-week-grid>
+      <div className={`grid gap-3 md:grid-cols-7 ${view === 'month' ? 'hidden' : ''}`} data-week-grid>
         {days.map((d, i) => {
           const list = weekPosts.filter((p) => p.date === d).sort((a, b) => (a.time || '99').localeCompare(b.time || '99'));
           const isToday = d === today;
@@ -233,6 +306,37 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
               {data.config.platforms.filter((p) => p.handle).map((p) => <a key={p.id} href={p.handle} target="_blank" rel="noreferrer" className={btnGhost}><ExternalLink className="w-3.5 h-3.5" /> {p.name}</a>)}
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className={`${cardCls} p-4`} data-ideas>
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ideas bank</p>
+          <p className="text-xs text-slate-500">Jot down ideas; tap “Plan it” to put one on the calendar.</p>
+          <form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (!ideaText.trim()) return; void run(() => crmCall('media_idea_add', { text: ideaText })).then(() => setIdeaText('')); }}>
+            <input className={inputCls} placeholder="e.g. Customer review video from the Baku group" value={ideaText} maxLength={300} onChange={(e) => setIdeaText(e.target.value)} />
+            <button className={btnPrimary} type="submit" disabled={busy}>Add</button>
+          </form>
+          <ul className="mt-2 space-y-1.5 max-h-56 overflow-y-auto">
+            {(data.ideas || []).map((i) => (
+              <li key={i.id} className="flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 px-2.5 py-2 text-xs">
+                <span><span className="text-slate-800 dark:text-slate-200">{i.text}</span><span className="block text-[10.5px] text-slate-400">{i.byName}</span></span>
+                <span className="flex shrink-0 gap-2">
+                  <button className="font-semibold text-blue-600" onClick={() => { setFromIdea(i.id); setEditing({ ...emptyPost(days.find((d) => d >= today) || week, data.config.platforms[0]?.id || '', data.members.some((m) => m.id === me && m.media) ? me : ''), title: i.text.slice(0, 160) }); }}>Plan it</button>
+                  <button className="text-slate-400" aria-label="Remove idea" onClick={() => void run(() => crmCall('media_idea_remove', { id: i.id }))}>×</button>
+                </span>
+              </li>
+            ))}
+            {(data.ideas || []).length === 0 && <li className="text-xs text-slate-400">No ideas yet.</li>}
+          </ul>
+        </div>
+        <div className={`${cardCls} p-4`}>
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Monthly report</p>
+          <p className="text-xs text-slate-500">Posts per platform against the targets, per person, with every link. Admin gets a reminder on the 1st.</p>
+          <div className="mt-3 flex gap-2">
+            <input type="month" className={`${inputCls} w-40`} value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} />
+            <button className={btnPrimary} onClick={() => void monthReport()} data-media-report>Monthly report (PDF)</button>
+          </div>
         </div>
       </div>
 

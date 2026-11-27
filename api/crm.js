@@ -894,6 +894,48 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    // Announcements: Admin / CEO post a notice; it pops up once for everyone and records who has seen it.
+    if (action === 'announcement_post') {
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can post announcements.');
+      const title = str(body.title, 120, { required: true, name: 'Title' });
+      const text = str(body.body, 2000, { name: 'Message' });
+      const aid = id('ann'); const at = nowIso();
+      await upsert('crm_company', { id: aid, data: { title, body: text, by: me.id, byName: me.name || '', at, seen: {} }, updated_at: at });
+      const staff = await activeEmployees();
+      await notify(staff.map((e) => e.id), 'reminder', aid, `Announcement: ${title}`, me.id);
+      await audit(me, 'posted an announcement', title, clientIp(req));
+      return res.status(200).json({ ok: true, id: aid });
+    }
+    if (action === 'announcement_seen') {
+      const row = await getOne('crm_company', String(body.id || ''));
+      if (!row || !String(row.id).startsWith('ann-')) throw notFound('Announcement not found.');
+      const d = parseJsonObj(row.data, {});
+      if (!(d.seen || {})[me.id]) await upsert('crm_company', { id: row.id, data: { ...d, seen: { ...(d.seen || {}), [me.id]: nowIso() } }, updated_at: row.updated_at });
+      return res.status(200).json({ ok: true });
+    }
+    if (action === 'announcement_list') {
+      const rows = (await supabaseFetch('/crm_company?id=like.ann-*&select=id,data,updated_at&order=updated_at.desc&limit=30')) || [];
+      const staff = isAdmin ? await activeEmployees() : [];
+      return res.status(200).json({ ok: true, items: rows.map((r) => { const d = parseJsonObj(r.data, {}); const seen = d.seen || {}; return { id: r.id, title: d.title, body: d.body, byName: d.byName, at: d.at, seenByMe: Boolean(seen[me.id]), ...(isAdmin ? { seenCount: Object.keys(seen).length, total: staff.length, notSeen: staff.filter((e) => !seen[e.id] && e.id !== d.by).map((e) => e.name) } : {}) }; }) });
+    }
+    if (action === 'announcement_delete') {
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can remove announcements.');
+      if (!String(body.id || '').startsWith('ann-')) throw bad('Bad request.');
+      await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(body.id)}`, { method: 'DELETE' });
+      return res.status(200).json({ ok: true });
+    }
+    // Personal daily task board (to do / doing / done)
+    if (action === 'board_get' || action === 'board_save') {
+      const key = `board-${me.id}`;
+      if (action === 'board_save') {
+        const items = (Array.isArray(body.items) ? body.items : []).slice(0, 60).map((x) => ({ id: str(x.id, 80) || id('tsk'), text: str(x.text, 200, { required: true, name: 'Task' }), state: ['todo', 'doing', 'done'].includes(x.state) ? x.state : 'todo', date: /^\d{4}-\d{2}-\d{2}$/.test(String(x.date || '')) ? x.date : null, doneAt: x.state === 'done' ? (x.doneAt || nowIso()) : null }));
+        await upsert('crm_company', { id: key, data: { items }, updated_at: nowIso() });
+        return res.status(200).json({ ok: true, items });
+      }
+      const row = await getOne('crm_company', key).catch(() => null);
+      return res.status(200).json({ ok: true, items: Array.isArray(parseJsonObj(row?.data, {}).items) ? parseJsonObj(row?.data, {}).items : [] });
+    }
+
     // Activity log (Admin / CEO)
     if (action === 'audit_list') {
       if (!isAdmin) throw forbidden('Only Admin or the CEO can see the activity log.');

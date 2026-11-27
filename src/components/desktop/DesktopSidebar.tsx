@@ -1,4 +1,5 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
+import { t, useLang, setLang } from '../../lib/i18n';
 import {
   Clock,
   CalendarCheck,
@@ -66,6 +67,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   const isCeo = currentUser.role === 'ceo';
   const isAccounts = currentUser.role === 'accounts';
   const canOpenPage=(page: import('../../types').ActiveDesktopTab)=>currentUser.isSuperAdmin===true||currentUser.featureAccess?.[page]!==false;
+  const lang = useLang();
   const [activeTeamSource, setActiveTeamSource] = useState<'workspace' | 'ceo' | 'admin'>(() => (isAdmin ? 'admin' : isCeo ? 'ceo' : 'workspace'));
 
   // Sliding highlight that glides to whichever menu item is active
@@ -121,10 +123,15 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           <div key={i} className="nav-pill absolute left-3 right-3 pointer-events-none" style={{ top: p.top, height: p.height, background: `linear-gradient(135deg, ${p.g1}, ${p.g2})`, boxShadow: `0 10px 22px -10px color-mix(in srgb, ${p.g1} 75%, transparent), inset 0 1px 0 rgba(255,255,255,0.3)` }} aria-hidden="true" />
         ))}
         <div className="space-y-6">
+          <div className="flex justify-end px-3 -mb-3" data-lang-toggle>
+            <button type="button" onClick={() => setLang(lang === 'ur' ? 'en' : 'ur')} className="rounded-md border border-slate-200 dark:border-slate-700 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800" title="Menu language">
+              {lang === 'ur' ? 'English' : 'اردو'}
+            </button>
+          </div>
           {/* Employee Section (Available to All) */}
         <div>
           <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">
-            My Workspace
+            {t('My Workspace', lang)}
           </p>
           <div className="space-y-1">
             {canOpenPage('clock') && <button
@@ -136,7 +143,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               }`}
             >
               <Clock className="w-4 h-4 shrink-0" />
-              <span>Punch Clock</span>
+              <span>{t('Punch Clock', lang)}</span>
             </button>}
 
             {canOpenPage('live-dashboard') && (['admin', 'ceo'].includes(currentUser.role) || currentUser.liveDashboardAccess) && (
@@ -150,7 +157,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 title="Open attendance statistics, upcoming tasks and required actions"
               >
                 <Gauge className="w-4 h-4 shrink-0" />
-                <span>Live Dashboard</span>
+                <span>{t('Live Dashboard', lang)}</span>
               </button>
             )}
 
@@ -163,7 +170,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               }`}
             >
               <CalendarCheck className="w-4 h-4 shrink-0" />
-              <span>My Attendance & Stats</span>
+              <span>{t('My Attendance & Stats', lang)}</span>
             </button>}
 
             {/* My Profile moved to the profile menu in the top bar */}
@@ -180,7 +187,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 title="View all employees' time in and presence status"
               >
                 <UserCheck className="w-4 h-4 shrink-0" />
-                <span>Team Presence (P/A)</span>
+                <span>{t('Team Presence (P/A)', lang)}</span>
               </button>
             )}
 
@@ -194,7 +201,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             >
               <div className="flex items-center gap-3">
                 <CalendarDays className="w-4 h-4 shrink-0" />
-                <span>Leave Requests</span>
+                <span>{t('Leave Requests', lang)}</span>
               </div>
               {isAdmin && pendingLeavesCount > 0 && (
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">
@@ -210,7 +217,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         {crmEnabled && (
           <div>
             <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">
-              CRM
+              {t('CRM', lang)}
             </p>
             <div className="space-y-1">
               {([
@@ -229,7 +236,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 >
                   <div className="flex items-center gap-3">
                     <Icon className="w-4 h-4 shrink-0" />
-                    <span>{label}</span>
+                    <span>{t(label, lang)}</span>
                   </div>
                   {badge > 0 && (
                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${tone} text-white`}>{badge}</span>
@@ -247,7 +254,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 >
                   <div className="flex items-center gap-2.5">
                     <Globe className="w-4 h-4 shrink-0 text-blue-600 dark:text-blue-400" />
-                    <span>Customer Portal</span>
+                    <span>{t('Customer Portal', lang)}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-blue-600 text-white">
@@ -264,7 +271,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         {/* Media Team: weekly social media posting calendar */}
         {crmEnabled && canOpenPage('crm-media') && (['admin', 'ceo'].includes(currentUser.role) || currentUser.mediaTeam) && (
           <div>
-            <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">Media Team</p>
+            <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">{t('Media Team', lang)}</p>
             <div className="space-y-1 mb-1">
               <button
                 onClick={() => onSelectTab('crm-media')}
@@ -273,7 +280,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                   activeTab === 'crm-media' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
                 }`}
               >
-                <div className="flex items-center gap-3"><CalendarDays className="w-4 h-4 shrink-0" /><span>Posting Calendar</span></div>
+                <div className="flex items-center gap-3"><CalendarDays className="w-4 h-4 shrink-0" /><span>{t('Posting Calendar', lang)}</span></div>
               </button>
             </div>
           </div>
@@ -283,7 +290,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         {crmEnabled && (
           <div>
             <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">
-              Office
+              {t('Office', lang)}
             </p>
             <div className="space-y-1 mb-1">
               {([
@@ -307,7 +314,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 >
                   <div className="flex items-center gap-3">
                     <Icon className="w-4 h-4 shrink-0" />
-                    <span>{label}</span>
+                    <span>{t(label, lang)}</span>
                   </div>
                   {badge > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">{badge}</span>}
                 </button>
@@ -323,7 +330,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             >
               <div className="flex items-center gap-3">
                 <Package className="w-4 h-4 shrink-0" />
-                <span>Inventory</span>
+                <span>{t('Inventory', lang)}</span>
               </div>
               {(crmBadges?.inventoryNew || 0) > 0 && (
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">{crmBadges?.inventoryNew}</span>
@@ -348,7 +355,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 }`}
               >
                 <UserCheck className="w-4 h-4 shrink-0" />
-                <span>Attendance Verification</span>
+                <span>{t('Attendance Verification', lang)}</span>
               </button>}
 
               {canOpenPage('insights')&&<button
@@ -362,7 +369,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               >
                 <span className="flex items-center gap-3">
                   <BarChart3 className="w-4 h-4 shrink-0" />
-                  <span>Smart Insights</span>
+                  <span>{t('Smart Insights', lang)}</span>
                 </span>
                 <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${activeTab === 'insights' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'}`}>
                   NEW
@@ -378,7 +385,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 }`}
               >
                 <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                <span>Reports & Payroll</span>
+                <span>{t('Reports & Payroll', lang)}</span>
               </button>}
             </div>
           </div>
@@ -401,7 +408,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 title="View presence, working status & stats of all employees"
               >
                 <UserCheck className="w-4 h-4 shrink-0" />
-                <span>Team Presence & Roster Stats</span>
+                <span>{t('Team Presence & Roster Stats', lang)}</span>
               </button>
 
               <button
@@ -415,7 +422,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               >
                 <span className="flex items-center gap-3">
                   <BarChart3 className="w-4 h-4 shrink-0" />
-                  <span>Smart Insights & Graphs</span>
+                  <span>{t('Smart Insights & Graphs', lang)}</span>
                 </span>
                 <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${activeTab === 'insights' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'}`}>
                   NEW
@@ -432,7 +439,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 title="View company-wide attendance analytics, hours worked, and punctuality stats"
               >
                 <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                <span>Executive Analytics & Stats</span>
+                <span>{t('Executive Analytics & Stats', lang)}</span>
               </button>
             </div>
           </div>
@@ -442,7 +449,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
         {isAdmin && (
           <div>
             <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">
-              Admin Management
+              {t('Admin Management', lang)}
             </p>
             <div className="space-y-1">
               <button
@@ -455,7 +462,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               data-active={activeTab === 'team-attendance' && activeTeamSource === 'admin' ? 'true' : undefined}
                 >
                 <UserCheck className="w-4 h-4 shrink-0" />
-                <span>Team Roster & Logs</span>
+                <span>{t('Team Roster & Logs', lang)}</span>
               </button>
 
               <button
@@ -469,7 +476,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               >
                 <span className="flex items-center gap-3">
                   <BarChart3 className="w-4 h-4 shrink-0" />
-                  <span>Smart Insights & Graphs</span>
+                  <span>{t('Smart Insights & Graphs', lang)}</span>
                 </span>
                 <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${activeTab === 'insights' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'}`}>
                   NEW
@@ -487,7 +494,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               >
                 <div className="flex items-center gap-3">
                   <Users className="w-4 h-4 shrink-0" />
-                  <span>Employees Directory</span>
+                  <span>{t('Employees Directory', lang)}</span>
                 </div>
               </button>
 
@@ -500,7 +507,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 }`}
               >
                 <CalendarRange className="w-4 h-4 shrink-0" />
-                <span>Shift Schedules</span>
+                <span>{t('Shift Schedules', lang)}</span>
               </button>
 
               <button
@@ -512,7 +519,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 }`}
               >
                 <FileSpreadsheet className="w-4 h-4 shrink-0" />
-                <span>Reports & Payroll</span>
+                <span>{t('Reports & Payroll', lang)}</span>
               </button>
 
               <button
@@ -524,9 +531,9 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 }`}
               >
                 <Settings className="w-4 h-4 shrink-0" />
-                <span>Office & Server Settings</span>
+                <span>{t('Office & Server Settings', lang)}</span>
               </button>
-              {currentUser.isSuperAdmin&&<button onClick={()=>handleTabClick('superadmin')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-bold transition-all ${activeTab==='superadmin'?'bg-violet-700 text-white shadow-xs':'text-violet-800 bg-violet-50 hover:bg-violet-100 dark:text-violet-200 dark:bg-violet-950/40 dark:hover:bg-violet-900/50'}`}><ShieldCheck className="w-4 h-4"/><span>Super Admin Console</span></button>}
+              {currentUser.isSuperAdmin&&<button onClick={()=>handleTabClick('superadmin')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-bold transition-all ${activeTab==='superadmin'?'bg-violet-700 text-white shadow-xs':'text-violet-800 bg-violet-50 hover:bg-violet-100 dark:text-violet-200 dark:bg-violet-950/40 dark:hover:bg-violet-900/50'}`}><ShieldCheck className="w-4 h-4"/><span>{t('Super Admin Console', lang)}</span></button>}
             </div>
           </div>
         )}

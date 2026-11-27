@@ -412,6 +412,28 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
   };
 
   const [form, setForm] = useState<FormState | null>(null);
+  // Unsaved new invoices are kept on this device (also without internet) and offered back next time.
+  const draftKey = `bahaar_invoice_draft_${currentUser.id}`;
+  useEffect(() => {
+    if (!form || (form as any).id) return;
+    const t = window.setTimeout(() => { try { localStorage.setItem(draftKey, JSON.stringify({ at: Date.now(), form })); } catch { /* storage full */ } }, 600);
+    return () => window.clearTimeout(t);
+  }, [form, draftKey]);
+  const draftOrBlank = (kind: 'customer' | 'vendor') => {
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d?.form && (d.form.kind || 'customer') === kind && Date.now() - d.at < 14 * 86400000) {
+          const when = new Date(d.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+          if (window.confirm(`You have an unsaved ${kind === 'vendor' ? 'vendor payable' : 'invoice'} draft${d.form.customerName ? ` for ${d.form.customerName}` : ''} from ${when}. Continue it?`)) return d.form;
+          localStorage.removeItem(draftKey);
+        }
+      }
+    } catch { /* ignore */ }
+    return blankForm(kind, crm.data.company.ntn || '');
+  };
+
   // Opened from the phone app's "New invoice" shortcut
   useEffect(() => {
     let flag = '';
@@ -852,6 +874,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
     try {
       const wasNew = !form.id;
       const r = await crmCall<{ invoice: CrmInvoice }>('invoice_save', { invoice: buildPayload(lockIdx), ...(editReason ? { editReason } : {}) });
+      try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
       if (wasNew) createdNow.current = r.invoice.id;
       await crm.refresh();
       if (close) {
@@ -978,7 +1001,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
           />
           <button className={btnGhost} onClick={() => void downloadTotalsPdf()} data-totals-pdf><FileDown className="w-3.5 h-3.5" /> Receivables &amp; payables PDF</button>
           {isAdmin && <button className={btnGhost} onClick={() => { setCompanyForm({ ...company }); setError(''); }}><Building2 className="w-3.5 h-3.5" /> Company details</button>}
-          <button className={btnPrimary} onClick={() => { setForm(blankForm(side, company.ntn || '')); setError(''); setNotice(''); }}><Plus className="w-3.5 h-3.5" /> {vendorSide ? 'New vendor payable' : 'New invoice'}</button>
+          <button className={btnPrimary} onClick={() => { setForm(draftOrBlank(side)); setError(''); setNotice(''); }}><Plus className="w-3.5 h-3.5" /> {vendorSide ? 'New vendor payable' : 'New invoice'}</button>
         </div>
       </div>
 

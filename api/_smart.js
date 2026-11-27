@@ -33,7 +33,7 @@ let lastSweep = 0;
 export async function sweepSmart(now = Date.now()) {
   if (now - lastSweep < 10 * 60 * 1000) return;
   lastSweep = now;
-  await Promise.all([dailySummaries(now).catch((e) => console.error('summary', e?.message)), followupNudges(now).catch((e) => console.error('nudge', e?.message)), travelBalances(now).catch((e) => console.error('travel', e?.message)), customerDates(now).catch((e) => console.error('custdates', e?.message))]);
+  await Promise.all([dailySummaries(now).catch((e) => console.error('summary', e?.message)), followupNudges(now).catch((e) => console.error('nudge', e?.message)), travelBalances(now).catch((e) => console.error('travel', e?.message)), monthStart(now).catch((e) => console.error('month', e?.message)), customerDates(now).catch((e) => console.error('custdates', e?.message))]);
 }
 
 /** After someone punches out: today's hours, invoices, receipts and open follow-ups, once a day. */
@@ -162,4 +162,15 @@ export async function customerDates(now = Date.now()) {
     }
   }
   return (await addOnce(out)).length;
+}
+
+/** 1st of the month, 10 AM: everyone's attendance & pay summary for last month is ready (once each). */
+export async function monthStart(now = Date.now()) {
+  const p = pktNow(now);
+  if (p.getUTCDate() !== 1 || p.getUTCHours() < 10) return 0;
+  const prev = new Date(Date.UTC(p.getUTCFullYear(), p.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+  const label = new Date(`${prev}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const staff = (await supabaseFetch('/employees?deleted_at=is.null&is_active=eq.true&role=neq.superadmin&select=id')) || [];
+  const at = new Date(now).toISOString();
+  return (await addOnce(staff.map((e) => ({ id: `msum-${e.id}-${prev}`, employee_id: e.id, category: 'reminder', ref_id: `msum-${prev}`, message: `Your attendance and pay summary for ${label} is ready: My Attendance → Monthly summary (PDF).`, created_at: at, read_at: null })))).length;
 }

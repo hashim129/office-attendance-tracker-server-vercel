@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { readReceiptImage } from '../lib/readReceipt';
 import { AckBadge, AfterCreateInfo, AfterCreatePrompt, guessPhone } from './AfterCreate';
 import { canEditFinancialRecord } from '../lib/financePermissions.js';
 import { Plus, Trash2, FileDown, Share2, Eye, Pencil, ReceiptText, Upload, X } from 'lucide-react';
@@ -88,6 +89,8 @@ export const ReceiptsView: React.FC<Props & { focusId?: string; portalEnabled?: 
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const currencies = useMemo(() => allCurrencies(), []);
   const [form, setForm] = useState<FormState | null>(null);
+  const [reading, setReading] = useState(false);
+  const [readNote, setReadNote] = useState('');
   // Opened from the phone app's "New receipt" shortcut, or with a screenshot shared from another app
   useEffect(() => {
     let flag = '';
@@ -392,6 +395,20 @@ export const ReceiptsView: React.FC<Props & { focusId?: string; portalEnabled?: 
                     <input type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" className="sr-only" onChange={(e) => { void pickImage(e.target.files?.[0]); e.target.value = ''; }} />
                   </label>
                   {form.proofImage && <img src={form.proofImage} alt="Selected screenshot" className="h-12 w-auto rounded border border-slate-300 dark:border-slate-700" />}
+                  {form.proofImage && (
+                    <button type="button" className={btnGhost} disabled={reading} data-read-amount
+                      onClick={async () => {
+                        setReading(true); setReadNote('Reading the picture… (first time takes a few seconds)');
+                        try {
+                          const r = await readReceiptImage(form.proofImage);
+                          const bits: string[] = [];
+                          if (r.amount) { patch({ amountReceived: String(r.amount) }); bits.push(`amount ${r.amount.toLocaleString()}`); }
+                          if (r.reference && !form.referenceNo) { patch({ referenceNo: r.reference }); bits.push(`reference ${r.reference}`); }
+                          setReadNote(bits.length ? `Filled ${bits.join(' and ')}. Please check before saving.` : 'Could not find an amount in this picture. Please type it.');
+                        } catch (e: any) { setReadNote(e?.message || 'Could not read the picture.'); } finally { setReading(false); }
+                      }}>{reading ? 'Reading…' : 'Read amount from picture'}</button>
+                  )}
+                  {readNote && <span className="w-full text-[11px] text-slate-500" data-read-note>{readNote}</span>}
                   {!form.proofImage && form.hadProof && !form.removeProof && <span className="text-[11px] text-slate-500">A screenshot is already saved.</span>}
                   {(form.proofImage || (form.hadProof && !form.removeProof)) && (
                     <button type="button" aria-label="Remove screenshot" className="text-slate-400 hover:text-red-600 cursor-pointer" onClick={() => patch({ proofImage: '', removeProof: form.hadProof })}><X className="w-4 h-4" /></button>

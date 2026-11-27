@@ -20,6 +20,8 @@ export function notificationDestination(category: string, refId?: string | null)
   if (ref.startsWith('rcp-')) return 'crm-receipts';
   if (ref.startsWith('sale-')) return 'crm-sales';
   if (ref.startsWith('med-')) return 'crm-media';
+  if (ref.startsWith('msum-')) return 'my-attendance';
+  if (ref.startsWith('ann-')) return 'crm-notifications';
   if (ref.startsWith('leave-')) return 'leaves';
   if (ref.startsWith('att-')) return 'clock';
   return (notificationTarget as Record<string, ActiveDesktopTab>)[category] || 'crm-notifications';

@@ -59,6 +59,8 @@ import { AppLoginView } from './components/mobile/AppLoginView';
 import { PhoneShell } from './components/mobile/PhoneShell';
 import { MyWeekCard } from './components/mobile/MyWeekCard';
 import { PhoneAppSettings } from './components/mobile/PhoneAppSettings';
+import { TaskBoard } from './components/mobile/TaskBoard';
+import { AnnouncementPopup } from './components/common/Announcements';
 import { updateWidget, haptic } from './lib/phoneApp';
 import { celebrate, once } from './lib/celebrate';
 import { isPhoneApp } from './lib/phoneLocation';
@@ -1277,6 +1279,7 @@ export default function App() {
             headerBetaEnabled={settings.headerBetaEnabled === true}
           />
 
+          {CRM_ENABLED && <AnnouncementPopup trigger={(crm.badges.unreadLatest || []).filter((n) => String(n.refId || '').startsWith('ann-')).map((n) => n.refId).join(',') || currentUser.id} />}
           <PhoneShell
             currentUser={currentUser}
             activeTab={activeTab}
@@ -1353,6 +1356,7 @@ export default function App() {
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                 />
                 <div className="mt-4"><MyWeekCard records={records} employeeId={currentUser.id} shift={shifts.find((sh) => sh.id === currentUser.shiftId)} business={CRM_ENABLED ? crm.data.business : null} /></div>
+                <div className="mt-4"><TaskBoard /></div>
                 </>
               )}
 
@@ -1403,6 +1407,8 @@ export default function App() {
                   leaves={leaves}
                   onApplyLeave={handleApplyLeave}
                   onReviewLeave={handleReviewLeave}
+                  annualAllowance={Number(settings.annualLeaveDays) || 14}
+                  onChangeAllowance={(days) => handleUpdateSettings({ ...settings, annualLeaveDays: days })}
                 />
               )}
 
