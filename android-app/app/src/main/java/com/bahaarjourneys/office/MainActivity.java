@@ -88,9 +88,9 @@ public class MainActivity extends Activity {
         createChannel();
 
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(Color.parseColor("#1438A8"));
         web = new WebView(this);
-        web.setBackgroundColor(Color.WHITE);
+        web.setBackgroundColor(Color.parseColor("#1438A8"));
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         bar.setMax(100);

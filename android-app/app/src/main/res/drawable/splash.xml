@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Opening screen: same blue as the sign-in page, so the app never flashes white before the logo drops in -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
-    <item android:gravity="center" android:width="260dp" android:height="62dp" android:drawable="@drawable/splash_logo" />
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:angle="285" android:startColor="#0A1A4F" android:centerColor="#1438A8" android:endColor="#1D6FE0" android:type="linear" />
+        </shape>
+    </item>
 </layer-list>
