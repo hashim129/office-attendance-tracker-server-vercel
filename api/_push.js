@@ -155,3 +155,19 @@ export async function pendingForDevice(body) {
   await supabaseFetch(`/push_devices?device_key=eq.${encodeURIComponent(key)}`, { method: 'PATCH', body: JSON.stringify({ last_poll_at: now.toISOString() }) });
   return { ok: true, items: items.map((n) => ({ id: n.id, title: pushTitle(n.category), body: n.message })) };
 }
+
+/** Quick health check (no secrets): is Firebase set up, and does Google accept our key? */
+export async function pushStatus() {
+  const sa = serviceAccount();
+  const cfg = androidFirebaseConfig();
+  const out = { firebaseConfigured: Boolean(sa && cfg), projectId: cfg?.projectId || null, googleSignIn: 'not tried' };
+  if (!sa) return out;
+  try { await accessToken(sa); out.googleSignIn = 'ok'; } catch (e) { out.googleSignIn = String(e?.message || 'failed'); }
+  try {
+    const devices = (await supabaseFetch('/push_devices?select=device_key,fcm_token')) || [];
+    out.phonesRegistered = devices.length;
+    out.phonesWithInstantPush = devices.filter((d) => d.fcm_token).length;
+  } catch { /* table missing */ }
+  return out;
+}
+
