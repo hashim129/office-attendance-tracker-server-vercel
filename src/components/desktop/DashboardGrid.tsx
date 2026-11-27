@@ -304,7 +304,9 @@ export const DashboardGrid: React.FC<Props> = ({ layout, canEdit, onSave, childr
   const latestLive = useRef<typeof live>(null);
   latestLive.current = live;
 
-  const shown = free ? visible : ordered.filter((d) => !baseItems[d.id].hidden);
+  const shownBase = free ? visible : ordered.filter((d) => !baseItems[d.id].hidden);
+  // Phones: keep all the small number tiles together (from where the first tile sits), so a chart never splits them.
+  const shown = narrow ? groupTilesTogether(shownBase, (d) => (baseItems[d.id]?.span ?? 12) <= 4) : shownBase;
   const toolsDisabled = busy;
 
   return (
@@ -414,3 +416,14 @@ export const DashboardGrid: React.FC<Props> = ({ layout, canEdit, onSave, childr
     </div>
   );
 };
+
+/** Moves every small tile up to sit right after the first small tile; everything else keeps its order. */
+export function groupTilesTogether<T>(list: T[], isTile: (x: T) => boolean): T[] {
+  const first = list.findIndex(isTile);
+  if (first < 0) return list;
+  const tiles = list.filter(isTile);
+  const before = list.slice(0, first).filter((x) => !isTile(x));
+  const after = list.slice(first).filter((x) => !isTile(x));
+  return [...before, ...tiles, ...after];
+}
+

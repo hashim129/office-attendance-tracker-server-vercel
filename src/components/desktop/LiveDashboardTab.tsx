@@ -18,6 +18,7 @@ interface Row {
   wfh: boolean;
   offline: boolean;
   timeIn?: string;
+  timeOut?: string;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -101,6 +102,7 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
           wfh: Boolean(rec && (e.allowWorkFromHome || remoteLeave)),
           offline: Boolean(rec && !rec.timeOut && rec.connectionStatus === 'no_internet'),
           timeIn: rec?.timeIn,
+          timeOut: rec?.timeOut,
         };
       });
   }, [employees, records, shifts, leaves, today, now, settings, currentUser.id, online]);
@@ -142,6 +144,21 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
     { key: 'leave', title: 'On leave', tone: 'bg-violet-500', items: rows.filter((r) => r.state === 'leave') },
     { key: 'out', title: 'Finished for the day', tone: 'bg-slate-400', items: rows.filter((r) => r.state === 'out') },
   ];
+
+  // Team Pulse list: each person once, with one combined status (e.g. "Arrived late at 11:03 AM").
+  const pulseOrder: Record<string, number> = { in: 0, absent: 1, leave: 2, out: 3 };
+  const pulseRows = rows
+    .filter((r) => r.state in pulseOrder)
+    .sort((a, b) => pulseOrder[a.state] - pulseOrder[b.state] || Number(b.late) - Number(a.late) || a.e.name.localeCompare(b.e.name));
+  const pulseStatus = (r: Row) => {
+    const at = r.timeIn ? clock12(r.timeIn) : '';
+    if (r.state === 'in' && r.late) return { emoji: '⏰', label: `Arrived late at ${at}`, tone: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300' };
+    if (r.state === 'in') return { emoji: '💻', label: at ? `Working · in at ${at}` : 'Working', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' };
+    if (r.state === 'absent') return { emoji: '👀', label: 'Not in yet', tone: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300' };
+    if (r.state === 'leave') return { emoji: '🌴', label: 'On leave', tone: 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-300' };
+    const out = r.timeOut ? clock12(r.timeOut) : '';
+    return { emoji: '🏁', label: `Finished${out ? ` at ${out}` : ''}${r.late && at ? ` · came late at ${at}` : ''}`, tone: 'border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300' };
+  };
 
   const biz = crm.data.business;
   const cur = biz?.targets?.currency || 'PKR';
@@ -279,9 +296,9 @@ export const LiveDashboardTab: React.FC<Props> = ({ currentUser, employees, reco
             })}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
-            {groups.flatMap((g) => g.items.map((r) => ({ ...r, groupKey: g.key }))).map((r) => {
-              const meta = r.groupKey === 'in' ? { emoji: '💻', label: 'Working', tone: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' } : r.groupKey === 'late' ? { emoji: '⏰', label: 'Arrived late', tone: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300' } : r.groupKey === 'absent' ? { emoji: '👀', label: 'Not in yet', tone: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300' } : r.groupKey === 'leave' ? { emoji: '🌴', label: 'On leave', tone: 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-300' } : { emoji: '🏁', label: 'Finished', tone: 'border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300' };
-              return <div key={r.e.id} className="group flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900/80">{employeeUniverseEnabled && r.e.gameCharacterId ? <div className="relative"><div className="w-12"><AvatarStage id={r.e.gameCharacterId} appearance={r.e.avatarAppearance} closeup label={r.e.name}/></div><span className="absolute -bottom-1 -right-1 text-base" title={meta.label}>{meta.emoji}</span></div> : <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-100 via-indigo-100 to-violet-100 text-sm font-extrabold text-indigo-700 dark:from-sky-900/60 dark:via-indigo-900/60 dark:to-violet-900/60 dark:text-indigo-200">{r.e.name.split(' ').map((n) => n[0]).slice(0,2).join('').toUpperCase()}<span className="absolute -bottom-1 -right-1 text-base" title={meta.label}>{meta.emoji}</span></div>}<div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-900 dark:text-slate-100">{r.e.name}</p><p className="truncate text-[10px] text-slate-500 dark:text-slate-400">{r.e.department} · {r.timeIn ? `In ${clock12(r.timeIn)}` : 'Shift not started'}</p><div className="mt-1.5 flex flex-wrap items-center gap-1">{r.wfh && <span className="rounded-full bg-sky-50 px-1.5 py-0.5 text-[9px] font-bold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">🏠 WFH</span>}{r.offline && <span className="rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">📡 Offline</span>}<span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${meta.tone}`}>{meta.label}</span></div></div></div>;
+            {pulseRows.map((r) => {
+              const meta = pulseStatus(r);
+              return <div key={r.e.id} className="group flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-900/80">{employeeUniverseEnabled && r.e.gameCharacterId ? <div className="relative"><div className="w-12"><AvatarStage id={r.e.gameCharacterId} appearance={r.e.avatarAppearance} closeup label={r.e.name}/></div><span className="absolute -bottom-1 -right-1 text-base" title={meta.label}>{meta.emoji}</span></div> : <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-100 via-indigo-100 to-violet-100 text-sm font-extrabold text-indigo-700 dark:from-sky-900/60 dark:via-indigo-900/60 dark:to-violet-900/60 dark:text-indigo-200">{r.e.name.split(' ').map((n) => n[0]).slice(0,2).join('').toUpperCase()}<span className="absolute -bottom-1 -right-1 text-base" title={meta.label}>{meta.emoji}</span></div>}<div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-900 dark:text-slate-100">{r.e.name}</p><p className="truncate text-[10px] text-slate-500 dark:text-slate-400">{r.e.department || 'Team'}</p><div className="mt-1.5 flex flex-wrap items-center gap-1">{r.wfh && <span className="rounded-full bg-sky-50 px-1.5 py-0.5 text-[9px] font-bold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">🏠 WFH</span>}{r.offline && <span className="rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">📡 Offline</span>}<span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${meta.tone}`}>{meta.label}</span></div></div></div>;
             })}
           </div>
           {groups.every((g) => g.items.length === 0) && <div className="rounded-xl border border-dashed border-slate-300 py-8 text-center text-sm text-slate-500 dark:border-slate-700">🎉 No team presence updates to show right now.</div>}

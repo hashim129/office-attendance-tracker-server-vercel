@@ -179,7 +179,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   };
 
   return (
-    <div className={`min-h-[72px] px-3 sm:px-5 lg:px-7 py-2.5 border-b flex items-center justify-between gap-3 shrink-0 relative z-30 transition-colors duration-200 ${
+    <div className={`min-h-[64px] sm:min-h-[72px] px-2 sm:px-5 lg:px-7 py-2 sm:py-2.5 border-b flex items-center justify-between gap-2 sm:gap-3 shrink-0 relative z-30 transition-colors duration-200 ${
       headerBetaEnabled
         ? 'border-slate-200/80 dark:border-slate-700/80 bg-[linear-gradient(105deg,rgba(255,255,255,0.98),rgba(239,246,255,0.94),rgba(255,255,255,0.98))] dark:bg-[linear-gradient(105deg,rgba(15,23,42,0.98),rgba(23,37,64,0.96),rgba(15,23,42,0.98))] shadow-[0_8px_28px_rgba(15,23,42,0.07)]'
         : 'border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-[0_4px_18px_rgba(15,23,42,0.035)]'
@@ -199,8 +199,9 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         )}
         {headerBetaEnabled ? (
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-14 sm:h-16 items-center rounded-xl bg-white px-3 sm:px-4 dark:bg-slate-900 shrink-0">
-              <img src="/bahaar-logo.png" alt="Bahaar Journeys" className="h-12 sm:h-14 w-auto max-w-[230px] object-contain object-left shrink-0" />
+            {/* the logo shrinks on narrow phones instead of running under the buttons on the right */}
+            <div className="flex h-11 sm:h-16 min-w-0 shrink items-center rounded-xl bg-white px-1.5 sm:px-4 dark:bg-slate-900">
+              <img src="/bahaar-logo.png" alt="Bahaar Journeys" className="h-8 sm:h-14 w-auto max-w-full sm:max-w-[230px] object-contain object-left" />
             </div>
             <div className="hidden sm:block min-w-0 border-l border-slate-200 dark:border-slate-700 pl-3">
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-600 dark:text-blue-400">Bahaar Journeys</p>
@@ -217,8 +218,8 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
       </div>
 
       {/* Right Controls: Cloud Sync, Connection State, Notifications, Kiosk Mode Shortcut & User Profile */}
-      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-        {redesignedUiBetaEnabled && onToggleTheme && <button type="button" onClick={onToggleTheme} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800" aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"} title={isDark ? "Light theme" : "Dark theme"}>{isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}</button>}
+      <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
+        {redesignedUiBetaEnabled && onToggleTheme && <button type="button" onClick={onToggleTheme} className="p-1.5 sm:p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800" aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"} title={isDark ? "Light theme" : "Dark theme"}>{isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}</button>}
         {cloudSyncState && cloudSyncState.status === 'saving' && (
           <span
             className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800"

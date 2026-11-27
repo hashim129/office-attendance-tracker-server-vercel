@@ -794,7 +794,7 @@ button:not(:disabled):active { transform: scale(0.97); }
 @media (max-width: 767px) {
   .dash-cell { grid-column: span 12 / span 12; }
   .dash-cell[data-dash-span="2"], .dash-cell[data-dash-span="3"], .dash-cell[data-dash-span="4"] { grid-column: span 6 / span 6; }
-  .dash-grid { gap: .75rem; }
+  .dash-grid { gap: .75rem; grid-auto-flow: row dense; }
 }
 /* free placement: boxes sit exactly where the Admin put them */
 .dash-grid.is-free { display: block; position: relative; }
@@ -903,3 +903,14 @@ button:not(:disabled):active { transform: scale(0.97); }
 html { -webkit-tap-highlight-color: transparent; }
 button, a, [role="button"], input[type="checkbox"], label { touch-action: manipulation; }
 @media (max-width: 639.98px) { .live-alerts { top: calc(env(safe-area-inset-top, 0px) + 0.5rem); } }
+
+/* Team chat: bottom sheet on phones */
+.no-scrollbar { scrollbar-width: none; } .no-scrollbar::-webkit-scrollbar { display: none; }
+@media (max-width: 639.98px) { .universe-chat { animation: notif-sheet-up 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; } }
+
+/* Phones: frosted-glass blur and endless background animations are the main cause of slow scrolling */
+@media (max-width: 767px) {
+  *, *::before, *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  .hero-blob, .hero-blob-slow, .fx-orbit, .fx-cloud, .theme-lantern, .theme-moon { animation: none !important; }
+  .page-enter > * > * { animation-duration: 0.2s; animation-delay: 0s !important; }
+}

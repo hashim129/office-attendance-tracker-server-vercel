@@ -651,7 +651,6 @@ async function sendLeaveAlerts(alerts) {
 }
 
 let lastReminderSweepAt = 0;
-const REMIND_BEFORE_MS = 15 * 60 * 1000;
 const ASK_WINDOW_MS = 30 * 60 * 1000;
 
 /**
@@ -665,21 +664,69 @@ export async function sweepShiftReminders({ getShiftEndWindowMs, format12h }) {
   if (nowMs - lastReminderSweepAt < 60000) return 0;
   lastReminderSweepAt = nowMs;
   try {
-    const since = new Date(nowMs - 2 * 86400000).toISOString().slice(0, 10);
-    const openRows = await supabaseFetch(`/attendance?time_out=is.null&time_in=not.is.null&date=gte.${since}&select=*`);
-    if (!Array.isArray(openRows) || openRows.length === 0) return 0;
-    const [settingsRows, shiftsRows, empRows] = await Promise.all([
+    const karachi = (ms, opts) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Karachi', ...opts }).format(new Date(ms));
+    const today = karachi(nowMs, { year: 'numeric', month: '2-digit', day: '2-digit' }).split('/').reverse().join('-');
+    const clock = (ms) => karachi(ms, { hour: '2-digit', minute: '2-digit', hour12: false });
+    const nowHm = clock(nowMs);
+    const toMin = (hm) => { const [h, m] = String(hm || '').split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : NaN; };
+
+    // Old reminders never pop up again: anything from a punch that is already closed, or older than 12 hours, is marked read.
+    const unread = (await supabaseFetch(`/crm_notifications?category=eq.reminder&read_at=is.null&select=id,ref_id,created_at&limit=500`)) || [];
+    if (unread.length) {
+      const recIds = [...new Set(unread.map((n) => n.ref_id).filter((x) => x && !String(x).startsWith('pin-')))];
+      const closed = new Set();
+      for (let i = 0; i < recIds.length; i += 80) {
+        const part = recIds.slice(i, i + 80).map((x) => `"${x}"`).join(',');
+        const rows = (await supabaseFetch(`/attendance?id=in.(${part})&select=id,time_out`)) || [];
+        rows.filter((r) => r.time_out).forEach((r) => closed.add(r.id));
+      }
+      // a punch-in reminder is done once that person has punched in today
+      const pinPeople = [...new Set(unread.map((n) => String(n.ref_id || '')).filter((r) => r.startsWith('pin-')).map((r) => r.slice(4, -11)))];
+      const punchedIn = new Set();
+      if (pinPeople.length) {
+        const rows = (await supabaseFetch(`/attendance?date=eq.${today}&employee_id=in.(${pinPeople.map((x) => `"${x}"`).join(',')})&select=employee_id`)) || [];
+        rows.forEach((r) => punchedIn.add(r.employee_id));
+      }
+      const stale = unread.filter((n) => (closed.has(n.ref_id) && !String(n.id).endsWith('-closed')) ||
+        (String(n.ref_id || '').startsWith('pin-') && punchedIn.has(String(n.ref_id).slice(4, -11))) || nowMs - Date.parse(n.created_at) > 12 * 3600000 || (String(n.ref_id).startsWith('pin-') && !String(n.ref_id).endsWith(today)));
+      for (let i = 0; i < stale.length; i += 80) {
+        const ids = stale.slice(i, i + 80).map((n) => `"${n.id}"`).join(',');
+        await supabaseFetch(`/crm_notifications?id=in.(${ids})`, { method: 'PATCH', body: JSON.stringify({ read_at: new Date(nowMs).toISOString() }) });
+      }
+    }
+
+    const [settingsRows, shiftsRows, empRows, openRows, todayRows, leaveRows] = await Promise.all([
       supabaseFetch('/settings?id=eq.current&select=*'),
       supabaseFetch('/shifts?select=*&order=id.asc'),
       supabaseFetch('/employees?deleted_at=is.null&select=*'),
+      // today's open punches (and yesterday's only for night shifts that run past midnight)
+      supabaseFetch(`/attendance?time_out=is.null&time_in=not.is.null&date=gte.${new Date(Date.parse(`${today}T12:00:00Z`) - 86400000).toISOString().slice(0, 10)}&select=*`),
+      supabaseFetch(`/attendance?date=eq.${today}&select=employee_id`),
+      supabaseFetch(`/leaves?deleted_at=is.null&status=eq.approved&start_date=lte.${today}&end_date=gte.${today}&select=*`),
     ]);
     const settings = settingsRows?.[0]?.data || {};
     const graceHours = Math.max(0, Number(settings.autoPunchOutOnInactiveHours ?? 2) || 0);
     const shifts = Array.isArray(shiftsRows) ? shiftsRows.map(mapDbShift) : [];
     const employees = Array.isArray(empRows) ? empRows.map(mapDbEmployee) : [];
-    const clock = (ms) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(ms));
     const out = [];
-    for (const raw of openRows) {
+
+    // 1) Shift start: remind to punch in (once a day, within the first hour of the shift, workdays only, not on leave).
+    const punchedToday = new Set((todayRows || []).map((r) => r.employee_id));
+    const onLeave = new Set((leaveRows || []).map(mapDbLeave).filter((l) => l && l.leaveType !== 'remote_work').map((l) => l.employeeId));
+    const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
+    for (const emp of employees) {
+      if (!emp || emp.isActive === false || emp.id === 'emp-101' || punchedToday.has(emp.id) || onLeave.has(emp.id)) continue;
+      const shift = shifts.find((x) => x.id === emp.shiftId);
+      if (!shift || !Array.isArray(shift.workDays) || !shift.workDays.includes(dow)) continue;
+      const start = toMin(shift.startTime);
+      const n = toMin(nowHm);
+      if (!Number.isFinite(start) || n < start || n > start + 60) continue;
+      const startLabel = format12h ? format12h(shift.startTime) : shift.startTime;
+      out.push({ id: `rem-in-${emp.id}-${today}`, employee_id: emp.id, category: 'reminder', ref_id: `pin-${emp.id}-${today}`, message: `⏰ Your shift starts at ${startLabel}. Please punch in.`, created_at: new Date(nowMs).toISOString(), read_at: null });
+    }
+
+    // 2) Shift end: remind to punch out (once). 3) Shift end + grace hours: ask once to confirm extra work.
+    for (const raw of Array.isArray(openRows) ? openRows : []) {
       const rec = mapDbAttendance(raw);
       const emp = employees.find((e) => e.id === rec.employeeId);
       if (!emp || emp.isActive === false || !rec.timeIn) continue;
@@ -688,33 +735,24 @@ export async function sweepShiftReminders({ getShiftEndWindowMs, format12h }) {
       const confirmedMs = rec.workConfirmedAt ? Date.parse(rec.workConfirmedAt) : NaN;
       const win = getShiftEndWindowMs(rec.date, rec.timeIn, shift, graceHours, confirmedMs);
       const shiftEndMs = win.shiftEndMs;
-      const verifyAtMs = Number.isFinite(win.verifyAtMs) ? win.verifyAtMs : win.checkAtMs;
       const checkAtMs = win.checkAtMs;
       if (!Number.isFinite(shiftEndMs)) continue;
+      if (rec.date !== today && !win.isOvernightShift) continue;
+      const askFromMs = checkAtMs - 15 * 60 * 1000; // the one "are you still working?" question, 15 minutes before auto punch-out
       const endLabel = format12h ? format12h(shift.endTime) : shift.endTime;
-      const logoutLabel = format12h ? format12h(clock(verifyAtMs)) : clock(verifyAtMs);
-      let kind = null;
-      let message = '';
-      if (nowMs >= shiftEndMs - REMIND_BEFORE_MS && nowMs < shiftEndMs) {
-        kind = 'pre';
-        message = `⏰ Your shift ends at ${endLabel}. Please remember to punch out.`;
-      } else if (graceHours > 0 && nowMs >= verifyAtMs - 15 * 60 * 1000 && nowMs < checkAtMs) {
-        // At Shift End + 2h (and 15m leading into it), ask the employee to verify if they are currently working before auto punch-out
-        const minsLeft = Math.max(1, Math.ceil((checkAtMs - nowMs) / 60000));
-        const slot = Math.max(5, Math.ceil(minsLeft / 5) * 5);
-        kind = `ask-${Math.round(checkAtMs / 60000)}-${slot}`;
-        message = `❓ ${graceHours} hours after shift end: Are you currently working on overtime? Please verify now (${minsLeft} min left) — otherwise you will be automatically punched out at ${logoutLabel} and overtime will be recorded separately under auto punch-out remarks.`;
-      } else if (nowMs >= shiftEndMs && (graceHours === 0 || nowMs < verifyAtMs)) {
-        kind = 'end';
-        message = graceHours > 0
-          ? `🔔 Your shift has ended. Are you working extra hours? Click “Yes, I'm working” to stay punched in (automatic punch-out is paused and you will be asked again after ${graceHours}h), or punch out now.`
-          : '🔔 Your shift has ended. Please punch out.';
+      const logoutLabel = format12h ? format12h(clock(checkAtMs)) : clock(checkAtMs);
+      if (graceHours > 0 && nowMs >= askFromMs && nowMs < checkAtMs) {
+        out.push({ id: `rem-${rec.id}-ask-${Math.round(checkAtMs / 60000)}-1`, employee_id: rec.employeeId, category: 'reminder', ref_id: rec.id, created_at: new Date(nowMs).toISOString(), read_at: null,
+          message: `❓ You are still punched in ${graceHours}h after your shift. Are you working extra hours? Tap “Yes, I'm working” to stay punched in, otherwise you will be punched out automatically at ${logoutLabel} (extra time is recorded separately).` });
+      } else if (nowMs >= shiftEndMs && (graceHours === 0 || nowMs < askFromMs)) {
+        out.push({ id: `rem-${rec.id}-end`, employee_id: rec.employeeId, category: 'reminder', ref_id: rec.id, created_at: new Date(nowMs).toISOString(), read_at: null,
+          message: graceHours > 0
+            ? `🔔 Your shift ended at ${endLabel}. Please punch out. Working extra hours? Tap “Yes, I'm working”.`
+            : `🔔 Your shift ended at ${endLabel}. Please punch out.` });
       }
-      if (!kind) continue;
-      out.push({ id: `rem-${rec.id}-${kind}`, employee_id: rec.employeeId, category: 'reminder', ref_id: rec.id, message, created_at: new Date().toISOString(), read_at: null });
     }
     if (out.length) {
-      // only rows that are really new come back, so a reminder is pushed to the phone once
+      // only rows that are really new come back, so each reminder is shown / pushed once
       const added = await supabaseFetch('/crm_notifications?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify(out) });
       await pushNotificationRows(Array.isArray(added) ? added : []);
     }

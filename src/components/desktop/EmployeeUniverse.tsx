@@ -19,6 +19,45 @@ const timeLabel = (value: string) => {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 };
 
+/**
+ * The floating chat button must never sit on top of a form's Save button: it hides while a form / popup is open,
+ * while typing on a phone (keyboard up), and on phones while scrolling down (it comes back when scrolling up).
+ */
+function useLauncherHidden(): boolean {
+  const [blocked, setBlocked] = useState(false);
+  const [scrollHidden, setScrollHidden] = useState(false);
+  useEffect(() => {
+    let raf = 0;
+    const phone = () => window.matchMedia('(max-width: 639.98px)').matches;
+    const check = () => {
+      raf = 0;
+      const a = document.activeElement as HTMLElement | null;
+      const typing = phone() && !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT') && !a.closest('[data-universe-chat]');
+      setBlocked(Boolean(document.querySelector('[data-app-modal], [aria-modal="true"]:not([data-universe-chat])')) || typing);
+    };
+    const queue = () => { if (!raf) raf = window.requestAnimationFrame(check); };
+    const mo = new MutationObserver(queue);
+    mo.observe(document.body, { childList: true, subtree: true });
+    document.addEventListener('focusin', queue);
+    document.addEventListener('focusout', () => window.setTimeout(queue, 50));
+    const last = new WeakMap<EventTarget, number>();
+    const onScroll = (e: Event) => {
+      if (!phone()) return;
+      const t = (e.target === document ? document.scrollingElement : e.target) as HTMLElement | null;
+      if (!t || (t as HTMLElement).closest?.('[data-universe-chat]')) return;
+      const y = t.scrollTop || 0;
+      const prev = last.get(t) ?? 0;
+      if (Math.abs(y - prev) > 12) { setScrollHidden(y > prev && y > 80); last.set(t, y); }
+    };
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    check();
+    return () => { mo.disconnect(); document.removeEventListener('focusin', queue); document.removeEventListener('scroll', onScroll, { capture: true } as any); if (raf) cancelAnimationFrame(raf); };
+  }, []);
+  return blocked || scrollHidden;
+}
+
+const QUICK_REPLIES = ['Hi team 👋', 'On it 👍', 'Done ✅', 'Will check and update', 'Thank you 🙏', 'In a meeting, back soon'];
+
 export const EmployeeUniverse: React.FC<Props> = ({ chatEnabled = true, currentUser, employees, onProfileSaved }) => {
   const [profileOpen, setProfileOpen] = useState(false);
   const [characterId, setCharacterId] = useState(currentUser.gameCharacterId || '');
@@ -42,6 +81,12 @@ export const EmployeeUniverse: React.FC<Props> = ({ chatEnabled = true, currentU
   const polling = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const token = getSessionToken();
+  const launcherHidden = useLauncherHidden();
+  // @-mention suggestions while typing, e.g. "@zai" -> Zain
+  const mentionQuery = (/(?:^|\s)@([^\s@]{0,20})$/.exec(message) || [])[1];
+  const mentionSuggestions = mentionQuery === undefined ? [] : employees
+    .filter((e) => e.isActive !== false && e.id !== currentUser.id && e.name.toLowerCase().replace(/\s+/g, '').includes(mentionQuery.toLowerCase()))
+    .slice(0, 5);
   useEffect(()=>{
     if(!token) return;
     let busy=false;
@@ -181,27 +226,29 @@ export const EmployeeUniverse: React.FC<Props> = ({ chatEnabled = true, currentU
 
   return (
     <>
-      {alertMessage && !chatOpen && <button className="fixed bottom-24 right-5 z-[71] rounded-xl bg-violet-700 px-4 py-3 text-white text-xs shadow-xl" onClick={() => setChatOpen(true)} role="status">🔔 {alertMessage}</button>}
-      <button type="button" onClick={() => setChatOpen((v) => !v)} className="fixed bottom-5 right-5 z-[70] flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-600 to-blue-600 px-4 py-3 text-sm font-bold text-white shadow-xl shadow-violet-900/25 transition hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-fuchsia-300/60" aria-label="Open Employee Universe chat">
+      {alertMessage && !chatOpen && !launcherHidden && <button className="fixed bottom-20 right-3 sm:bottom-24 sm:right-5 z-[71] max-w-[80vw] truncate rounded-xl bg-violet-700 px-3 py-2 sm:px-4 sm:py-3 text-white text-xs shadow-xl" onClick={() => setChatOpen(true)} role="status">🔔 {alertMessage}</button>}
+      <button type="button" onClick={() => setChatOpen((v) => !v)} data-chat-launcher
+        className={`fixed bottom-4 right-3 sm:bottom-5 sm:right-5 z-[70] flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 via-fuchsia-600 to-blue-600 h-12 w-12 sm:h-auto sm:w-auto sm:px-4 sm:py-3 text-sm font-bold text-white shadow-xl shadow-violet-900/25 transition duration-200 hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-fuchsia-300/60 ${launcherHidden && !chatOpen ? 'pointer-events-none translate-y-24 opacity-0' : ''}`}
+        aria-label="Open Employee Universe chat" aria-hidden={launcherHidden && !chatOpen ? true : undefined} tabIndex={launcherHidden && !chatOpen ? -1 : undefined}>
         <span className="relative"><MessageCircle className="h-5 w-5" />{unreadMentions > 0 && <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-300 px-1 text-[9px] font-black text-slate-900">{unreadMentions}</span>}</span>
         <span className="hidden sm:inline">Employee Universe 2.0</span>
-        <EmployeeAvatar characterId={currentUser.gameCharacterId} petId={currentUser.gamePetId} appearance={currentUser.avatarAppearance} name={currentUser.name} size="xs" />
+        <span className="hidden sm:inline-flex"><EmployeeAvatar characterId={currentUser.gameCharacterId} petId={currentUser.gamePetId} appearance={currentUser.avatarAppearance} name={currentUser.name} size="xs" /></span>
       </button>
 
       {chatOpen && (
-        <section className="fixed bottom-20 right-3 z-[70] flex h-[min(760px,calc(100vh-7rem))] w-[min(820px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-2xl shadow-slate-900/25 dark:border-slate-700 dark:bg-slate-950" aria-label="Employee Universe 2.0 conversation">
-          <header className="flex items-center justify-between bg-gradient-to-r from-violet-700 via-fuchsia-600 to-blue-600 px-4 py-3 text-white">
-            <div className="flex items-center gap-2.5"><div className="rounded-xl bg-white/15 p-2"><Sparkles className="h-5 w-5" /></div><div><p className="text-sm font-extrabold">Employee Universe 2.0</p><p className="text-[10px] text-white/75">A friendly space for the whole crew</p></div></div>
+        <section data-universe-chat className="universe-chat fixed inset-x-0 bottom-0 z-[75] flex h-[min(78vh,640px)] flex-col overflow-hidden rounded-t-3xl sm:inset-x-auto sm:bottom-20 sm:right-4 sm:h-[min(620px,calc(100vh-7rem))] sm:w-[400px] sm:rounded-3xl border border-violet-200 bg-white shadow-2xl shadow-slate-900/25 dark:border-slate-700 dark:bg-slate-950" aria-label="Employee Universe 2.0 conversation">
+          <header className="flex items-center justify-between bg-gradient-to-r from-violet-700 via-fuchsia-600 to-blue-600 px-3 py-2 sm:px-4 sm:py-3 text-white">
+            <div className="flex items-center gap-2"><div className="rounded-lg bg-white/15 p-1.5"><Sparkles className="h-4 w-4" /></div><div><p className="text-sm font-extrabold leading-tight">Team chat</p><p className="hidden sm:block text-[10px] text-white/75">Employee Universe 2.0 · the whole crew</p></div></div>
             <div className="flex items-center gap-1"><button type="button" onClick={() => setProfileOpen(true)} className="rounded-lg bg-white/15 px-2 py-1.5 text-[10px] font-bold hover:bg-white/25">My character</button><button type="button" onClick={() => setChatOpen(false)} className="rounded-lg p-2 hover:bg-white/20" aria-label="Close chat"><X className="h-4 w-4" /></button></div>
           </header>
-          <div className="border-b border-violet-100 bg-violet-50/60 px-4 py-3 dark:border-slate-700 dark:bg-slate-900"><div className="flex items-center justify-between"><div><h2 className="text-sm font-black text-violet-800 dark:text-violet-200">Meet your crew</h2><p className="text-[10px] text-slate-500">Explore your colleagues' characters and send them a mention.</p></div><button className="text-xs font-bold text-violet-700 dark:text-violet-300" onClick={() => setProfileOpen(true)}>Customize profile</button></div><div className="mt-3 flex gap-3 overflow-x-auto pb-2">{employees.filter((e) => e.isActive !== false).map((e) => <button key={e.id} disabled={e.id === currentUser.id} type="button" onClick={() => addMention(e)} className="flex w-20 shrink-0 flex-col items-center gap-1 rounded-xl p-2 hover:bg-violet-100 dark:hover:bg-slate-800"><EmployeeAvatar characterId={e.gameCharacterId} petId={e.gamePetId} appearance={e.avatarAppearance} name={e.name} size="lg"/><span className="w-full truncate text-center text-[10px] font-bold">{e.name}</span>{e.avatarAppearance?.status && e.avatarAppearance.status !== 'None' && <span className="w-full truncate text-center text-[9px] text-violet-600">{e.avatarAppearance.status}</span>}</button>)}</div></div>
-          <div className="flex-1 space-y-3 overflow-y-auto bg-gradient-to-b from-violet-50/70 to-white p-3 dark:from-slate-900 dark:to-slate-950">
+          <div className="hidden sm:block border-b border-violet-100 bg-violet-50/60 px-4 py-3 dark:border-slate-700 dark:bg-slate-900"><div className="flex items-center justify-between"><div><h2 className="text-sm font-black text-violet-800 dark:text-violet-200">Meet your crew</h2><p className="text-[10px] text-slate-500">Explore your colleagues' characters and send them a mention.</p></div><button className="text-xs font-bold text-violet-700 dark:text-violet-300" onClick={() => setProfileOpen(true)}>Customize profile</button></div><div className="mt-3 flex gap-3 overflow-x-auto pb-2">{employees.filter((e) => e.isActive !== false).map((e) => <button key={e.id} disabled={e.id === currentUser.id} type="button" onClick={() => addMention(e)} className="flex w-20 shrink-0 flex-col items-center gap-1 rounded-xl p-2 hover:bg-violet-100 dark:hover:bg-slate-800"><EmployeeAvatar characterId={e.gameCharacterId} petId={e.gamePetId} appearance={e.avatarAppearance} name={e.name} size="lg"/><span className="w-full truncate text-center text-[10px] font-bold">{e.name}</span>{e.avatarAppearance?.status && e.avatarAppearance.status !== 'None' && <span className="w-full truncate text-center text-[9px] text-violet-600">{e.avatarAppearance.status}</span>}</button>)}</div></div>
+          <div className="flex-1 space-y-2 sm:space-y-3 overflow-y-auto overscroll-contain bg-gradient-to-b from-violet-50/70 to-white p-3 dark:from-slate-900 dark:to-slate-950">
             {messages.length === 0 && <div className="flex h-full min-h-48 flex-col items-center justify-center text-center"><span className="text-4xl">🚀</span><p className="mt-2 text-sm font-bold text-slate-800 dark:text-white">The lounge is all yours!</p><p className="mt-1 max-w-56 text-xs text-slate-500">Say hello, share an update or mention a teammate.</p></div>}
             {messages.map((item) => {
               const own = item.sender.id === currentUser.id;
               const mentioned = item.mentions.some((person) => person.id === currentUser.id);
               const quoted = item.replyTo ? messages.find((m) => m.id === item.replyTo) : null;
-              return <article key={item.id} className={`rounded-2xl border p-3 shadow-sm ${mentioned ? 'border-fuchsia-300 bg-fuchsia-50/80 dark:border-fuchsia-800 dark:bg-fuchsia-950/25' : 'border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900'} ${own ? 'ml-5' : 'mr-3'}`}>
+              return <article key={item.id} className={`rounded-2xl border p-2.5 sm:p-3 shadow-sm ${mentioned ? 'border-fuchsia-300 bg-fuchsia-50/80 dark:border-fuchsia-800 dark:bg-fuchsia-950/25' : 'border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900'} ${own ? 'ml-5' : 'mr-3'}`}>
                 <div className="mb-1.5 flex items-center gap-2"><EmployeeAvatar characterId={item.sender.characterId || undefined} petId={item.sender.petId || undefined} appearance={item.sender.appearance} name={item.sender.name} size="sm" /><span className="min-w-0 flex-1 truncate text-[11px] font-extrabold text-slate-800 dark:text-slate-100">{item.sender.name}</span><span className="text-[9px] text-slate-400">{timeLabel(item.createdAt)}</span></div>
                 {quoted && <div className="mb-2 rounded-lg border-l-2 border-violet-400 bg-violet-50 px-2 py-1 text-[10px] text-slate-500 dark:bg-violet-950/30">↪ {quoted.sender.name}: {quoted.body.slice(0, 90)}</div>}
                 <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-700 dark:text-slate-200">{formatMessage(item)}</p>
@@ -214,11 +261,27 @@ export const EmployeeUniverse: React.FC<Props> = ({ chatEnabled = true, currentU
           {chatError && <p className="px-3 py-1 text-[10px] text-rose-600">{chatError}</p>}
           {replyTo && <div className="flex items-center justify-between border-t border-slate-100 bg-violet-50 px-3 py-2 text-[10px] dark:border-slate-800 dark:bg-violet-950/20"><span className="truncate">Replying to <b>{replyTo.sender.name}</b>: {replyTo.body.slice(0, 60)}</span><button onClick={() => setReplyTo(null)} className="p-1" aria-label="Cancel reply"><X className="h-3 w-3" /></button></div>}
           {mentionPickerOpen && <div className="max-h-36 overflow-y-auto border-t border-slate-100 bg-white p-2 dark:border-slate-800 dark:bg-slate-900"><p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">Mention a teammate</p>{employees.filter((e) => e.isActive !== false && e.id !== currentUser.id).map((person) => <button key={person.id} onClick={() => addMention(person)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-violet-50 dark:hover:bg-slate-800"><EmployeeAvatar characterId={person.gameCharacterId} petId={person.gamePetId} appearance={person.avatarAppearance} name={person.name} size="xs" /><span>{person.name}</span></button>)}</div>}
-          <footer className="border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-xs"><b className="text-violet-700 dark:text-violet-300">{mentionIds.length ? '🔒 Private message' : '🌐 Everyone can see this'}</b>{mentionIds.map((id) => <button key={id} type="button" className="rounded-full bg-violet-100 px-2 py-1 text-violet-800" onClick={() => setMentionIds((ids) => ids.filter((x) => x !== id))}>{employees.find((e) => e.id === id)?.name || 'Recipient'} ×</button>)}<button type="button" className="ml-auto flex items-center gap-1" onClick={() => { setSoundOn(!sound); setSound(!sound); if (!sound) playAlertSound(); }}>{sound ? <Volume2 size={14}/> : <VolumeX size={14}/>} Sound</button>{typeof Notification !== 'undefined' && Notification.permission === 'default' && <button type="button" className="flex items-center gap-1" onClick={() => void Notification.requestPermission()}><Bell size={14}/> Desktop alerts</button>}</div>
-            <div className="mb-2 flex gap-1 overflow-x-auto">{['👋','😂','🔥','🎉','👍','🙏','☕','✈️','💯','❤️'].map((emoji) => <button key={emoji} type="button" onClick={() => setMessage((v) => (v + emoji).slice(0, 1500))} className="rounded-lg px-1.5 py-0.5 text-base transition hover:scale-125 hover:bg-violet-50 dark:hover:bg-slate-800" aria-label={'Add ' + emoji}>{emoji}</button>)}</div>
-            <div className="flex items-end gap-2"><button type="button" onClick={() => setMentionPickerOpen((v) => !v)} className="rounded-xl border border-violet-200 p-2.5 text-violet-600 hover:bg-violet-50 dark:border-violet-900 dark:hover:bg-violet-950" aria-label="Mention someone"><AtSign className="h-4 w-4" /></button><textarea value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }} rows={2} maxLength={1500} placeholder="Message the team… (Enter to send)" className="max-h-24 min-h-11 flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /><button type="button" onClick={() => void sendMessage()} disabled={!message.trim() || sending} className="rounded-xl bg-gradient-to-br from-violet-600 to-blue-600 p-3 text-white shadow-md transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Send message"><Send className="h-4 w-4" /></button></div>
-            <div className="mt-1 flex items-center justify-between text-[9px] text-slate-400"><span>{mentionIds.length} teammates mentioned</span><span>{message.length}/1500</span></div>
+          <footer className="border-t border-slate-200 bg-white p-2 sm:p-3 dark:border-slate-800 dark:bg-slate-950" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
+            {mentionSuggestions.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1" data-mention-suggestions>
+                {mentionSuggestions.map((person) => (
+                  <button key={person.id} type="button" className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-1 text-[11px] font-bold text-violet-800 dark:bg-violet-900/50 dark:text-violet-100"
+                    onClick={() => { setMentionIds((ids) => ids.includes(person.id) ? ids : [...ids, person.id].slice(0, 12)); setMessage((v) => v.replace(/@([^\s@]{0,20})$/, '@' + person.name.replace(/\s+/g, '') + ' ')); }}>
+                    @{person.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!message.trim() && !replyTo && (
+              <div className="mb-2 flex gap-1 overflow-x-auto no-scrollbar" data-quick-replies>
+                {QUICK_REPLIES.map((q) => <button key={q} type="button" onClick={() => setMessage(q)} className="shrink-0 rounded-full border border-violet-200 px-2.5 py-1 text-[11px] font-semibold text-violet-700 hover:bg-violet-50 dark:border-violet-900 dark:text-violet-200">{q}</button>)}
+              </div>
+            )}
+            {mentionIds.length > 0 && <div className="mb-1.5 flex flex-wrap items-center gap-1 text-[11px] sm:hidden"><b className="text-violet-700 dark:text-violet-300">🔒 Private to</b>{mentionIds.map((id) => <button key={id} type="button" className="rounded-full bg-violet-100 px-2 py-0.5 text-violet-800" onClick={() => setMentionIds((ids) => ids.filter((x) => x !== id))}>{employees.find((e) => e.id === id)?.name || 'Recipient'} ×</button>)}</div>}
+            <div className="mb-2 hidden sm:flex flex-wrap items-center gap-2 text-xs"><b className="text-violet-700 dark:text-violet-300">{mentionIds.length ? '🔒 Private message' : '🌐 Everyone can see this'}</b>{mentionIds.map((id) => <button key={id} type="button" className="rounded-full bg-violet-100 px-2 py-1 text-violet-800" onClick={() => setMentionIds((ids) => ids.filter((x) => x !== id))}>{employees.find((e) => e.id === id)?.name || 'Recipient'} ×</button>)}<button type="button" className="ml-auto flex items-center gap-1" onClick={() => { setSoundOn(!sound); setSound(!sound); if (!sound) playAlertSound(); }}>{sound ? <Volume2 size={14}/> : <VolumeX size={14}/>} Sound</button>{typeof Notification !== 'undefined' && Notification.permission === 'default' && <button type="button" className="flex items-center gap-1" onClick={() => void Notification.requestPermission()}><Bell size={14}/> Desktop alerts</button>}</div>
+            <div className="mb-2 hidden sm:flex gap-1 overflow-x-auto">{['👋','😂','🔥','🎉','👍','🙏','☕','✈️','💯','❤️'].map((emoji) => <button key={emoji} type="button" onClick={() => setMessage((v) => (v + emoji).slice(0, 1500))} className="rounded-lg px-1.5 py-0.5 text-base transition hover:scale-125 hover:bg-violet-50 dark:hover:bg-slate-800" aria-label={'Add ' + emoji}>{emoji}</button>)}</div>
+            <div className="flex items-end gap-2"><button type="button" onClick={() => setMentionPickerOpen((v) => !v)} className="rounded-xl border border-violet-200 p-2.5 text-violet-600 hover:bg-violet-50 dark:border-violet-900 dark:hover:bg-violet-950" aria-label="Mention someone"><AtSign className="h-4 w-4" /></button><textarea value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }} rows={1} maxLength={1500} placeholder={mentionIds.length ? "Private message… (@ to add people)" : "Message the team… (@ to mention)"} className="max-h-24 min-h-10 flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white" /><button type="button" onClick={() => void sendMessage()} disabled={!message.trim() || sending} className="rounded-xl bg-gradient-to-br from-violet-600 to-blue-600 p-3 text-white shadow-md transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Send message"><Send className="h-4 w-4" /></button></div>
+            <div className="mt-1 hidden sm:flex items-center justify-between text-[9px] text-slate-400"><span>{mentionIds.length} teammates mentioned</span><span>{message.length}/1500</span></div>
           </footer>
         </section>
       )}

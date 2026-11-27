@@ -19,13 +19,16 @@ export function AvatarStage({id,phase='portrait',animated=false,label=id,appeara
     if(!canvas) return;
     const start=performance.now(), reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let timer=0,visible=false;
+    const phone=window.matchMedia('(max-width: 767px)').matches;
     function draw(){
       if(!canvas||!visible||document.hidden) return;
+      // smooth scrolling first: the avatar waits while the page is being scrolled
+      if(pageScrolling()){timer=window.setTimeout(draw,200);return;}
       const t=reduce?(phase==='arriving'?2.95:1.65):(performance.now()-start)/1000;
       pose(rig,phase,t);
       if(portrait){rig.body.rotation.y+=angle;rig.closeup=closeup;rig.camera.lookAt(0,closeup?1.94:1.23,0);}
       paint(canvas,rig);
-      if(animated&&!reduce&&phase!=='away') timer=window.setTimeout(draw,canvas.hidden?220:66);
+      if(animated&&!reduce&&phase!=='away') timer=window.setTimeout(draw,canvas.hidden?220:phone?110:66);
     }
     function refresh(){window.clearTimeout(timer);draw();}
     const observer=new IntersectionObserver(([entry])=>{visible=entry.isIntersecting;refresh();});
@@ -35,6 +38,11 @@ export function AvatarStage({id,phase='portrait',animated=false,label=id,appeara
   const w=portrait?(animated?480:112):hd?840:420, h=portrait?(animated?400:112):hd?488:244;
   return <span className="block overflow-hidden rounded-xl" role="img" aria-label={label}><canvas ref={ref} width={w} height={h} className="w-full"/></span>;
 }
+
+/** True while any part of the page is being scrolled (and for a moment after). */
+let scrollUntil=0;
+if(typeof document!=='undefined') document.addEventListener('scroll',()=>{scrollUntil=performance.now()+180;},{capture:true,passive:true});
+function pageScrolling(){return performance.now()<scrollUntil;}
 
 type Worker={e:Employee;live:string};
 const labels:Record<Phase,string>={portrait:'Avatar',arriving:'Arriving',working:'Working',sleeping:'Connection lost',coffee:'On a break',closing:'Closing laptop',leaving:'Heading out',away:'Away',wave:'Waving',dance:'Dancing',walk:'Walking'};
@@ -138,7 +146,7 @@ export function PersonalDesk({employee,record,settings,online,compact=false}:{em
   const first=employee.name.split(' ')[0]||employee.name;
   if(compact) return <section data-personal-desk className="overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-fuchsia-50 p-2.5 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900">
     <div className="mb-1.5 flex items-center justify-between gap-2 px-1"><h2 className="text-xs font-black text-indigo-900 dark:text-indigo-200">My desk</h2><span className="truncate text-[10px] text-slate-500">{active?`Have a great shift, ${first}! 🚀`:'Punch in to walk in 👉'}</span></div>
-    <Desk hd worker={{e:employee,live}}/>
+    <Desk hd={typeof window!=='undefined'&&window.matchMedia('(min-width: 768px)').matches} worker={{e:employee,live}}/>
   </section>;
   return <section className="mb-4 overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-fuchsia-50 p-3 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900">
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1"><h2 className="text-sm font-black text-indigo-900 dark:text-indigo-200">My Universe desk</h2><span className="text-[11px] text-slate-500">{active?`You're in, ${first}. Have a great shift! 🚀`:`Punch in and watch ${first} walk in to work 👇`}</span></div>

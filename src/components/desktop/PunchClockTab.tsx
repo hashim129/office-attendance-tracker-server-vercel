@@ -123,7 +123,8 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
   // Live timer interval
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    // The big page refreshes every 15 seconds; only the clock and the running timers tick every second (see <Ticker>).
+    const timer = setInterval(() => setCurrentTime(new Date()), 15000);
     return () => clearInterval(timer);
   }, []);
 
@@ -310,13 +311,13 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   };
 
   // Calculate live elapsed seconds for work and break
-  const getElapsedTimeString = (startTimeStr: string): string => {
+  const getElapsedTimeString = (startTimeStr: string, at: Date = currentTime): string => {
     const startMins = parseTimeToMinutes(startTimeStr);
-    const nowMins = currentTime.getHours() * 60 + currentTime.getMinutes();
+    const nowMins = at.getHours() * 60 + at.getMinutes();
     const diffMins = Math.max(0, nowMins - startMins);
     const hours = Math.floor(diffMins / 60);
     const mins = diffMins % 60;
-    const secs = currentTime.getSeconds();
+    const secs = at.getSeconds();
     return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
@@ -338,7 +339,8 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     playPunchSound('in');
     onTimeIn(currentUser.id, actionNotes.trim() || undefined);
     setShowNoteInput(false);
-    const nowStamp = `${String(currentTime.getHours()).padStart(2, '0')}:${String(currentTime.getMinutes()).padStart(2, '0')}:${String(currentTime.getSeconds()).padStart(2, '0')}`;
+    const punchedAt = new Date();
+    const nowStamp = `${String(punchedAt.getHours()).padStart(2, '0')}:${String(punchedAt.getMinutes()).padStart(2, '0')}:${String(punchedAt.getSeconds()).padStart(2, '0')}`;
     setCelebrate({ late: Boolean(userShift && isLateArrival(nowStamp, userShift)), timeLabel: formatTime12h(nowStamp) });
   };
 
@@ -376,13 +378,6 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     setNoteSavedFeedback(true);
     setTimeout(() => setNoteSavedFeedback(false), 2500);
   };
-
-  const formattedDigitalClock = currentTime.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true,
-  });
 
   const formattedDate = currentTime.toLocaleDateString('en-US', {
     weekday: 'long',
@@ -446,7 +441,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
             Office Server Time
           </span>
           <div className="text-3xl sm:text-4xl font-mono font-bold tracking-wider text-blue-400 mt-0.5 tabular-nums">
-            {formattedDigitalClock}
+            <Ticker render={(d) => d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })} />
           </div>
           <span className="text-[11px] text-emerald-400 font-bold mt-1 tracking-wide">
             {dayName} · Live Sync
@@ -523,9 +518,9 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
                 </span>
                 <p className="text-xl font-bold font-mono text-blue-600 dark:text-blue-400 mt-0.5 tabular-nums">
                   {isOnBreak && activeBreak
-                    ? getElapsedTimeString(activeBreak.start)
+                    ? <Ticker render={(d) => getElapsedTimeString(activeBreak.start, d)} />
                     : todayRecord?.timeIn
-                    ? getElapsedTimeString(todayRecord.timeIn)
+                    ? <Ticker render={(d) => getElapsedTimeString(todayRecord.timeIn as string, d)} />
                     : '00:00:00'}
                 </p>
                 <p className="text-[11px] text-slate-500 mt-0.5">
@@ -1235,3 +1230,11 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
     </div>
   );
 };
+
+/** A small piece of text that updates every second on its own, so the whole page does not redraw each second. */
+const Ticker: React.FC<{ render: (now: Date) => string }> = ({ render }) => {
+  const [now, setNow] = React.useState(() => new Date());
+  React.useEffect(() => { const t = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(t); }, []);
+  return <>{render(now)}</>;
+};
+
