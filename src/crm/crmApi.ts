@@ -1,4 +1,5 @@
-import { getSessionToken } from '../lib/storage';
+import { haptic } from '../lib/phoneApp';
+import { getSessionToken, clearSession } from '../lib/storage';
 
 export type FollowupKind = 'meeting' | 'corporate' | 'internal' | 'regular' | 'personal';
 export type InventoryStatus = 'pending' | 'approved' | 'rejected' | 'delivered';
@@ -19,6 +20,7 @@ export interface CrmCustomer {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  lastContact?: { at: string; by: string; byName?: string; how: 'call' | 'whatsapp' } | null;
 }
 
 export interface CrmHistoryEntry {
@@ -112,7 +114,7 @@ export type AckKind = 'invoice' | 'receipt' | 'sale' | 'purchase';
 export interface AckPending { refId: string; kind: AckKind; label: string; no: string; name: string; byName: string; at: string }
 export interface AckStatus { requestedAt: string; requestedByName: string; ackAt: string | null; ackByName: string }
 
-export type CrmCategory = 'followup' | 'meeting' | 'inventory' | 'sale' | 'reminder' | 'invoice' | 'receipt' | 'customer';
+export type CrmCategory = 'followup' | 'meeting' | 'inventory' | 'sale' | 'reminder' | 'invoice' | 'receipt' | 'customer' | 'media';
 
 export interface CrmUpcoming {
   kind: 'followup' | 'meeting';
@@ -516,6 +518,8 @@ export class CrmError extends Error {
 }
 
 /** Calls the CRM server. The server decides what the signed-in person may see or do. */
+const READ_ACTIONS = new Set(['list', 'badges', 'media_list', 'portal_config_get', 'portal_overview']);
+
 export async function crmCall<T = any>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
   const sessionToken = getSessionToken();
   if (!sessionToken) throw new CrmError('Please sign out and sign in again to use the CRM.', 'SESSION_REQUIRED');
@@ -536,8 +540,15 @@ export async function crmCall<T = any>(action: string, payload: Record<string, u
     // not JSON
   }
   if (!res.ok || !data || data.ok === false) {
+    // Signed out by Admin (or the session ended): go back to the sign-in screen.
+    if (res.status === 401 && data?.code === 'SESSION_REQUIRED') {
+      try { clearSession(); } catch { /* ignore */ }
+      if (typeof window !== 'undefined') window.setTimeout(() => window.location.reload(), 300);
+    }
+    if (!READ_ACTIONS.has(action)) haptic('error');
     throw new CrmError((data && (data.error || data.message)) || 'The CRM could not complete that request.', data?.code);
   }
+  if (!READ_ACTIONS.has(action)) haptic('tap');
   return data as T;
 }
 

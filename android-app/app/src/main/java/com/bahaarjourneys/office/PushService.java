@@ -17,6 +17,6 @@ public class PushService extends FirebaseMessagingService {
         String title = n != null && n.getTitle() != null ? n.getTitle() : msg.getData().getOrDefault("title", "Bahaar Office");
         String body = n != null && n.getBody() != null ? n.getBody() : msg.getData().getOrDefault("body", "");
         String id = msg.getData().getOrDefault("id", String.valueOf(System.currentTimeMillis()));
-        Push.show(getApplicationContext(), id.hashCode(), title, body);
+        Push.show(getApplicationContext(), id.hashCode(), title, body, msg.getData().getOrDefault("category", ""), msg.getData().getOrDefault("refId", ""), id);
     }
 }

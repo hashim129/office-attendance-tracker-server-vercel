@@ -2,6 +2,8 @@
 // Self-contained: only reads the employees table and its own crm_* tables.
 // Every call needs the signed-in person's token; what they may do is decided here from the database, never from the browser.
 import crypto from 'node:crypto';
+import { createMedia } from './_media.js';
+import { sweepSmart } from './_smart.js';
 import { confirmOpenWork, isSupabaseConfigured, supabaseFetch, sweepShiftReminders } from './_supabase.js';
 import { pushNotificationRows } from './_push.js';
 import { format12h, getShiftEndWindowMs } from './_cloud.js';
@@ -421,6 +423,7 @@ const mapCustomer = (r) => ({
   id: r.id, customerName: r.customer_name, companyName: r.company_name || '', description: extractCustDesc(r), destinations: asArray(r.destinations),
   customerNumber: r.customer_number || '', acquiredThrough: r.acquired_through || '', acquiredBy: r.acquired_by || '',
   sharedWith: cleanSharedIds(r.shared_with), createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
+  lastContact: asArray(r.contact_log).slice(-1)[0] || null,
 });
 const mapFollowup = (r) => ({
   id: r.id, customerId: r.customer_id || null, participantIds: asArray(r.participant_ids), kind: r.kind, subject: r.subject || '', assignedTo: r.assigned_to, remarks: r.remarks || '', dueAt: r.due_at,
@@ -517,6 +520,39 @@ const mapSale = (r) => ({
   status: r.status, paymentStatus: r.payment_status, reviewRemarks: r.review_remarks || '', reviewedBy: r.reviewed_by || null,
   reviewedAt: r.reviewed_at || null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
+// Every customer invoice is that employee's sale: kept in step automatically (no manual coupons any more).
+// Sale = invoice total (receivable until the invoice is received), cost = vendor payables in the same currency.
+const autoSaleId = (invId) => `sale-${invId}`;
+async function syncSaleFromInvoice(inv) {
+  if (!inv || inv.kind === 'vendor') return;
+  const sid = autoSaleId(inv.id);
+  const prev = await getOne('crm_sales', sid).catch(() => null);
+  const total = r2(num(inv.total));
+  const cost = r2(asArray(inv.vendors).filter((v) => v && String(v.currency || inv.currency).toUpperCase() === inv.currency).reduce((a, v) => a + num(v.amount), 0));
+  const lines = asArray(inv.sections).flatMap((sec) => asArray(sec?.lines).map((l) => String(l?.description || l?.title || '').trim())).filter(Boolean);
+  const pax = asArray(inv.travelers).map((t) => String(t?.name || '').trim()).filter(Boolean);
+  const at = new Date().toISOString();
+  const row = {
+    id: sid, coupon_no: String(inv.invoice_no), created_by: inv.created_by,
+    sale_type: 'others', other_type: 'Invoice',
+    customer_name: String(inv.customer_name || '').slice(0, 160) || '—',
+    vendor_name: (asArray(inv.vendors).map((v) => v?.name).filter(Boolean).join(', ') || '—').slice(0, 160),
+    package_details: (lines.join(' · ') || `Invoice ${inv.invoice_no}`).slice(0, 2000),
+    pax_name: (pax.join(', ') || '—').slice(0, 400),
+    currency: inv.currency, cost_amount: cost, sale_amount: total, psf_profit: r2(total - cost),
+    query_code: String(inv.query_code || inv.crm_id || inv.invoice_no).slice(0, 80),
+    status: inv.status === 'cancelled' ? 'declined' : 'approved',
+    payment_status: inv.status === 'paid' ? 'paid' : 'unpaid',
+    review_remarks: inv.status === 'cancelled' ? 'Invoice cancelled' : 'Added automatically from the invoice',
+    reviewed_by: prev?.reviewed_by || null, reviewed_at: prev?.reviewed_at || null,
+    created_at: prev?.created_at || inv.created_at || at, updated_at: at,
+  };
+  await upsert('crm_sales', row);
+}
+async function saveInvoiceRow(row) {
+  await upsert('crm_invoices', row);
+  try { await syncSaleFromInvoice(row); } catch (e) { console.error('auto sale sync failed', e?.message); }
+}
 const mapMeeting = (r) => ({
   id: r.id, title: r.title, customerId: r.customer_id || null, externalName: r.external_name || '', attendeeIds: asArray(r.attendee_ids),
   startAt: r.start_at, endAt: r.end_at, location: r.location || '', notes: r.notes || '', status: r.status,
@@ -765,6 +801,9 @@ async function ackRecord(kind, refId) {
   return null;
 }
 
+let mediaApi = null;
+const media = () => (mediaApi ||= createMedia({ supabaseFetch, upsert, getOne, notify, id, str, bad, forbidden, notFound, flagOf, parseJsonObj }));
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -796,10 +835,33 @@ export default async function handler(req, res) {
     const canSales = hasSalesAccess(me);
     const { action } = body;
 
+    // Admin: sign one employee out of every phone and browser (lost or changed phone).
+    if (action === 'employee_signout_all') {
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can do this.');
+      const target = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(String(body.employeeId || ''))}&select=id,name,pending_device_request`);
+      const emp = target?.[0];
+      if (!emp) throw notFound('Employee not found.');
+      let pend = emp.pending_device_request;
+      if (typeof pend === 'string') { try { pend = JSON.parse(pend); } catch { pend = {}; } }
+      const next = { ...(pend && typeof pend === 'object' ? pend : {}), signOutBefore: Date.now() };
+      await supabaseFetch(`/employees?id=eq.${encodeURIComponent(emp.id)}`, { method: 'PATCH', body: JSON.stringify({ pending_device_request: next }) });
+      await supabaseFetch(`/push_devices?employee_id=eq.${encodeURIComponent(emp.id)}`, { method: 'DELETE' }).catch(() => null);
+      return res.status(200).json({ ok: true });
+    }
+
+    // Media Team posting calendar
+    if (typeof action === 'string' && action.startsWith('media_')) {
+      const out = await media().handle(action, body, me, isAdmin);
+      if (out === null) throw bad('Unknown action.');
+      return res.status(200).json({ ok: true, ...out });
+    }
+
     // ------------------------------------------------------------------ reading
     if (action === 'list' || action === 'badges') {
       // Punch-out reminders are created here too, so they reach people who have the portal open.
       await sweepShiftReminders({ getShiftEndWindowMs, format12h });
+      await media().sweep().catch(() => null);
+      await sweepSmart().catch(() => null);
       const [followups, meetings, notifs, inventory, salesRows] = await Promise.all([getAll('crm_followups'), getAll('crm_meetings'), myNotifications(me.id), getAll('crm_inventory_requests'), getAll('crm_sales')]);
       const mine = notifs.filter((n) => !n.read_at);
       const salesViewer = isAdmin || me.role === 'accounts' || me.role === 'ceo';
@@ -1046,6 +1108,25 @@ export default async function handler(req, res) {
       if (cleanNewShared.length) await notify(cleanNewShared, 'followup', row.id, `${me.name || 'A colleague'} shared customer ${fields.customer_name} with you.`, me.id);
       await upsert('crm_customers', row);
       return res.status(200).json({ ok: true, customer: mapCustomer(row) });
+    }
+
+    // Call / WhatsApp pressed on a customer: logged automatically (who, how, when).
+    if (action === 'customer_contact') {
+      const existing = await getOne('crm_customers', body.id);
+      if (!existing) throw notFound('Customer not found.');
+      if (!canSeeCust(existing)) throw forbidden('This customer is not shared with you.');
+      const how = body.how === 'whatsapp' ? 'whatsapp' : 'call';
+      const entry = { at: nowIso(), by: me.id, byName: me.name || '', how };
+      const log = [...asArray(existing.contact_log), entry].slice(-50);
+      await supabaseFetch(`/crm_customers?id=eq.${encodeURIComponent(existing.id)}`, { method: 'PATCH', body: JSON.stringify({ contact_log: log }) });
+      // also noted on this person's open follow-up for the customer, if there is one
+      const fups = (await supabaseFetch(`/crm_followups?customer_id=eq.${encodeURIComponent(existing.id)}&status=in.(pending,rescheduled)&select=id,remark_log,assigned_to,participant_ids&order=due_at.asc&limit=5`)) || [];
+      const mineF = fups.find((f) => f.assigned_to === me.id || asArray(f.participant_ids).includes(me.id));
+      if (mineF) {
+        const remark = { id: id('rmk'), by: me.id, at: entry.at, text: how === 'whatsapp' ? 'Messaged the customer on WhatsApp (logged automatically).' : 'Called the customer (logged automatically).' };
+        await supabaseFetch(`/crm_followups?id=eq.${encodeURIComponent(mineF.id)}`, { method: 'PATCH', body: JSON.stringify({ remark_log: [...asArray(mineF.remark_log), remark].slice(-200), updated_at: entry.at }) });
+      }
+      return res.status(200).json({ ok: true, lastContact: entry });
     }
 
     if (action === 'customer_delete') {
@@ -1369,6 +1450,8 @@ export default async function handler(req, res) {
     if (String(action).startsWith('sale_') && !canSales) throw forbidden('You do not have access to Sales. Ask an administrator.');
     if (action === 'sale_save') {
       const x = body.sale || {};
+      if (!x.id) throw bad('Sales are now added automatically when an invoice is generated. Please create an invoice instead.');
+      if (String(x.id).startsWith('sale-inv')) throw bad('This sale comes from an invoice. Edit the invoice and the sale updates by itself.');
       // Editing a saved coupon is for Admin / CEO / Accounts only.
       if (x.id && !isAdmin && me.role !== 'accounts') throw forbidden('Only Accounts or an administrator can edit a sales coupon.');
       const existing = x.id ? await getOne('crm_sales', x.id) : null;
@@ -1425,6 +1508,7 @@ export default async function handler(req, res) {
       if (!isAdmin && me.role !== 'accounts') throw forbidden('Only the Accounts Officer (or an administrator) can review sales coupons.');
       const existing = await getOne('crm_sales', body.id);
       if (!existing) throw notFound('Coupon not found.');
+      if (String(existing.id).startsWith('sale-inv')) throw bad('This sale follows its invoice. Mark the invoice received or cancelled instead.');
       const at = nowIso();
       let row; let message;
       if (action === 'sale_decide') {
@@ -1448,6 +1532,7 @@ export default async function handler(req, res) {
     if (action === 'sale_delete') {
       const existing = await getOne('crm_sales', body.id);
       if (!existing) throw notFound('Coupon not found.');
+      if (String(existing.id).startsWith('sale-inv')) throw bad('This sale follows its invoice. Delete or cancel the invoice instead.');
       if (!isAdmin && !(existing.created_by === me.id && existing.status === 'pending')) throw forbidden('You can only withdraw your own coupon while it is still pending.');
       await supabaseFetch(`/crm_sales?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
       return res.status(200).json({ ok: true });
@@ -1800,7 +1885,7 @@ export default async function handler(req, res) {
         ]);
         const merged = { ...existing, ...base, updated_at: at };
         const row = withLog({ ...merged, ...settlePatch(merged, existing, me, at) }, logEntry(me, 'edit', what || 'Details updated', editReason));
-        await upsert('crm_invoices', row);
+        await saveInvoiceRow(row);
         await syncReceiptLinks(row.id, paymentsAdded, paymentsRemoved);
         if (visaOp === 'delete') {
           await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(`visa-${row.id}`)}`, { method: 'DELETE' });
@@ -1813,7 +1898,7 @@ export default async function handler(req, res) {
       const invoiceNo = await supabaseFetch(vendorBill ? '/rpc/crm_next_payable_no' : '/rpc/crm_next_invoice_no', { method: 'POST', body: '{}' });
       const fresh = { id: id('inv'), kind, invoice_no: String(invoiceNo), created_by: me.id, status: 'unpaid', created_at: at, updated_at: at, ...base, edit_log: [logEntry(me, 'create', `Created (total ${currency} ${total})`)], tagged: [] };
       const row = { ...fresh, ...settlePatch(fresh, null, me, at) };
-      await upsert('crm_invoices', row);
+      await saveInvoiceRow(row);
       await syncReceiptLinks(row.id, paymentsAdded, paymentsRemoved);
       if (visaOp === 'upsert' && visaObj) {
         await upsert('crm_company', { id: `visa-${row.id}`, data: visaObj, updated_at: visaObj.updatedAt });
@@ -2003,7 +2088,7 @@ export default async function handler(req, res) {
       const vend = existing.kind === 'vendor';
       const statusText = status === 'cancelled' ? 'Cancelled' : existing.status === 'cancelled' ? 'Reopened' : status === 'paid' ? (vend ? 'Marked PAID' : 'Marked RECEIVED') : (vend ? 'Marked UNPAID' : 'Marked NOT RECEIVED');
       Object.assign(row, withLog(row, logEntry(me, 'status', statusText, row.cancel_remarks && status === 'cancelled' ? row.cancel_remarks : '')));
-      await upsert('crm_invoices', row);
+      await saveInvoiceRow(row);
       if (status === 'cancelled') {
         const label = existing.kind === 'vendor' ? 'vendor payable' : 'invoice';
         const targets = [...new Set([...(await salesStaffIds()), existing.created_by])];
@@ -2024,7 +2109,7 @@ export default async function handler(req, res) {
       if (existing.kind === 'vendor') throw bad('This is a vendor payable itself. Use its own Mark paid button.');
       const at = nowIso();
       const row = withLog({ ...existing, vendor_status: status, vendor_paid_at: status === 'paid' ? at : null, vendor_paid_by: status === 'paid' ? me.id : null, updated_at: at }, logEntry(me, 'vendor', status === 'paid' ? 'Vendor side marked PAID' : 'Vendor side marked UNPAID'));
-      await upsert('crm_invoices', row);
+      await saveInvoiceRow(row);
       if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Vendor side of invoice ${existing.invoice_no} was marked ${status.toUpperCase()}.`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
@@ -2055,7 +2140,7 @@ export default async function handler(req, res) {
       const posted = body.posted !== false;
       const at = nowIso();
       const row = withLog({ ...existing, vendor_posted: posted, vendor_posted_at: posted ? at : null, vendor_posted_by: posted ? me.id : null, updated_at: at }, logEntry(me, 'vendor', posted ? 'Posted' : 'Unposted'));
-      await upsert('crm_invoices', row);
+      await saveInvoiceRow(row);
       await notify([existing.created_by, ...(await salesStaffIds())], 'invoice', row.id, `Vendor payable ${row.invoice_no} was ${posted ? 'posted' : 'unposted'} by ${me.name || 'Accounts'}.`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
@@ -2100,7 +2185,7 @@ export default async function handler(req, res) {
       const moved = { ...existing, payments: built.payments, advance_paid: paid, balance: r2(Math.max(0, num(existing.total) - paid)), updated_at: at };
       const what = action === 'invoice_payment_add' ? built.added[0] : built.removed[0];
       const row = withLog({ ...moved, ...settlePatch(moved, existing, me, at) }, logEntry(me, 'payment', `${action === 'invoice_payment_add' ? 'Payment recorded' : 'Payment removed'}: ${existing.currency} ${what ? what.amount : ''}`, action === 'invoice_payment_remove' ? str(body.remarks, 300) : ''));
-      await upsert('crm_invoices', row);
+      await saveInvoiceRow(row);
       await syncReceiptLinks(row.id, built.added, built.removed);
       const verb = action === 'invoice_payment_add' ? 'recorded' : `removed (${str(body.remarks, 300)})`;
       await notify([...(await salesStaffIds()), existing.created_by], 'invoice', row.id, `${me.name || 'Someone'} ${verb} a payment of ${existing.currency} ${what ? what.amount : ''} on invoice ${existing.invoice_no}. Balance now ${existing.currency} ${row.balance}.${row.status !== existing.status ? ` The invoice is now ${row.status === 'paid' ? 'RECEIVED (paid in full)' : 'NOT RECEIVED again'}.` : ''}`, me.id);
@@ -2119,7 +2204,7 @@ export default async function handler(req, res) {
         const who = String(body.employeeId || '');
         if (!current.some((t) => t.id === who)) throw notFound('That employee is not tagged on this invoice.');
         const row = withLog({ ...existing, tagged: current.filter((t) => t.id !== who), updated_at: at }, logEntry(me, 'tag', `Removed tag: ${nameOf.get(who) || 'former employee'}`));
-        await upsert('crm_invoices', row);
+        await saveInvoiceRow(row);
         return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
       }
       const remarks = str(body.remarks, 400, { name: 'Remarks' });
@@ -2130,7 +2215,7 @@ export default async function handler(req, res) {
       const added = wanted.map((w) => ({ id: w, by: me.id, byName: me.name || '', at, remarks }));
       const names = wanted.map((w) => nameOf.get(w)).join(', ');
       const row = withLog({ ...existing, tagged: [...current, ...added], updated_at: at }, logEntry(me, 'tag', `Tagged: ${names}`, remarks));
-      await upsert('crm_invoices', row);
+      await saveInvoiceRow(row);
       const label = existing.kind === 'vendor' ? 'vendor payable' : 'invoice';
       await notify(wanted, 'invoice', row.id, `${me.name || 'Someone'} tagged you on ${label} ${existing.invoice_no} (${existing.customer_name})${remarks ? `: ${remarks}` : '.'}`, me.id);
       await notify([...new Set([...(await salesStaffIds()), existing.created_by])].filter((x) => !wanted.includes(x)), 'invoice', row.id, `${me.name || 'Someone'} tagged ${names} on ${label} ${existing.invoice_no}${remarks ? `: ${remarks}` : '.'}`, me.id);
@@ -2143,6 +2228,7 @@ export default async function handler(req, res) {
       if (!existing) throw notFound('Invoice not found.');
       await supabaseFetch(`/crm_receipts?linked_invoice_id=eq.${encodeURIComponent(existing.id)}`, { method: 'PATCH', body: JSON.stringify({ linked_invoice_id: null }) });
       await supabaseFetch(`/crm_invoices?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
+      await supabaseFetch(`/crm_sales?id=eq.${encodeURIComponent(autoSaleId(existing.id))}`, { method: 'DELETE' }).catch(() => null);
       await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(`visa-${existing.id}`)}`, { method: 'DELETE' });
       return res.status(200).json({ ok: true });
     }

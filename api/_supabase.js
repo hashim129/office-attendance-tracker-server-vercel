@@ -127,6 +127,7 @@ function mapDbEmployee(r) {
   const liveDashboardAccess = Boolean(pendingObj?.liveDashboardAccess);
   const leaderboardAccess = Boolean(pendingObj?.leaderboardAccess);
   const payablesAccess = Boolean(pendingObj?.payablesAccess);
+  const mediaTeam = Boolean(pendingObj?.mediaTeam);
   const salesTeam = ['B2C', 'B2B'].includes(pendingObj?.salesTeam) ? pendingObj.salesTeam : '';
   const salesTeamHead = Boolean(salesTeam && pendingObj?.salesTeamHead);
   const birthday = /^\d{4}-\d{2}-\d{2}$/.test(String(pendingObj?.birthday || '')) ? String(pendingObj.birthday) : '';
@@ -160,6 +161,7 @@ function mapDbEmployee(r) {
     liveDashboardAccess,
     leaderboardAccess,
     payablesAccess,
+    mediaTeam,
     salesTeam,
     salesTeamHead,
     birthday,
@@ -187,6 +189,7 @@ function mapAppEmployeeToDb(e) {
       : {};
   const pendingWithWfh = {
     ...existingPending,
+    ...(e.__keepSignOutBefore ? { signOutBefore: e.__keepSignOutBefore } : {}),
     allowWorkFromHome: Boolean(e.allowWorkFromHome),
     crmCustomerAccess: Boolean(e.crmCustomerAccess),
     salesAccess: Boolean(e.salesAccess),
@@ -194,6 +197,7 @@ function mapAppEmployeeToDb(e) {
     liveDashboardAccess: Boolean(e.liveDashboardAccess),
     leaderboardAccess: Boolean(e.leaderboardAccess),
     payablesAccess: Boolean(e.payablesAccess),
+    mediaTeam: Boolean(e.mediaTeam),
     salesTeam: ['B2C', 'B2B'].includes(e.salesTeam) ? e.salesTeam : '',
     salesTeamHead: Boolean(['B2C', 'B2B'].includes(e.salesTeam) && e.salesTeamHead),
     birthday: /^\d{4}-\d{2}-\d{2}$/.test(String(e.birthday || '')) ? String(e.birthday) : '',
@@ -1262,6 +1266,8 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
       if (incoming.actorRole) {
         mergedEmp.lastEditedByRole = incoming.actorRole;
       }
+      const keepCut = Math.max(Number(existing?.pendingDeviceRequest?.signOutBefore) || 0, Number(mergedEmp.pendingDeviceRequest?.signOutBefore) || 0);
+      if (keepCut) mergedEmp.__keepSignOutBefore = keepCut;
       const row = mapAppEmployeeToDb(mergedEmp);
       await supabaseFetch('/employees', {
         method: 'POST',

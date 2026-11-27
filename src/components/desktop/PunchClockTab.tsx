@@ -702,6 +702,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
               ) : (
               <button
                 onClick={handleTimeInClick}
+                data-punch-in
                 disabled={isPunchBlocked}
                 className={`w-full py-4 px-6 rounded-xl font-semibold text-base transition-all flex items-center justify-center gap-3 shadow-md ${
                   isPunchBlocked
@@ -736,6 +737,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
 
                 <button
                   onClick={handleTimeOutClick}
+                  data-punch-out
                   disabled={isOnBreak || isPunchBlocked}
                   className={`py-3.5 px-5 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2.5 shadow-xs ${
                     isOnBreak || isPunchBlocked

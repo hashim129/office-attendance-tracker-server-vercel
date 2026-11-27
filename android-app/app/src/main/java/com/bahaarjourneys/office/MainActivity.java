@@ -161,9 +161,24 @@ public class MainActivity extends Activity {
         });
 
         askStartupPermissions();
+        AppExtras.handleIntent(this, getIntent());
         if (state != null) web.restoreState(state);
         else web.loadUrl(HOME);
         checkForAppUpdate();
+        AppExtras.maybeLock(this, true);
+    }
+
+    /** Opened again from a notification button, a home-screen shortcut, the widget or "Share". */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (AppExtras.handleIntent(this, intent) && shimDone) deliverAction();
+    }
+
+    private void deliverAction() {
+        String a = AppExtras.takeAction();
+        web.evaluateJavascript("try{window.dispatchEvent(new CustomEvent('bahaar-action',{detail:" + quote(a) + "}))}catch(e){}", null);
     }
 
     /** A newer phone app on the download page? Offer it once per version (the office system itself is always live). */
@@ -410,6 +425,15 @@ public class MainActivity extends Activity {
             else { pendingWebPermission.deny(); toast("Camera permission is needed for face scan."); }
             pendingWebPermission = null;
         }
+        if (code == AppExtras.REQ_GEO) {
+            boolean ok = false;
+            for (int r : results) ok |= r == PackageManager.PERMISSION_GRANTED;
+            if (ok) AppExtras.askBackground(this);
+            else toast("Location permission is needed for office reminders.");
+        }
+        if (code == AppExtras.REQ_GEO + 1 && !AppExtras.hasBackgroundLocation(this)) {
+            toast("Choose \"Allow all the time\" for location, so office reminders work in the background.");
+        }
         if (code == REQ_PERMS + 2 && pendingGeo != null) {
             boolean ok = false;
             for (int r : results) ok |= r == PackageManager.PERMISSION_GRANTED;
@@ -437,6 +461,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         inFront = false;
+        AppExtras.onPause();
         // tells the page it is in the background (alerts then go to the phone's notification bar); JavaScript keeps running
         web.onPause();
         CookieManager.getInstance().flush();
@@ -446,6 +471,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         inFront = true;
+        AppExtras.maybeLock(this, false);
         web.onResume();
         // back in front: fetch the newest data at once
         web.evaluateJavascript("try{window.dispatchEvent(new Event('focus'))}catch(e){}", null);
@@ -480,6 +506,28 @@ public class MainActivity extends Activity {
     }
 
     private class Bridge {
+        @JavascriptInterface public String takeAction() { return AppExtras.takeAction(); }
+        @JavascriptInterface public String takeSharedFile() { return AppExtras.takeShare(); }
+        @JavascriptInterface public void setSecure(boolean on) { AppExtras.setSecure(MainActivity.this, on); }
+        @JavascriptInterface public boolean biometricAvailable() { return AppExtras.biometricAvailable(MainActivity.this); }
+        @JavascriptInterface public boolean biometricEnabled() { return AppExtras.biometricEnabled(MainActivity.this); }
+        @JavascriptInterface public void setBiometric(boolean on) { AppExtras.setBiometric(MainActivity.this, on); }
+        @JavascriptInterface public boolean officeRemindersEnabled() { return AppExtras.officeRemindersEnabled(MainActivity.this); }
+        @JavascriptInterface public void setOfficeReminders(boolean on) { AppExtras.setOfficeReminders(MainActivity.this, on); }
+        @JavascriptInterface public void updateWidget(String json) { AppExtras.updateWidget(getApplicationContext(), json); }
+        @JavascriptInterface
+        public void vibrate(String patternJson) {
+            try {
+                org.json.JSONArray arr = new org.json.JSONArray(patternJson);
+                long[] p = new long[arr.length() + 1];
+                p[0] = 0;
+                for (int i = 0; i < arr.length(); i++) p[i + 1] = Math.max(0, Math.min(500, arr.getLong(i)));
+                android.os.Vibrator v = (android.os.Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+                if (v == null || !v.hasVibrator()) return;
+                if (Build.VERSION.SDK_INT >= 26) v.vibrate(android.os.VibrationEffect.createWaveform(p, -1));
+                else v.vibrate(p, -1);
+            } catch (Exception ignored) { }
+        }
         @JavascriptInterface
         public void saveFile(String name, String mime, String base64) {
             try {

@@ -3,7 +3,7 @@ import type { CrmCategory } from './crmApi';
 
 export const notificationTarget: Record<CrmCategory, ActiveDesktopTab> = {
   followup: 'crm-tasks', meeting: 'crm-meetings', inventory: 'crm-inventory', sale: 'crm-sales',
-  reminder: 'clock', invoice: 'crm-invoices', receipt: 'crm-receipts', customer: 'crm-customers',
+  reminder: 'clock', invoice: 'crm-invoices', receipt: 'crm-receipts', customer: 'crm-customers', media: 'crm-media',
 };
 
 /**
@@ -19,6 +19,7 @@ export function notificationDestination(category: string, refId?: string | null)
   if (ref.startsWith('mtg-')) return 'crm-meetings';
   if (ref.startsWith('rcp-')) return 'crm-receipts';
   if (ref.startsWith('sale-')) return 'crm-sales';
+  if (ref.startsWith('med-')) return 'crm-media';
   if (ref.startsWith('leave-')) return 'leaves';
   if (ref.startsWith('att-')) return 'clock';
   return (notificationTarget as Record<string, ActiveDesktopTab>)[category] || 'crm-notifications';

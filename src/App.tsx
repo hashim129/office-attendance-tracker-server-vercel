@@ -48,6 +48,7 @@ import {
   getDayName,
   getTodayDateString,
   isLateArrival,
+  formatTime12h,
 } from './lib/attendanceCalculations';
 import { detectClientNetwork } from './lib/ipSecurity';
 import { getDeviceDetails } from './lib/deviceSecurity';
@@ -55,6 +56,11 @@ import { WindowsTitleBar } from './components/common/WindowsTitleBar';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { LoginView } from './components/desktop/LoginView';
 import { AppLoginView } from './components/mobile/AppLoginView';
+import { PhoneShell } from './components/mobile/PhoneShell';
+import { MyWeekCard } from './components/mobile/MyWeekCard';
+import { PhoneAppSettings } from './components/mobile/PhoneAppSettings';
+import { updateWidget, haptic } from './lib/phoneApp';
+import { celebrate, once } from './lib/celebrate';
 import { isPhoneApp } from './lib/phoneLocation';
 import { DesktopHeader } from './components/desktop/DesktopHeader';
 import { DesktopSidebar } from './components/desktop/DesktopSidebar';
@@ -78,8 +84,10 @@ const IS_VERCEL_PREVIEW = typeof window !== 'undefined' && window.location.hostn
 
 function TabLoader() {
   return (
-    <div role="status" aria-label="Loading page" className="flex items-center justify-center py-24">
-      <div className="w-8 h-8 rounded-full border-[3px] border-slate-200 dark:border-slate-700 border-t-blue-600 animate-spin" />
+    <div role="status" aria-label="Loading page" className="space-y-3 py-2">
+      <div className="skeleton h-16 rounded-xl" />
+      <div className="skeleton h-28 rounded-xl" />
+      <div className="skeleton h-28 rounded-xl" />
     </div>
   );
 }
@@ -104,8 +112,24 @@ const KioskMode = lazy(() => import('./components/kiosk/KioskMode').then((m) => 
 export default function App() {
   const [appMode, setAppMode] = useState<AppMode>(loadSavedMode());
   const [isDark, setIsDark] = useState<boolean>(() => {
-    return localStorage.getItem('office_theme') === 'dark';
+    // one-time: people who had switched to dark before keep dark
+    if (!localStorage.getItem('office_theme_migrated')) {
+      if (localStorage.getItem('office_theme') === 'dark' && !localStorage.getItem('office_theme_choice')) localStorage.setItem('office_theme_choice', 'dark');
+      localStorage.setItem('office_theme_migrated', '1');
+    }
+    const saved = localStorage.getItem('office_theme_choice') || '';
+    if (saved) return saved === 'dark';
+    // follow the phone / computer setting until the person picks light or dark themselves
+    return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches === true;
   });
+  useEffect(() => {
+    if (localStorage.getItem('office_theme_choice')) return;
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (!mq) return;
+    const on = () => { if (!localStorage.getItem('office_theme_choice')) setIsDark(mq.matches); };
+    mq.addEventListener?.('change', on);
+    return () => mq.removeEventListener?.('change', on);
+  }, []);
 
   // Database State
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -478,6 +502,7 @@ export default function App() {
   }, [isDark]);
 
   const handleToggleTheme = () => {
+    try { localStorage.setItem('office_theme_choice', isDark ? 'light' : 'dark'); } catch { /* ignore */ }
     setIsDark(!isDark);
   };
 
@@ -519,6 +544,38 @@ export default function App() {
     clearSession();
     setCurrentUser(null);
   };
+
+  // Phone app home-screen widget: today's status and the right punch button.
+  const myToday = currentUser ? records.find((r) => r.employeeId === currentUser.id && r.date === getTodayDateString()) : undefined;
+  useEffect(() => {
+    if (!currentUser?.id || appMode === 'kiosk') return;
+    const r = myToday;
+    const fmt = (t?: string | null) => (t ? formatTime12h(t) : '');
+    if (r?.timeIn && !r.timeOut) updateWidget({ title: `Working since ${fmt(r.timeIn)}`, line: 'Tap Punch out when you finish', punchedIn: true, canPunch: true });
+    else if (r?.timeOut) updateWidget({ title: `Day done · ${fmt(r.timeIn)} – ${fmt(r.timeOut)}`, line: 'See you tomorrow', punchedIn: false, canPunch: false });
+    else updateWidget({ title: 'Not punched in yet', line: 'Tap Punch in when you reach the office', punchedIn: false, canPunch: true });
+  }, [currentUser?.id, myToday?.timeIn, myToday?.timeOut, appMode]);
+  const lastPunchRef = useRef<string>('');
+  useEffect(() => {
+    const key = `${myToday?.timeIn || ''}|${myToday?.timeOut || ''}`;
+    if (lastPunchRef.current && lastPunchRef.current !== key) {
+      haptic('success');
+      // first punch-in of the month gets a small celebration
+      const today = getTodayDateString();
+      if (currentUser && myToday?.timeIn && !myToday.timeOut && !records.some((r) => r.employeeId === currentUser.id && r.date < today && r.date.slice(0, 7) === today.slice(0, 7) && r.timeIn)) {
+        once(`celebrate-month-${currentUser.id}-${today.slice(0, 7)}`, () => celebrate(`First punch of ${new Date().toLocaleDateString('en-GB', { month: 'long' })}. Have a great month!`));
+      }
+    }
+    lastPunchRef.current = key;
+  }, [myToday?.timeIn, myToday?.timeOut]);
+
+  // Sales target reached this month: celebrate once.
+  const bizMe = CRM_ENABLED ? crm.data.business?.me : null;
+  const bizMonth = CRM_ENABLED ? crm.data.business?.monthKey : '';
+  useEffect(() => {
+    if (!currentUser?.id || !bizMe || !(bizMe.target > 0) || bizMe.amount < bizMe.target) return;
+    once(`celebrate-target-${currentUser.id}-${bizMonth}`, () => celebrate('Monthly sales target reached. Well done!'));
+  }, [currentUser?.id, bizMe?.amount, bizMe?.target, bizMonth]);
 
   // Phone app: after sign-in, register this phone for notifications (also when the app is closed).
   useEffect(() => {
@@ -1218,6 +1275,25 @@ export default function App() {
             headerBetaEnabled={settings.headerBetaEnabled === true}
           />
 
+          <PhoneShell
+            currentUser={currentUser}
+            activeTab={activeTab}
+            onSelectTab={(t) => setActiveTab(t)}
+            onOpenRecord={(t, ref) => setActiveTab(t, ref)}
+            onOpenMore={() => setIsMobileNavOpen(true)}
+            unread={CRM_ENABLED ? crm.badges.unreadTotal : 0}
+            online={isNetworkOnline}
+            onRefresh={async () => {
+              const updated = await syncDatabaseFromServer(true);
+              if (updated && refreshFromLocalRef.current) refreshFromLocalRef.current(true);
+              if (CRM_ENABLED) await crm.refresh();
+            }}
+            leaves={leaves}
+            employees={employees}
+            onReviewLeave={(id, status) => handleReviewLeave(id, status)}
+            blockScreenshots={settings.blockScreenshots === true}
+          />
+
           {/* Body Split: Sidebar + Active Viewport */}
           <div className="flex-1 flex min-w-0 w-full overflow-x-clip">
             <DesktopSidebar
@@ -1273,6 +1349,7 @@ export default function App() {
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                 />
+                <div className="mt-4"><MyWeekCard records={records} employeeId={currentUser.id} shift={shifts.find((sh) => sh.id === currentUser.shiftId)} business={CRM_ENABLED ? crm.data.business : null} /></div>
                 </>
               )}
 
@@ -1295,8 +1372,9 @@ export default function App() {
                 setCurrentUser(user => user ? {...user,...profile} : user);
                 setEmployees(list => list.map(employee => employee.id===currentUser.id ? {...employee,...profile} : employee));
               }} />}
+              {activeTab === 'employee-profile' && currentUser && <PhoneAppSettings />}
 
-              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications' || activeTab === 'crm-payment-tree') && (
+              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications' || activeTab === 'crm-payment-tree' || activeTab === 'crm-media') && (
                 <CrmPage section={activeTab} crm={crm} employees={statEmployees} currentUser={currentUser} onNavigate={setActiveTab} focusId={focusedRecordId} onClearFocus={() => setFocusedRecordId(undefined)} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
               )}
 

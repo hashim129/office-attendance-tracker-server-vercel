@@ -733,6 +733,23 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
               }}
             />
           </div>
+          <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div className="text-xs min-w-0">
+              <span className="font-semibold text-slate-900 dark:text-slate-100 block">Block screenshots of money pages (phone app)</span>
+              <span className="text-slate-500 dark:text-slate-400 text-[11px]">
+                On the Android app, screenshots and screen recording are blocked on Invoices, Sales, Receipts, Purchases and the Payment Tree.
+              </span>
+            </div>
+            <Switch
+              label="Block screenshots of money pages"
+              checked={formData.blockScreenshots === true}
+              onChange={(v) => {
+                const updated = { ...formData, blockScreenshots: v };
+                setFormData(updated);
+                onUpdateSettings(updated);
+              }}
+            />
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-violet-50/50 dark:bg-violet-950/20 border border-violet-200/80 dark:border-violet-900/40">
             <label className="flex items-start gap-3 cursor-pointer">
               <input

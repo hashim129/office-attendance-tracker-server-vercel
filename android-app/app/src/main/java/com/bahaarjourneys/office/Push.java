@@ -68,11 +68,15 @@ final class Push {
         }
     }
 
-    static void show(Context c, int id, String title, String body) {
+    static void show(Context c, int id, String title, String body) { show(c, id, title, body, "", "", ""); }
+
+    /** Shows one notification, with action buttons where they help (Punch in / Punch out / Still working / Approve / Decline). */
+    static void show(Context c, int id, String title, String body, String category, String refId, String notifId) {
         if (Build.VERSION.SDK_INT >= 33 && c.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return;
-        Intent open = new Intent(c, MainActivity.class);
-        open.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-        PendingIntent pi = PendingIntent.getActivity(c, 0, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        String cat = category == null ? "" : category;
+        String ref = refId == null ? "" : refId;
+        String nid = notifId == null ? "" : notifId;
+        PendingIntent pi = action(c, id * 4, "open:" + cat + ":" + ref);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CHANNEL) : new Notification.Builder(c);
         b.setSmallIcon(R.drawable.ic_notify)
                 .setColor(Color.rgb(37, 99, 235))
@@ -84,9 +88,33 @@ final class Push {
                 .setStyle(new Notification.BigTextStyle().bigText(body))
                 .setAutoCancel(true)
                 .setContentIntent(pi);
+        String text = body == null ? "" : body.toLowerCase();
+        if (ref.startsWith("pin-")) {
+            b.addAction(button(c, "Punch in", action(c, id * 4 + 1, "punch-in")));
+        } else if (nid.endsWith("-end") || ref.startsWith("geo-out-")) {
+            b.addAction(button(c, "Punch out", action(c, id * 4 + 1, "punch-out")));
+        } else if (nid.contains("-ask-")) {
+            b.addAction(button(c, "I'm still working", action(c, id * 4 + 1, "work-confirm")));
+            b.addAction(button(c, "Punch out", action(c, id * 4 + 2, "punch-out")));
+        } else if (ref.startsWith("leave-") && text.contains("asked for")) {
+            b.addAction(button(c, "Approve", action(c, id * 4 + 1, "leave-approve:" + ref)));
+            b.addAction(button(c, "Decline", action(c, id * 4 + 2, "leave-decline:" + ref)));
+        }
         if (Build.VERSION.SDK_INT < 26) b.setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL);
         NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) nm.notify(id, b.build());
+    }
+
+    private static PendingIntent action(Context c, int code, String appAction) {
+        Intent open = new Intent(c, MainActivity.class);
+        open.putExtra(AppExtras.ACTION_EXTRA, appAction);
+        open.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+        return PendingIntent.getActivity(c, code, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static Notification.Action button(Context c, String label, PendingIntent pi) {
+        return new Notification.Action.Builder((android.graphics.drawable.Icon) null, label, pi).build();
     }
 
     static JSONObject post(String task, JSONObject body) throws Exception {
@@ -196,13 +224,16 @@ final class Push {
     /** One background check: shows anything new for this phone's person. */
     static void checkNow(Context c) throws Exception {
         if (!prefs(c).getBoolean("on", false) || MainActivity.inFront) return;
-        JSONObject r = post("push-pending", new JSONObject().put("deviceKey", deviceKey(c)));
+        JSONObject req = new JSONObject().put("deviceKey", deviceKey(c));
+        android.location.Location loc = AppExtras.lastLocation(c);
+        if (loc != null) req.put("lat", loc.getLatitude()).put("lng", loc.getLongitude()).put("acc", loc.getAccuracy());
+        JSONObject r = post("push-pending", req);
         if (r.optBoolean("gone")) { prefs(c).edit().putBoolean("on", false).apply(); return; }
         org.json.JSONArray items = r.optJSONArray("items");
         if (items == null) return;
         for (int i = 0; i < items.length(); i++) {
             JSONObject n = items.getJSONObject(i);
-            show(c, n.optString("id").hashCode(), n.optString("title", "Bahaar Office"), n.optString("body"));
+            show(c, n.optString("id").hashCode(), n.optString("title", "Bahaar Office"), n.optString("body"), n.optString("category"), n.optString("refId"), n.optString("id"));
         }
     }
 }

@@ -7,7 +7,7 @@ import { CrmState } from './useCrm';
 import { Pill, btnGhost, cardCls, fmtDateTime, isWorkPrompt } from './ui';
 import { notificationDestination } from './notificationTarget';
 
-const LABEL: Record<CrmCategory, string> = { followup: 'Follow-up / Task', meeting: 'Meeting', inventory: 'Inventory', sale: 'Sales', reminder: 'Reminder', invoice: 'Invoice', receipt: 'Receipt', customer: 'Customer' };
+const LABEL: Record<CrmCategory, string> = { followup: 'Follow-up / Task', meeting: 'Meeting', inventory: 'Inventory', sale: 'Sales', reminder: 'Reminder', invoice: 'Invoice', receipt: 'Receipt', customer: 'Customer', media: 'Media' };
 
 interface Props {
   crm: CrmState;

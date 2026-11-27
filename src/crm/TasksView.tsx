@@ -1,3 +1,4 @@
+import { SwipeRow } from '../components/mobile/SwipeRow';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pencil, Plus, Trash2, Eye, Search, X, UserCheck, Users, CalendarClock, FileText, Building2, Phone, MapPin, History, MessageSquare } from 'lucide-react';
 import { Employee } from '../types';
@@ -252,10 +253,10 @@ export const TasksView: React.FC<Props & { focusId?: string }> = ({ crm, employe
             const attendingNames = f.participantIds.map((id) => empName.get(id) || 'Former employee');
 
             return (
+              <SwipeRow key={f.id} enabled={canAct && isOpen} label="Update status" onSwipe={() => openOutcome(f)}>
               <div
-                key={f.id}
                 onClick={() => setViewingId(f.id)}
-                className={`${cardCls} p-4 border-l-4 ${KIND_BAR[f.kind] || ''} hover:border-blue-300 dark:hover:border-blue-800 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 cursor-pointer`}
+                className={`${cardCls} p-4 border-l-4 ${KIND_BAR[f.kind] || ''} hover:border-blue-300 dark:hover:border-blue-800 transition-colors duration-200 cursor-pointer`}
               >
                 <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
                   <div className="min-w-0 flex-1 space-y-2.5">
@@ -340,6 +341,7 @@ export const TasksView: React.FC<Props & { focusId?: string }> = ({ crm, employe
                   </div>
                 </div>
               </div>
+              </SwipeRow>
             );
           })}
         </div>
