@@ -58,6 +58,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const selectedEmployee = activeEmployees.find((e) => e.id === selectedEmpId);
 
   const [isChecking, setIsChecking] = useState(false);
+  const [phoneWait, setPhoneWait] = useState(false);
+  useEffect(() => { const on = (e: Event) => setPhoneWait(Boolean((e as CustomEvent).detail?.waiting)); window.addEventListener('bahaar-login-pending', on); return () => window.removeEventListener('bahaar-login-pending', on); }, []);
 
   const handlePickerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -245,6 +247,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
               </label>
             </div>
 
+            {phoneWait && (
+              <p data-phone-wait className="text-xs text-blue-800 dark:text-blue-200 bg-blue-50 dark:bg-blue-950/40 p-2.5 rounded-lg border border-blue-200 dark:border-blue-900">
+                Check your phone: open the Bahaar Office notification and tap Approve to finish signing in.
+              </p>
+            )}
             {errorMsg && (
               <p className="text-xs text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 p-2.5 rounded-lg border border-rose-200 dark:border-rose-900/50">
                 {errorMsg}
@@ -310,6 +317,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
               </label>
             </div>
 
+            {phoneWait && (
+              <p data-phone-wait className="text-xs text-blue-800 dark:text-blue-200 bg-blue-50 dark:bg-blue-950/40 p-2.5 rounded-lg border border-blue-200 dark:border-blue-900">
+                Check your phone: open the Bahaar Office notification and tap Approve to finish signing in.
+              </p>
+            )}
             {errorMsg && (
               <p className="text-xs text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 p-2.5 rounded-lg border border-rose-200 dark:border-rose-900/50">
                 {errorMsg}

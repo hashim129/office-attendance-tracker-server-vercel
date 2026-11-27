@@ -96,6 +96,9 @@ final class Push {
         } else if (nid.contains("-ask-")) {
             b.addAction(button(c, "I'm still working", action(c, id * 4 + 1, "work-confirm")));
             b.addAction(button(c, "Punch out", action(c, id * 4 + 2, "punch-out")));
+        } else if (ref.startsWith("login-")) {
+            b.addAction(button(c, "Approve", action(c, id * 4 + 1, "login-approve:" + ref)));
+            b.addAction(button(c, "Decline", action(c, id * 4 + 2, "login-decline:" + ref)));
         } else if (ref.startsWith("leave-") && text.contains("asked for")) {
             b.addAction(button(c, "Approve", action(c, id * 4 + 1, "leave-approve:" + ref)));
             b.addAction(button(c, "Decline", action(c, id * 4 + 2, "leave-decline:" + ref)));

@@ -1266,6 +1266,11 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
       if (incoming.actorRole) {
         mergedEmp.lastEditedByRole = incoming.actorRole;
       }
+      try {
+        const keys = ['role', 'isActive', 'featureAccess', 'salesAccess', 'crmCustomerAccess', 'liveDashboardAccess', 'leaderboardAccess', 'payablesAccess', 'mediaTeam', 'teamPresenceAccess', 'allowWorkFromHome', 'faceEnrollRequired', 'locationCheck', 'customerPortalAccess'];
+        const changed = existing ? keys.filter((k) => JSON.stringify(existing[k] ?? null) !== JSON.stringify(mergedEmp[k] ?? null)) : ['new employee'];
+        if (changed.length) { const { audit } = await import('./_audit.js'); await audit(ctx?.actor, existing ? 'changed an employee' : 'added an employee', `${mergedEmp.name}: ${changed.join(', ')}`); }
+      } catch { /* the log never blocks saving */ }
       const keepCut = Math.max(Number(existing?.pendingDeviceRequest?.signOutBefore) || 0, Number(mergedEmp.pendingDeviceRequest?.signOutBefore) || 0);
       if (keepCut) mergedEmp.__keepSignOutBefore = keepCut;
       const row = mapAppEmployeeToDb(mergedEmp);
@@ -1384,6 +1389,11 @@ export async function mutateSupabaseDb(incoming, defaultDb, ctx = {}) {
     }
   } else if (scope === 'settings') {
     if (incoming.settings) {
+      try {
+        const prev = (await supabaseFetch('/settings?id=eq.current&select=data'))?.[0]?.data || {};
+        const changed = Object.keys({ ...prev, ...incoming.settings }).filter((k) => JSON.stringify(prev[k]) !== JSON.stringify(incoming.settings[k]) && !['updatedAt', 'recordUpdatedAt'].includes(k));
+        if (changed.length) { const { audit } = await import('./_audit.js'); await audit(ctx?.actor, 'changed office settings', changed.slice(0, 12).join(', ')); }
+      } catch { /* the log never blocks saving */ }
       await supabaseFetch('/settings', {
         method: 'POST',
         headers: { Prefer: 'resolution=merge-duplicates' },

@@ -32,8 +32,10 @@ function secret() {
   );
 }
 
-export function issueSession(employeeId, now = Date.now()) {
-  const body = Buffer.from(JSON.stringify({ i: employeeId, x: now + SESSION_TTL_MS, t: now })).toString('base64url');
+export const COMPUTER_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Phone app sign-ins last 14 days (the app has its own fingerprint lock); computers 7 days. */
+export function issueSession(employeeId, now = Date.now(), ttl = SESSION_TTL_MS) {
+  const body = Buffer.from(JSON.stringify({ i: employeeId, x: now + Math.min(ttl, SESSION_TTL_MS), t: now })).toString('base64url');
   const sig = crypto.createHmac('sha256', secret()).update(body).digest('base64url');
   return `${body}.${sig}`;
 }

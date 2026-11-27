@@ -47,6 +47,8 @@ export const AppLoginView: React.FC<Props> = ({ employees, onLogin, companyName,
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(false);
+  const [phoneWait, setPhoneWait] = useState(false);
+  useEffect(() => { const on = (e: Event) => setPhoneWait(Boolean((e as CustomEvent).detail?.waiting)); window.addEventListener('bahaar-login-pending', on); return () => window.removeEventListener('bahaar-login-pending', on); }, []);
   const pinRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -232,6 +234,7 @@ export const AppLoginView: React.FC<Props> = ({ employees, onLogin, companyName,
           <span>Keep me signed in on this phone</span>
         </label>
 
+        {phoneWait && <p className="al-note" data-phone-wait><span className="al-spin al-spin-blue" /> Approve this sign-in on your phone (Bahaar Office app)…</p>}
         {error && <p className="al-error" role="alert">{error}</p>}
 
         <button type="submit" className={`al-submit ${phase === 'leaving' ? 'is-done' : ''}`} disabled={busy}>

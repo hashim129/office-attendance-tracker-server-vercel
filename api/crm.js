@@ -4,6 +4,7 @@
 import crypto from 'node:crypto';
 import { createMedia } from './_media.js';
 import { sweepSmart } from './_smart.js';
+import { audit, clientIp } from './_audit.js';
 import { confirmOpenWork, isSupabaseConfigured, supabaseFetch, sweepShiftReminders } from './_supabase.js';
 import { pushNotificationRows } from './_push.js';
 import { format12h, getShiftEndWindowMs } from './_cloud.js';
@@ -804,6 +805,9 @@ async function ackRecord(kind, refId) {
 let mediaApi = null;
 const media = () => (mediaApi ||= createMedia({ supabaseFetch, upsert, getOne, notify, id, str, bad, forbidden, notFound, flagOf, parseJsonObj }));
 
+/** Media reminders for the background timer (api/system.js). */
+export async function runMediaSweep() { return media().sweep(); }
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -835,6 +839,42 @@ export default async function handler(req, res) {
     const canSales = hasSalesAccess(me);
     const { action } = body;
 
+    // Phone approves / declines an Admin, CEO or Accounts sign-in on a computer.
+    if (action === 'login_decide') {
+      const lid = String(body.id || '');
+      if (!/^login-[0-9a-f-]{36}$/.test(lid)) throw bad('Bad request.');
+      const row = await getOne('crm_company', lid);
+      const d = parseJsonObj(row?.data, null);
+      if (!d) throw notFound('This sign-in request has already ended.');
+      if (d.employeeId !== me.id) throw forbidden('This request is for someone else.');
+      if (Date.now() > d.exp) throw bad('This sign-in request has expired.');
+      const okay = body.ok === true;
+      await upsert('crm_company', { id: lid, data: { ...d, status: okay ? 'approved' : 'denied' }, updated_at: nowIso() });
+      await supabaseFetch(`/crm_notifications?id=eq.${encodeURIComponent(`ntf-${lid}`)}`, { method: 'PATCH', body: JSON.stringify({ read_at: nowIso() }) }).catch(() => null);
+      await audit(me, okay ? 'approved a sign-in' : 'declined a sign-in', d.what || '', clientIp(req));
+      return res.status(200).json({ ok: true });
+    }
+
+    // Activity log (Admin / CEO)
+    if (action === 'audit_list') {
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can see the activity log.');
+      const rows = (await supabaseFetch(`/audit_log?select=*&order=at.desc&limit=300`)) || [];
+      return res.status(200).json({ ok: true, items: rows.map((r) => ({ id: r.id, at: r.at, actorId: r.actor_id, actorName: r.actor_name, action: r.action, detail: r.detail, ip: r.ip })) });
+    }
+    // Something sensitive done in the browser (e.g. a PDF export of all records)
+    if (action === 'audit_note') {
+      const what = str(body.what, 60, { required: true, name: 'Action' });
+      if (!/^(exported|downloaded)/.test(what)) throw bad('Not allowed.');
+      await audit(me, what, str(body.detail, 300), clientIp(req));
+      return res.status(200).json({ ok: true });
+    }
+    // System health: background timer and nightly backup (Admin / CEO)
+    if (action === 'system_status') {
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can see this.');
+      const [tick, backup] = await Promise.all([getOne('crm_company', 'tick-last').catch(() => null), getOne('crm_company', 'backup-last').catch(() => null)]);
+      return res.status(200).json({ ok: true, lastTickAt: parseJsonObj(tick?.data, {}).at || null, lastBackupAt: parseJsonObj(backup?.data, {}).at || null, lastBackupTables: parseJsonObj(backup?.data, {}).tables || null });
+    }
+
     // Admin: sign one employee out of every phone and browser (lost or changed phone).
     if (action === 'employee_signout_all') {
       if (!isAdmin) throw forbidden('Only Admin or the CEO can do this.');
@@ -846,6 +886,7 @@ export default async function handler(req, res) {
       const next = { ...(pend && typeof pend === 'object' ? pend : {}), signOutBefore: Date.now() };
       await supabaseFetch(`/employees?id=eq.${encodeURIComponent(emp.id)}`, { method: 'PATCH', body: JSON.stringify({ pending_device_request: next }) });
       await supabaseFetch(`/push_devices?employee_id=eq.${encodeURIComponent(emp.id)}`, { method: 'DELETE' }).catch(() => null);
+      await audit(me, 'signed someone out of all devices', emp.name, clientIp(req));
       return res.status(200).json({ ok: true });
     }
 
@@ -1043,6 +1084,7 @@ export default async function handler(req, res) {
       }
       const next = { currency: CURRENCIES.includes(t.currency) ? t.currency : 'PKR', team: Math.max(0, Math.min(1e12, num(t.team))), people, updatedAt: nowIso(), updatedBy: me.id };
       await upsert('crm_company', { id: 'sales-targets', data: next, updated_at: next.updatedAt });
+      await audit(me, 'changed sales targets', '', clientIp(req));
       return res.status(200).json({ ok: true, targets: { currency: next.currency, team: next.team, people } });
     }
 
@@ -2228,6 +2270,7 @@ export default async function handler(req, res) {
       if (!existing) throw notFound('Invoice not found.');
       await supabaseFetch(`/crm_receipts?linked_invoice_id=eq.${encodeURIComponent(existing.id)}`, { method: 'PATCH', body: JSON.stringify({ linked_invoice_id: null }) });
       await supabaseFetch(`/crm_invoices?id=eq.${encodeURIComponent(existing.id)}`, { method: 'DELETE' });
+      await audit(me, 'deleted an invoice', `${existing.invoice_no} · ${existing.customer_name}`, clientIp(req));
       await supabaseFetch(`/crm_sales?id=eq.${encodeURIComponent(autoSaleId(existing.id))}`, { method: 'DELETE' }).catch(() => null);
       await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(`visa-${existing.id}`)}`, { method: 'DELETE' });
       return res.status(200).json({ ok: true });
