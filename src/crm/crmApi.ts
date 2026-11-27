@@ -47,6 +47,8 @@ export interface CrmFollowup {
   completedAt: string | null;
   /** Remarks added by everyone on the follow-up, kept permanently */
   remarkLog?: { id: string; at: string; by: string; text: string }[];
+  /** Length of a Meeting follow-up with the CEO (15, 30, 45 or 60 minutes) */
+  slotMinutes?: number | null;
 }
 
 export interface CrmMeeting {
@@ -206,7 +208,14 @@ export interface VisaProgress {
   updatedAt?: string | null;
 }
 
+/** One entry of the change record kept under an invoice or purchase (date, time, who, what, why). */
+export interface EditLogEntry { id: string; at: string; by: string; byName: string; action: string; text: string; reason?: string }
+/** An employee tagged on an invoice by Admin / CEO / Accounts (they can then see it). */
+export interface InvoiceTag { id: string; by: string; byName: string; at: string; remarks?: string }
+
 export interface CrmInvoice {
+  editLog?: EditLogEntry[];
+  tagged?: InvoiceTag[];
   id: string;
   /** 'customer' = what we bill customers; 'vendor' = what we owe a vendor (payable, never printed on a customer's invoice) */
   kind: 'customer' | 'vendor';
@@ -400,6 +409,10 @@ export interface CrmPurchaseItem {
 export interface CrmPurchase {
   id: string;
   purchaseNo: string;
+  /** The invoice this purchase was made for */
+  invoiceId?: string | null;
+  invoiceNo?: string | null;
+  editLog?: EditLogEntry[];
   createdBy: string;
   customerName: string;
   careOf: string;
@@ -458,7 +471,7 @@ export interface CrmData {
   followups: CrmFollowup[];
   meetings: CrmMeeting[];
   /** Times the CEO is booked through a Meeting follow-up (shown in the Meetings portal) */
-  bookedSlots: { id: string; title: string; startAt: string; endAt: string }[];
+  bookedSlots: { id: string; title: string; startAt: string; endAt: string; kind?: string }[];
   unread: CrmUnread[];
   inventory: CrmInventoryRequest[];
   inventoryItems: string[];

@@ -4,6 +4,7 @@ import { Modal } from '../components/common/Modal';
 import { CrmCustomer, CrmFollowup, FollowupKind, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
 import { ErrorNote, Field, btnGhost, btnPrimary, fmtDateTime, fromLocalInput, inputCls, toLocalInput } from './ui';
+import { CeoSlotPicker, SLOT_CHOICES, ceoBusyList } from './CeoSlots';
 
 interface Props {
   open: boolean;
@@ -40,6 +41,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
   const [assignedTo, setAssignedTo] = useState('');
   const [participants, setParticipants] = useState<string[]>([]);
   const [dueAt, setDueAt] = useState('');
+  const [slotMinutes, setSlotMinutes] = useState(15);
   const [remarks, setRemarks] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -47,6 +49,10 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
 
   const staff = employees.filter((e) => e.isActive !== false);
   const selectedCustomer = customers.find((c) => c.id === customerId);
+  // A Meeting follow-up with the CEO is booked in the CEO's free 15-minute slots, so it never overlaps.
+  const ceoIds = staff.filter((e) => e.role === 'ceo').map((e) => e.id);
+  const withCeo = kind === 'meeting' && [assignedTo, editing?.createdBy || currentUser.id, ...participants].some((x) => ceoIds.includes(x));
+  const ceoBusy = ceoBusyList(crm.data.meetings, crm.data.bookedSlots || []);
 
   useEffect(() => {
     if (!open) return;
@@ -62,6 +68,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
       setAssignedTo(editing.assignedTo);
       setParticipants(editing.participantIds || []);
       setDueAt(editing.dueAt ? toLocalInput(editing.dueAt) : '');
+      setSlotMinutes(SLOT_CHOICES.includes(Number(editing.slotMinutes)) ? Number(editing.slotMinutes) : 30);
       setRemarks(editing.remarks);
     } else {
       setMode(presetCustomerId ? 'existing' : 'none');
@@ -71,6 +78,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
       setAssignedTo(currentUser.id);
       setParticipants([]);
       setDueAt('');
+      setSlotMinutes(15);
       setRemarks('');
     }
   }, [open, editing, presetCustomerId, currentUser.id]);
@@ -96,6 +104,7 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
         participantIds: participants.filter((p) => p !== assignedTo),
         remarks,
         dueAt: fromLocalInput(dueAt),
+        ...(kind === 'meeting' ? { slotMinutes } : {}),
         customerId: mode === 'existing' ? customerId : null,
       };
       if (mode === 'new') {
@@ -200,9 +209,18 @@ export const FollowupModal: React.FC<Props> = ({ open, onClose, crm, employees, 
             </select>
           </Field>
           <Field label="Due date & time (optional)">
-            <input type="datetime-local" className={inputCls} value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
+            {withCeo
+              ? <p className={`${inputCls} text-slate-600 dark:text-slate-300`}>{dueAt ? `${fmtDateTime(fromLocalInput(dueAt))} · ${slotMinutes} min` : 'Pick a free CEO time below'}</p>
+              : <input type="datetime-local" className={inputCls} value={dueAt} onChange={(e) => setDueAt(e.target.value)} />}
           </Field>
         </div>
+        {withCeo && (
+          <div className="rounded-lg border border-violet-200 dark:border-violet-900 p-2.5">
+            <span className="block text-[11px] font-semibold text-violet-700 dark:text-violet-300 mb-1.5">This meeting includes the CEO: choose free 15-minute slots (up to 4)</span>
+            <CeoSlotPicker busy={ceoBusy} exceptId={editing?.id} startIso={fromLocalInput(dueAt)} minutes={slotMinutes} onChange={(s, m) => { setDueAt(toLocalInput(s)); setSlotMinutes(m); }} />
+            {dueAt && <button type="button" className="mt-1.5 text-[11px] text-slate-500 underline cursor-pointer" onClick={() => setDueAt('')}>Clear time</button>}
+          </div>
+        )}
 
         <div>
           <span className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Add more employees to this follow-up (optional)</span>

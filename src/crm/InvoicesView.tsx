@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { canEditFinancialRecord } from '../lib/financePermissions.js';
-import { Plus, Trash2, FileDown, Share2, Eye, Pencil, Building2, FileText, X, Lock, Info, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { Plus, Trash2, FileDown, Share2, Eye, Pencil, Building2, FileText, X, Lock, Info, ChevronDown, ChevronsUpDown, UserPlus } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CompanyProfile, CrmInvoice, CrmReceipt, InvoicePayment, InvoiceSection, VisaProgressStatus, crmCall, updateInvoiceVisaProgress } from './crmApi';
@@ -20,6 +20,7 @@ import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
 import { AckBadge, AfterCreateInfo, AfterCreatePrompt } from './AfterCreate';
 import { LinePax, cleanLinePax, isStay, paxPricing, paxText } from './paxDetails';
 import { PaxPicker } from './PaxPicker';
+import { EditHistory } from './EditHistory';
 
 interface Props {
   crm: CrmState;
@@ -438,6 +439,16 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
   >({});
   const [visaBusyId, setVisaBusyId] = useState<string | null>(null);
   const [payFor, setPayFor] = useState<string | null>(null);
+  /** Saving changes to a saved invoice first asks everyone (Admin and CEO too) for the reason. */
+  const [askReason, setAskReason] = useState<{ lockIdx: number | null; close: boolean } | null>(null);
+  const [reason, setReason] = useState('');
+  /** Admin / CEO / Accounts tag employees on an invoice */
+  const [tagFor, setTagFor] = useState<CrmInvoice | null>(null);
+  const [tagIds, setTagIds] = useState<string[]>([]);
+  const [tagRemarks, setTagRemarks] = useState('');
+  const [tagSearch, setTagSearch] = useState('');
+  const [tagBusy, setTagBusy] = useState(false);
+  const [tagError, setTagError] = useState('');
 
   useEffect(() => { void crm.refresh(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -807,14 +818,15 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
     };
   };
 
-  const persist = async (lockIdx: number | null, close: boolean) => {
+  const persist = async (lockIdx: number | null, close: boolean, editReason?: string) => {
     if (!form || busy) return;
+    if (form.id && !editReason) { setReason(''); setAskReason({ lockIdx, close }); return; }
     setBusy(true);
     setError('');
     setNotice('');
     try {
       const wasNew = !form.id;
-      const r = await crmCall<{ invoice: CrmInvoice }>('invoice_save', { invoice: buildPayload(lockIdx) });
+      const r = await crmCall<{ invoice: CrmInvoice }>('invoice_save', { invoice: buildPayload(lockIdx), ...(editReason ? { editReason } : {}) });
       if (wasNew) createdNow.current = r.invoice.id;
       await crm.refresh();
       if (close) {
@@ -834,6 +846,27 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
     }
   };
   const save = async (e: React.FormEvent) => { e.preventDefault(); await persist(null, true); };
+
+  const submitReason = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!askReason || !reason.trim()) return;
+    const { lockIdx, close } = askReason;
+    setAskReason(null);
+    await persist(lockIdx, close, reason.trim());
+  };
+  const openTag = (i: CrmInvoice) => { setTagFor(i); setTagIds([]); setTagRemarks(''); setTagSearch(''); setTagError(''); };
+  const submitTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tagFor || !tagIds.length || tagBusy) return;
+    setTagBusy(true); setTagError('');
+    try {
+      await crmCall('invoice_tag', { id: tagFor.id, employeeIds: tagIds, remarks: tagRemarks.trim() });
+      await crm.refresh();
+      setTagFor(null);
+    } catch (err: any) {
+      setTagError(err?.message || 'Could not tag the employees.');
+    } finally { setTagBusy(false); }
+  };
 
   const act = async (action: string, payload: Record<string, unknown>): Promise<boolean> => {
     setError('');
@@ -1997,6 +2030,19 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                         attachedIds={(i.payments || []).map((p) => p.receiptId).filter(Boolean) as string[]} today={today()} onClose={() => setPayFor(null)}
                         onSubmit={async (payment) => { if (await act('invoice_payment_add', { id: i.id, payment })) setPayFor(null); }} />
                     )}
+                    {(i.tagged || []).length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]" data-invoice-tags>
+                        <span className="font-semibold text-slate-500">Tagged:</span>
+                        {(i.tagged || []).map((t) => (
+                          <span key={t.id} title={`Tagged by ${t.byName || nameOf(t.by)} on ${new Date(t.at).toLocaleString()}${t.remarks ? ` — ${t.remarks}` : ''}`}
+                            className="inline-flex items-center gap-1 rounded-full bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-900 px-2 py-0.5 text-violet-800 dark:text-violet-200">
+                            {nameOf(t.id)}{t.remarks ? <span className="text-violet-500">· {t.remarks.length > 40 ? `${t.remarks.slice(0, 40)}…` : t.remarks}</span> : null}
+                            {isStaff && <button type="button" aria-label={`Remove tag ${nameOf(t.id)}`} className="text-violet-400 hover:text-red-600 cursor-pointer" onClick={() => { if (window.confirm(`Remove ${nameOf(t.id)} from this invoice?`)) void act('invoice_untag', { id: i.id, employeeId: t.id }); }}><X className="w-3 h-3" /></button>}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <EditHistory log={i.editLog} nameOf={nameOf} />
                     <div className="flex flex-wrap items-center gap-1.5 pt-1">
                       <button className={btnGhost} onClick={() => setView(i)}><Eye className="w-3.5 h-3.5" /> {vendorSide ? 'View payable' : 'View'}</button>
                       <button className={btnPrimary} onClick={() => void pdf(i)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
@@ -2004,6 +2050,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                       {i.status !== 'cancelled' && <button className={btnGhost} onClick={() => setAfter(afterInfo(i))} data-card-whatsapp>WhatsApp / Accounts</button>}
                       <AckBadge kind="invoice" id={i.id} crm={crm} canRequest={false} />
                       {canEdit(i) && <button className={btnGhost} onClick={() => { setForm(toForm(i, company.ntn || '')); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
+                      {isStaff && <button className={btnGhost} onClick={() => openTag(i)} data-tag-invoice><UserPlus className="w-3.5 h-3.5" /> Tag</button>}
                       {!vendorSide && i.status !== 'cancelled' && i.balance > 0 && (isStaff || i.createdBy === currentUser.id) && (
                         <button className={btnGhost} onClick={() => setPayFor(payFor === i.id ? null : i.id)} data-card-add-payment>Add payment</button>
                       )}
@@ -2628,6 +2675,36 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
       </Modal>
 
       {/* ---------- company details */}
+      <Modal isOpen={Boolean(askReason)} onClose={() => setAskReason(null)} title="Reason for this edit" subtitle="Required for every change. Admin, CEO and Accounts are notified, and it is kept in the invoice's change history." maxWidth="md">
+        <form onSubmit={submitReason} className="space-y-3">
+          <Field label="Why are you changing this invoice?"><textarea className={inputCls} rows={3} maxLength={600} autoFocus required value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Hotel dates changed, customer added one more traveller" /></Field>
+          <div className="flex justify-end gap-2">
+            <button type="button" className={btnGhost} onClick={() => setAskReason(null)}>Back to editing</button>
+            <button type="submit" className={btnPrimary} disabled={busy || !reason.trim()}>Save changes</button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={Boolean(tagFor)} onClose={() => setTagFor(null)} title={tagFor ? `Tag employees · ${tagFor.invoiceNo}` : 'Tag employees'} subtitle="Tagged employees can see this invoice and are notified." maxWidth="md">
+        <form onSubmit={submitTag} className="space-y-3">
+          <input className={inputCls} placeholder="Search employee…" value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} />
+          <div className="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1 p-2 rounded-lg border border-slate-300 dark:border-slate-700">
+            {employees.filter((e) => e.isActive !== false && !(tagFor?.tagged || []).some((t) => t.id === e.id) && e.name.toLowerCase().includes(tagSearch.trim().toLowerCase())).map((e) => (
+              <label key={e.id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                <input type="checkbox" checked={tagIds.includes(e.id)} onChange={(ev) => setTagIds((cur) => (ev.target.checked ? [...cur, e.id] : cur.filter((x) => x !== e.id)))} />
+                {e.name}
+              </label>
+            ))}
+          </div>
+          <Field label="Remarks (optional)"><textarea className={inputCls} rows={2} maxLength={400} value={tagRemarks} onChange={(e) => setTagRemarks(e.target.value)} placeholder="e.g. Please arrange the hotel booking" /></Field>
+          <ErrorNote message={tagError} />
+          <div className="flex justify-end gap-2">
+            <button type="button" className={btnGhost} onClick={() => setTagFor(null)}>Cancel</button>
+            <button type="submit" className={btnPrimary} disabled={tagBusy || !tagIds.length}>{tagBusy ? 'Tagging…' : `Tag ${tagIds.length || ''}`.trim()}</button>
+          </div>
+        </form>
+      </Modal>
+
       <Modal isOpen={Boolean(companyForm)} onClose={() => setCompanyForm(null)} title="Company details" subtitle="Printed on every invoice" maxWidth="2xl">
         {companyForm && (
           <form onSubmit={saveCompany} className="space-y-3">
