@@ -17,17 +17,18 @@ interface Toast {
   ask?: boolean; // "Are you still working?" prompt with a confirm button
 }
 
-const SEEN_KEY = 'crm_alerts_seen_v1';
+// Kept on this device (not just this tab), so a pop-up never comes back after reopening the app or a reload.
+const SEEN_KEY = 'crm_alerts_seen_v2';
 const loadSeen = (): Set<string> => {
   try {
-    return new Set(JSON.parse(sessionStorage.getItem(SEEN_KEY) || '[]'));
+    return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || sessionStorage.getItem('crm_alerts_seen_v1') || '[]'));
   } catch {
     return new Set();
   }
 };
 const saveSeen = (s: Set<string>) => {
   try {
-    sessionStorage.setItem(SEEN_KEY, JSON.stringify([...s].slice(-300)));
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...s].slice(-500)));
   } catch {
     // storage may be blocked; alerts just repeat after a reload
   }
