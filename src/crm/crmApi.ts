@@ -21,6 +21,8 @@ export interface CrmCustomer {
   createdAt: string;
   updatedAt: string;
   lastContact?: { at: string; by: string; byName?: string; how: 'call' | 'whatsapp' } | null;
+  birthday?: string | null;
+  passportExpiry?: string | null;
 }
 
 export interface CrmHistoryEntry {

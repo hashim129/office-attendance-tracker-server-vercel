@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { CustomerHistory } from './CustomerHistory';
 import { Pencil, Plus, Search, Trash2, X, ClipboardList, Globe, Phone } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
@@ -55,6 +56,9 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
   const [company, setCompany] = useState('');
   const [description, setDescription] = useState('');
   const [number, setNumber] = useState('');
+  const [birthday, setBirthday] = useState('');
+  const [passport, setPassport] = useState('');
+  const [historyOf, setHistoryOf] = useState<CrmCustomer | null>(null);
   const [through, setThrough] = useState('');
   const [by, setBy] = useState('');
   const [dest, setDest] = useState('');
@@ -69,6 +73,8 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
     setCompany(c?.companyName || '');
     setDescription(c?.description || '');
     setNumber(c?.customerNumber || '');
+    setBirthday(c?.birthday || '');
+    setPassport(c?.passportExpiry || '');
     setThrough(c?.acquiredThrough || '');
     setBy(c?.acquiredBy || '');
     setDests(c?.destinations || []);
@@ -94,7 +100,13 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
     const pending = dest.split(';').map((d) => d.trim()).filter(Boolean);
     const destinations = [...dests, ...pending.filter((p) => !dests.some((c) => c.toLowerCase() === p.toLowerCase()))];
     try {
-      await crmCall('customer_save', { customer: { id: editing?.id, customerName: name, companyName: company, description, customerNumber: number, acquiredThrough: through, acquiredBy: by, destinations, sharedWith: shared } });
+      const customer = { id: editing?.id, customerName: name, companyName: company, description, customerNumber: number, acquiredThrough: through, acquiredBy: by, destinations, sharedWith: shared, birthday, passportExpiry: passport };
+      try {
+        await crmCall('customer_save', { customer });
+      } catch (dupErr: any) {
+        if (dupErr?.code !== 'DUPLICATE_PHONE' || !window.confirm(dupErr.message)) throw dupErr;
+        await crmCall('customer_save', { customer: { ...customer, allowDuplicate: true } });
+      }
       await crm.refresh();
       setFormOpen(false);
     } catch (err: any) {
@@ -387,6 +399,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
                     <td className="px-4 py-3">{openCount(c.id) ? <Pill tone="amber">{openCount(c.id)} open</Pill> : <span className="text-slate-400">None</span>}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1.5">
+                        <button className={btnGhost} onClick={() => setHistoryOf(c)} data-customer-history-btn title="Everything about this customer">History</button>
                         <button className={btnGhost} onClick={() => { setFuCustomer(c.id); setFuOpen(true); }} title="Create a follow-up for this customer"><ClipboardList className="w-3.5 h-3.5" /> Follow-up</button>
                         {canChange(c) && <button className={btnGhost} onClick={() => openForm(c)} title="Edit customer" aria-label={`Edit ${c.customerName}`}><Pencil className="w-3.5 h-3.5" /></button>}
                         {isAdmin && <button className={btnDanger} onClick={() => remove(c)} title="Delete customer" aria-label={`Delete ${c.customerName}`}><Trash2 className="w-3.5 h-3.5" /></button>}
@@ -411,6 +424,10 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Field label="Customer number (optional)"><input className={inputCls} value={number} onChange={(e) => setNumber(e.target.value)} maxLength={60} inputMode="tel" /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Birthday (optional)" hint="You get a reminder on the day"><input type="date" className={inputCls} value={birthday} onChange={(e) => setBirthday(e.target.value)} /></Field>
+              <Field label="Passport expiry (optional)" hint="Reminder 3 months before"><input type="date" className={inputCls} value={passport} onChange={(e) => setPassport(e.target.value)} /></Field>
+            </div>
             <Field label="Customer acquired through (optional)"><input className={inputCls} value={through} onChange={(e) => setThrough(e.target.value)} maxLength={120} placeholder="e.g. Facebook, referral" /></Field>
             <Field label="Customer acquired by (optional)">
               <select className={inputCls} value={by} onChange={(e) => setBy(e.target.value)}>
@@ -462,6 +479,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
       </Modal>
 
       <FollowupModal open={fuOpen} onClose={() => setFuOpen(false)} crm={crm} employees={employees} currentUser={currentUser} customers={customers} presetCustomerId={fuCustomer} />
+      <CustomerHistory customer={historyOf} onClose={() => setHistoryOf(null)} names={empName} />
     </div>
   );
 };

@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { crmCall } from '../../crm/crmApi';
 import type { AttendanceRecord, ShiftSchedule } from '../../types';
 import { calculateWorkedMinutes, getCurrentTimeString, getTodayDateString, isLateArrival } from '../../lib/attendanceCalculations';
 import type { CrmBusiness } from '../../crm/crmApi';
@@ -18,6 +19,13 @@ export const MyWeekCard: React.FC<{ records: AttendanceRecord[]; employeeId: str
     return { days: mine.length, hours: Math.floor(minutes / 60), mins: minutes % 60, onTime };
   }, [records, employeeId, shift]);
   const me = business?.me;
+  const [com, setCom] = useState<{ pct: number; amount: number } | null>(null);
+  useEffect(() => {
+    if (!me) return;
+    crmCall<{ people: { id: string; commissionPct: number; commission: number }[] }>('profit_report', {})
+      .then((r) => { const p = r.people.find((x) => x.id === employeeId); if (p && p.commissionPct > 0) setCom({ pct: p.commissionPct, amount: p.commission }); })
+      .catch(() => null);
+  }, [Boolean(me), employeeId]);
   const cur = business?.targets?.currency || 'PKR';
   const pct = me && me.target > 0 ? Math.min(100, Math.round((me.amount / me.target) * 100)) : 0;
   return (
@@ -36,6 +44,7 @@ export const MyWeekCard: React.FC<{ records: AttendanceRecord[]; employeeId: str
           </div>
           {me.target > 0 && <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div className={`h-full rounded-full ${pct >= 100 ? 'bg-emerald-500' : 'bg-blue-600'}`} style={{ width: `${pct}%` }} /></div>}
           {me.target > 0 && <p className="mt-1 text-[11px] text-slate-500">{pct >= 100 ? 'Target reached this month. Well done.' : `${pct}% of your monthly target`}</p>}
+          {com && <p className="mt-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400" data-my-commission>Commission earned this month: PKR {Math.round(com.amount).toLocaleString()} ({com.pct}% of received profit)</p>}
         </div>
       )}
     </div>

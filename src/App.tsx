@@ -1377,7 +1377,7 @@ export default function App() {
               }} />}
               {activeTab === 'employee-profile' && currentUser && <PhoneAppSettings />}
 
-              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications' || activeTab === 'crm-payment-tree' || activeTab === 'crm-media') && (
+              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications' || activeTab === 'crm-payment-tree' || activeTab === 'crm-media' || activeTab === 'crm-profit') && (
                 <CrmPage section={activeTab} crm={crm} employees={statEmployees} currentUser={currentUser} onNavigate={setActiveTab} focusId={focusedRecordId} onClearFocus={() => setFocusedRecordId(undefined)} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
               )}
 

@@ -33,7 +33,7 @@ let lastSweep = 0;
 export async function sweepSmart(now = Date.now()) {
   if (now - lastSweep < 10 * 60 * 1000) return;
   lastSweep = now;
-  await Promise.all([dailySummaries(now).catch((e) => console.error('summary', e?.message)), followupNudges(now).catch((e) => console.error('nudge', e?.message))]);
+  await Promise.all([dailySummaries(now).catch((e) => console.error('summary', e?.message)), followupNudges(now).catch((e) => console.error('nudge', e?.message)), travelBalances(now).catch((e) => console.error('travel', e?.message)), customerDates(now).catch((e) => console.error('custdates', e?.message))]);
 }
 
 /** After someone punches out: today's hours, invoices, receipts and open follow-ups, once a day. */
@@ -125,4 +125,41 @@ export async function officeGeofence(employeeId, lat, lng, acc, now = Date.now()
     rows.push({ id: `geo-out-${employeeId}-${today}`, employee_id: employeeId, category: 'reminder', ref_id: `geo-out-${today}`, message: 'You have left the office but you are still punched in. Punch out if you are done for the day.', created_at: at, read_at: null });
   }
   return (await addOnce(rows)).length;
+}
+
+/** Customer travels within 3 days and still owes money: tell the person who made the invoice (once per invoice). */
+export async function travelBalances(now = Date.now()) {
+  const h = pktNow(now).getUTCHours();
+  if (h < 10 || h >= 20) return 0;
+  const today = pktDate(now);
+  const until = pktDate(now + 3 * 86400000);
+  const rows = (await supabaseFetch(`/crm_invoices?travel_date=gte.${today}&travel_date=lte.${until}&status=eq.unpaid&select=id,kind,invoice_no,customer_name,currency,balance,travel_date,created_by`)) || [];
+  const out = rows.filter((r) => (r.kind || 'customer') !== 'vendor' && num(r.balance) > 0 && r.created_by).map((r) => ({
+    id: `travel-${r.id}`, employee_id: r.created_by, category: 'invoice', ref_id: r.id,
+    message: `${r.customer_name} travels on ${r.travel_date} and still owes ${r.currency} ${Math.round(num(r.balance)).toLocaleString('en-US')} (${r.invoice_no}). Open the invoice and tap “Payment reminder” to WhatsApp them.`,
+    created_at: new Date(now).toISOString(), read_at: null,
+  }));
+  return (await addOnce(out)).length;
+}
+
+/** Customer birthdays (on the day) and passports expiring within 3 months: tell the person who added the customer. */
+export async function customerDates(now = Date.now()) {
+  const h = pktNow(now).getUTCHours();
+  if (h < 9 || h >= 20) return 0;
+  const today = pktDate(now);
+  const in90 = pktDate(now + 90 * 86400000);
+  const rows = (await supabaseFetch('/crm_customers?deleted_at=is.null&or=(birthday.not.is.null,passport_expiry.not.is.null)&select=id,customer_name,customer_number,birthday,passport_expiry,created_by')) || [];
+  const out = [];
+  const at = new Date(now).toISOString();
+  for (const c of rows) {
+    if (!c.created_by) continue;
+    if (c.birthday && String(c.birthday).slice(5, 10) === today.slice(5, 10)) {
+      out.push({ id: `cbday-${c.id}-${today.slice(0, 4)}`, employee_id: c.created_by, category: 'customer', ref_id: c.id, message: `It’s ${c.customer_name}’s birthday today. A quick WhatsApp greeting${c.customer_number ? ` (${c.customer_number})` : ''} keeps them close.`, created_at: at, read_at: null });
+    }
+    const pe = c.passport_expiry ? String(c.passport_expiry).slice(0, 10) : '';
+    if (pe && pe >= today && pe <= in90) {
+      out.push({ id: `cpass-${c.id}-${pe}`, employee_id: c.created_by, category: 'customer', ref_id: c.id, message: `${c.customer_name}’s passport expires on ${pe}. A good time to offer passport renewal and their next trip.`, created_at: at, read_at: null });
+    }
+  }
+  return (await addOnce(out)).length;
 }
