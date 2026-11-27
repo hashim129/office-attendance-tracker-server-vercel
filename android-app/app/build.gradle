@@ -31,8 +31,18 @@ android {
         }
     }
 
+    packaging {
+        resources { excludes += ['META-INF/*.kotlin_module'] }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    // Phone push notifications (works when the app is closed). Started at run time with settings from the server,
+    // so no google-services.json is built into the app.
+    implementation 'com.google.firebase:firebase-messaging:24.1.0'
 }

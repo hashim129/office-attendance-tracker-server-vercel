@@ -510,9 +510,20 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    // phone app: stop this person's notifications on this phone
+    try { (window as any).BahaarApp?.unregisterPush?.(); } catch { /* not the phone app */ }
     clearSession();
     setCurrentUser(null);
   };
+
+  // Phone app: after sign-in, register this phone for notifications (also when the app is closed).
+  useEffect(() => {
+    if (!currentUser?.id || appMode === 'kiosk') return;
+    const bridge = (window as any).BahaarApp;
+    const token = getSessionToken();
+    if (!bridge?.registerPush || !token) return;
+    try { bridge.registerPush(token); } catch { /* older app without push */ }
+  }, [currentUser?.id, appMode]);
 
   // -------------------------------------------------------------
   // Attendance Clock In / Out / Break Engine

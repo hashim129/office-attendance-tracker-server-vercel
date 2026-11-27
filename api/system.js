@@ -1,6 +1,8 @@
 import crypto from 'crypto';
 import { evaluateAttendancePresenceAndAutoClose, format12h, getShiftEndWindowMs, setNoCacheHeaders } from './_cloud.js';
 import { isSupabaseConfigured, supabaseFetch, sweepAutoClose, sweepShiftReminders } from './_supabase.js';
+import { getSessionEmployee } from './_session.js';
+import { pendingForDevice, pushPending, registerDevice, unregisterDevice } from './_push.js';
 
 /**
  * Background jobs that must run even when nobody has the app open.
@@ -12,6 +14,9 @@ import { isSupabaseConfigured, supabaseFetch, sweepAutoClose, sweepShiftReminder
  *   ?task=backup  Nightly at 12:00 AM from the Google Apps Script in the owner's Google Drive:
  *                 returns a full copy of every database table.
  *                 Needs header  x-backup-key: <BACKUP_KEY>
+ *
+ *   ?task=push-register | push-unregister | push-pending
+ *                 The Android app registering for phone notifications (see _push.js). POST JSON.
  */
 function safeEqual(a, b) {
   const x = Buffer.from(String(a || ''));
@@ -31,7 +36,20 @@ export default async function handler(req, res) {
       if (!secret || !safeEqual(given, secret)) return res.status(401).json({ ok: false, error: 'Unauthorized' });
       const reminders = await sweepShiftReminders({ getShiftEndWindowMs, format12h });
       const closed = await sweepAutoClose(evaluateAttendancePresenceAndAutoClose);
-      return res.status(200).json({ ok: true, reminders, closed, at: new Date().toISOString() });
+      const push = await pushPending().catch(() => ({ sent: 0, error: true }));
+      return res.status(200).json({ ok: true, reminders, closed, push, at: new Date().toISOString() });
+    }
+
+    if (task.startsWith('push-')) {
+      if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Use POST.' });
+      const body = (typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body) || {};
+      if (task === 'push-pending') return res.status(200).json(await pendingForDevice(body));
+      if (task === 'push-unregister') return res.status(200).json(await unregisterDevice(body));
+      if (task === 'push-register') {
+        const me = await getSessionEmployee(body.sessionToken);
+        if (!me || me.isActive === false) return res.status(401).json({ ok: false, error: 'Please sign in again.' });
+        return res.status(200).json(await registerDevice(me.id, body));
+      }
     }
 
     if (task === 'backup') {

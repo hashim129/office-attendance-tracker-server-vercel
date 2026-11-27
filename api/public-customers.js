@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { isSupabaseConfigured, supabaseFetch } from './_supabase.js';
+import { pushNotificationRows } from './_push.js';
 import { setNoCacheHeaders } from './_cloud.js';
 import { isSiteDisabled } from './_session.js';
 
@@ -704,6 +705,7 @@ export default async function handler(req, res) {
             headers: { Prefer: 'resolution=merge-duplicates' },
             body: JSON.stringify(notifRows),
           });
+          await pushNotificationRows(notifRows);
         }
       } catch (syncErr) {
         console.warn('Non-fatal CRM customer sync warning for portal quote:', syncErr);
