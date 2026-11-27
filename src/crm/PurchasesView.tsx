@@ -277,8 +277,14 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
   const customers = crm.data.customers || [];
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   // Invoices a purchase can be made for: customer invoices (not cancelled) that this person can see.
-  const invoiceChoices = useMemo(() => (crm.data.invoices || []).filter((i) => (i.kind || 'customer') === 'customer' && i.status !== 'cancelled'), [crm.data.invoices]);
-  // Only the invoice number, customer name and who made it (each employee only gets their own or tagged invoices).
+  // Every employee's open customer invoices, with only the number, customer name and who made it (no amounts).
+  const invoiceChoices = useMemo(() => {
+    const dir = crm.data.invoiceDirectory;
+    if (dir && dir.length) return dir.map((i) => ({ ...i, queryCode: '' }));
+    return (crm.data.invoices || [])
+      .filter((i) => (i.kind || 'customer') === 'customer' && i.status !== 'cancelled')
+      .map((i) => ({ id: i.id, invoiceNo: i.invoiceNo, customerName: i.customerName, createdBy: i.createdBy, crmId: i.crmId || '', queryCode: i.queryCode || '', currency: i.currency }));
+  }, [crm.data.invoiceDirectory, crm.data.invoices]);
   const invoiceLabel = (i: { invoiceNo: string; customerName: string; createdBy: string }) => `${i.invoiceNo} · ${i.customerName} · by ${empName.get(i.createdBy) || 'Former employee'}`;
   const currencies = useMemo(() => allCurrencies(), []);
 
