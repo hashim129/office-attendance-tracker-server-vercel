@@ -73,6 +73,8 @@ public class MainActivity extends Activity {
     private GeolocationPermissions.Callback pendingGeo;
     private String pendingGeoOrigin;
     private boolean shimDone = false;
+    /** True while the app is on screen (then the page shows alerts itself, so pushes are not doubled). */
+    static volatile boolean inFront = false;
     private boolean showingOffline = false;
     private int notifyId = 100;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -415,6 +417,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        inFront = false;
         // tells the page it is in the background (alerts then go to the phone's notification bar); JavaScript keeps running
         web.onPause();
         CookieManager.getInstance().flush();
@@ -423,6 +426,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        inFront = true;
         web.onResume();
         // back in front: fetch the newest data at once
         web.evaluateJavascript("try{window.dispatchEvent(new Event('focus'))}catch(e){}", null);
@@ -536,6 +540,14 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void toast(String msg) { MainActivity.this.toast(msg); }
+
+        /** After sign-in: this phone gets the person's notifications even when the app is closed. */
+        @JavascriptInterface
+        public void registerPush(String sessionToken) { Push.register(MainActivity.this, sessionToken); }
+
+        /** On sign-out: stop notifications for that person on this phone. */
+        @JavascriptInterface
+        public void unregisterPush() { Push.unregister(MainActivity.this); }
 
         @JavascriptInterface
         public void retry() {

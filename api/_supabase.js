@@ -7,6 +7,8 @@ import { CHARACTER_IDS } from '../src/lib/universeCharacters.js';
  * Eliminates GitHub Gist rate limits, write mutex contention, and ephemeral file wiping.
  */
 
+import { pushNotificationRows } from './_push.js';
+
 export function getSupabaseConfig() {
   let url =
     process.env.SUPABASE_URL ||
@@ -639,7 +641,10 @@ async function sendLeaveAlerts(alerts) {
         rows.push({ id: `ntf-lv-${rand()}`, employee_id: leave.employeeId, category: 'reminder', ref_id: leave.id, message: `Your ${typeName(leave)} request (${leave.startDate} to ${leave.endDate}) was ${kind === 'approved' ? 'approved' : 'rejected'}${leave.reviewNote ? `: ${leave.reviewNote}` : '.'}`, created_at: at, read_at: null });
       }
     }
-    if (rows.length) await supabaseFetch('/crm_notifications', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify(rows) });
+    if (rows.length) {
+      await supabaseFetch('/crm_notifications', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify(rows) });
+      await pushNotificationRows(rows);
+    }
   } catch (e) {
     console.warn('[Leaves] Could not send alerts:', e?.message || e);
   }
@@ -709,7 +714,9 @@ export async function sweepShiftReminders({ getShiftEndWindowMs, format12h }) {
       out.push({ id: `rem-${rec.id}-${kind}`, employee_id: rec.employeeId, category: 'reminder', ref_id: rec.id, message, created_at: new Date().toISOString(), read_at: null });
     }
     if (out.length) {
-      await supabaseFetch('/crm_notifications?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates' }, body: JSON.stringify(out) });
+      // only rows that are really new come back, so a reminder is pushed to the phone once
+      const added = await supabaseFetch('/crm_notifications?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify(out) });
+      await pushNotificationRows(Array.isArray(added) ? added : []);
     }
     return out.length;
   } catch (e) {
@@ -753,7 +760,8 @@ export async function persistAutoClosures(originalRecords, evaluatedRecords) {
         const otDesc = otMins > 0 ? ` (Overtime counted separately in remarks: ${Math.floor(otMins / 60)}h ${otMins % 60}m)` : '';
         const msg = `🔒 You were punched out automatically at ${outLabel(ev.timeOut)} after the post-shift verification window${otDesc}.`;
         try {
-          await supabaseFetch('/crm_notifications?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates' }, body: JSON.stringify([{ id: `rem-${orig.id}-closed`, employee_id: orig.employeeId, category: 'reminder', ref_id: orig.id, message: msg, created_at: new Date().toISOString(), read_at: null }]) });
+          const added = await supabaseFetch('/crm_notifications?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify([{ id: `rem-${orig.id}-closed`, employee_id: orig.employeeId, category: 'reminder', ref_id: orig.id, message: msg, created_at: new Date().toISOString(), read_at: null }]) });
+          await pushNotificationRows(Array.isArray(added) ? added : []);
         } catch (_) {}
       }
       saved++;

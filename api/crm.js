@@ -3,6 +3,7 @@
 // Every call needs the signed-in person's token; what they may do is decided here from the database, never from the browser.
 import crypto from 'node:crypto';
 import { confirmOpenWork, isSupabaseConfigured, supabaseFetch, sweepShiftReminders } from './_supabase.js';
+import { pushNotificationRows } from './_push.js';
 import { format12h, getShiftEndWindowMs } from './_cloud.js';
 import { getSessionEmployee } from './_session.js';
 import { PaymentError, assertWithinTotal, buildPayments, cleanStored, receiptProblem, sumPayments } from './_invoicePayments.js';
@@ -625,7 +626,9 @@ async function notify(employeeIds, category, refId, message, exceptId) {
   const ids = [...new Set(employeeIds)].filter((e) => e && e !== exceptId);
   if (!ids.length) return;
   const at = nowIso();
-  await upsert('crm_notifications', ids.map((e) => ({ id: id('ntf'), employee_id: e, category, ref_id: refId, message, created_at: at, read_at: null })));
+  const rows = ids.map((e) => ({ id: id('ntf'), employee_id: e, category, ref_id: refId, message, created_at: at, read_at: null }));
+  await upsert('crm_notifications', rows);
+  await pushNotificationRows(rows); // phone notifications (never throws)
 }
 
 // Plain-language list of what changed in an edit, used in the "edited" notifications (kept short).
