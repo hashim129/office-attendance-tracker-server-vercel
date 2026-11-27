@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AckBadge, AfterCreateInfo, AfterCreatePrompt, guessPhone } from './AfterCreate';
-import { Plus, Trash2, Check, X, Receipt } from 'lucide-react';
+import { Plus, Trash2, Check, X, Receipt, Pencil } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmSale, SaleType, crmCall } from './crmApi';
@@ -98,6 +98,15 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
 
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  /** The saved coupon being edited (Admin / Accounts); null while generating a new one */
+  const [editing, setEditing] = useState<CrmSale | null>(null);
+  const closeForm = () => { setFormOpen(false); if (editing) { setEditing(null); setForm(emptyForm); } };
+  const startEdit = (s: CrmSale) => {
+    setEditing(s);
+    setForm({ saleType: s.saleType, otherType: s.otherType || '', customerName: s.customerName, vendorName: s.vendorName, packageDetails: s.packageDetails, paxName: s.paxName, currency: s.currency, costAmount: String(s.costAmount), saleAmount: String(s.saleAmount), queryCode: s.queryCode, psfProfit: String(s.psfProfit) });
+    setError('');
+    setFormOpen(true);
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'declined' | 'unpaid' | 'paid'>('all');
@@ -171,10 +180,11 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
     setBusy(true);
     setError('');
     try {
-      const r = await crmCall<{ sale: CrmSale }>('sale_save', { sale: form });
+      const r = await crmCall<{ sale: CrmSale }>('sale_save', { sale: editing ? { ...form, id: editing.id } : form });
       await crm.refresh();
-      if (r?.sale) setAfter(saleAfter(r.sale));
+      if (r?.sale && !editing) setAfter(saleAfter(r.sale));
       setFormOpen(false);
+      setEditing(null);
       setForm(emptyForm);
     } catch (err: any) {
       setError(err?.message || 'Could not save the coupon.');
@@ -406,6 +416,7 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
                       {canReview && s.status !== 'pending' && (
                         <button className={btnGhost} onClick={() => { setDeciding({ s, status: s.status === 'approved' ? 'declined' : 'approved' }); setRemarks(''); setError(''); }}>{s.status === 'approved' ? 'Decline instead' : 'Approve instead'}</button>
                       )}
+                      {canReview && <button className={btnGhost} onClick={() => startEdit(s)} data-edit-sale><Pencil className="w-3.5 h-3.5" /> Edit</button>}
                       <button className={btnGhost} onClick={() => setAfter(saleAfter(s))} data-card-whatsapp>WhatsApp / Accounts</button>
                       <AckBadge kind="sale" id={s.id} crm={crm} canRequest={false} />
                       {(isAdmin || (mineCoupon && s.status === 'pending')) && (
@@ -425,7 +436,7 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
         </div>
       )}
 
-      <Modal isOpen={formOpen} onClose={() => setFormOpen(false)} title="Generate Sales Coupon" subtitle="All fields are required" maxWidth="2xl">
+      <Modal isOpen={formOpen} onClose={closeForm} title={editing ? 'Edit Sales Coupon' : 'Generate Sales Coupon'} subtitle={editing ? `${editing.couponNo} · All fields are required` : 'All fields are required'} maxWidth="2xl">
         <form onSubmit={submit} className="space-y-4">
           <div>
             <span className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Sale type (choose one)</span>
@@ -469,8 +480,8 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
           )}
           {error && <ErrorNote message={error} />}
           <div className="flex justify-end gap-2">
-            <button type="button" className={btnGhost} onClick={() => setFormOpen(false)}>Cancel</button>
-            <button type="submit" className={btnPrimary} disabled={busy || !form.saleType}>{busy ? 'Sending…' : 'Send to Accounts'}</button>
+            <button type="button" className={btnGhost} onClick={closeForm}>Cancel</button>
+            <button type="submit" className={btnPrimary} disabled={busy || !form.saleType}>{busy ? (editing ? 'Saving…' : 'Sending…') : editing ? 'Save changes' : 'Send to Accounts'}</button>
           </div>
         </form>
       </Modal>
