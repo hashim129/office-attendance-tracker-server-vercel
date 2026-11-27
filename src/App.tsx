@@ -60,6 +60,7 @@ import { PhoneShell } from './components/mobile/PhoneShell';
 import { MyWeekCard } from './components/mobile/MyWeekCard';
 import { PhoneAppSettings } from './components/mobile/PhoneAppSettings';
 import { TaskBoard } from './components/mobile/TaskBoard';
+import { ThemePicker } from './components/common/ThemePicker';
 import { AnnouncementPopup } from './components/common/Announcements';
 import { updateWidget, haptic } from './lib/phoneApp';
 import { celebrate, once } from './lib/celebrate';
@@ -1380,6 +1381,7 @@ export default function App() {
                 setEmployees(list => list.map(employee => employee.id===currentUser.id ? {...employee,...profile} : employee));
               }} />}
               {activeTab === 'employee-profile' && currentUser && <PhoneAppSettings />}
+              {activeTab === 'employee-profile' && currentUser && <ThemePicker />}
 
               {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications' || activeTab === 'crm-payment-tree' || activeTab === 'crm-media' || activeTab === 'crm-profit') && (
                 <CrmPage section={activeTab} crm={crm} employees={statEmployees} currentUser={currentUser} onNavigate={setActiveTab} focusId={focusedRecordId} onClearFocus={() => setFocusedRecordId(undefined)} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
