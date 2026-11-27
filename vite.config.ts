@@ -1,11 +1,21 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, type Plugin} from 'vite';
+
+// One id per build. The running app compares it with /build.json to know a newer version was deployed.
+const BUILD_ID = (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 12) || String(Date.now());
+const buildInfo = (): Plugin => ({
+  name: 'build-info',
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'build.json', source: JSON.stringify({ id: BUILD_ID }) });
+  },
+});
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), buildInfo()],
+    define: { __APP_BUILD__: JSON.stringify(BUILD_ID) },
     build: { sourcemap: false }, // never publish readable source maps
     resolve: {
       alias: {

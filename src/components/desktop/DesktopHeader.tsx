@@ -92,6 +92,14 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
     document.addEventListener('mousedown', close); document.addEventListener('touchstart', close); document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('touchstart', close); document.removeEventListener('keydown', esc); };
   }, [showProfile]);
+  const notifRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!showNotifications) return;
+    const close = (e: MouseEvent | TouchEvent) => { if (notifRef.current && !notifRef.current.contains(e.target as Node)) setShowNotifications(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowNotifications(false); };
+    document.addEventListener('mousedown', close); document.addEventListener('touchstart', close); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('touchstart', close); document.removeEventListener('keydown', esc); };
+  }, [showNotifications]);
   const [confirmingWork, setConfirmingWork] = useState(false);
   const [workConfirmFeedback, setWorkConfirmFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const confirmWorking = async () => {
@@ -250,7 +258,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             <span>Offline</span>
           </span>
         )}
-        <div className="relative">
+        <div className="relative" ref={notifRef}>
           <button
             type="button"
             onClick={() => { setShowNotifications((v) => !v); setShowCrmBell(false); setShowProfile(false); }}
@@ -263,7 +271,11 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
             {(unreadCount + crmUnread) > 0 && <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">{Math.min(unreadCount + crmUnread, 99)}{unreadCount + crmUnread > 99 ? '+' : ''}</span>}
           </button>
           {showNotifications && (
-            <div className="absolute right-0 z-50 mt-2 w-[min(92vw,25rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+            <>
+            {/* phones: dimmed background + a sheet that slides up from the bottom (it never runs off the screen) */}
+            <div className="notif-backdrop fixed inset-0 z-40 bg-slate-950/50 sm:hidden" aria-hidden="true" onClick={() => setShowNotifications(false)} data-notif-backdrop />
+            <div data-notif-panel className="notif-sheet fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-hidden rounded-t-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:mt-2 sm:w-[25rem] sm:max-h-none sm:rounded-2xl">
+              <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-slate-300 dark:bg-slate-700 sm:hidden" aria-hidden="true" />
               <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Notification Center</h3>
@@ -304,6 +316,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
               </div>
               {onOpenCrmNotifications && <button onClick={() => { setShowNotifications(false); onOpenCrmNotifications(); }} className="w-full border-t border-slate-100 px-4 py-3 text-left text-xs font-bold text-blue-700 hover:bg-slate-50 dark:border-slate-800 dark:text-blue-300 dark:hover:bg-slate-800">Open notification history <span aria-hidden="true">→</span></button>}
             </div>
+            </>
           )}
         </div>
         {currentUser.role === 'admin' && (

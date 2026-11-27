@@ -19,6 +19,7 @@ import {
   Terminal,
   Zap,
   ExternalLink,
+  MapPin,
 } from 'lucide-react';
 import { OfficeSettings } from '../../types';
 import { Switch } from '../common/Switch';
@@ -701,6 +702,9 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
           </div>
         </div>
 
+        {/* Phone location check for punches */}
+        <PhoneLocationCard settings={formData} onChange={(patch) => { const updated = { ...formData, ...patch }; setFormData(updated); onUpdateSettings(updated); }} />
+
         {/* High security: Face scan punch (separate from the network lock) */}
         <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -1109,3 +1113,61 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
     </div>
   );
 };
+
+/** Admin card: record / check the phone's location when people punch from the phone app or a phone browser. */
+function PhoneLocationCard({ settings, onChange }: { settings: OfficeSettings; onChange: (patch: Partial<OfficeSettings>) => void }) {
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState('');
+  const hasPin = Number.isFinite(settings.officeLat) && Number.isFinite(settings.officeLng);
+  const useHere = () => {
+    if (!navigator.geolocation) { setMsg('This device cannot share its location.'); return; }
+    setBusy(true); setMsg('');
+    navigator.geolocation.getCurrentPosition(
+      (p) => { setBusy(false); onChange({ officeLat: Math.round(p.coords.latitude * 1e6) / 1e6, officeLng: Math.round(p.coords.longitude * 1e6) / 1e6 }); setMsg(`Office pin saved (accuracy about ${Math.round(p.coords.accuracy)} m).`); },
+      () => { setBusy(false); setMsg('Location permission was refused on this device.'); },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+    );
+  };
+  const num = (v: string) => (v.trim() === '' ? undefined : Number(v));
+  return (
+    <div className="bg-white dark:bg-slate-900 rounded-xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4" data-location-card>
+      <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+        <MapPin className="w-4 h-4 text-rose-600" />
+        <span>Phone Location Check</span>
+        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300">Phones only</span>
+      </div>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        When someone punches in or out from the phone app (or a phone browser), the phone's location is taken first and saved with the punch. You can switch this on for everyone here, or for chosen people in the Employees page (Edit → Check location when punching from a phone). Computers are not affected.
+      </p>
+      <div className="flex items-center justify-between gap-4 p-4 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/80 dark:border-rose-900/40">
+        <div className="text-xs min-w-0">
+          <span className="font-semibold text-slate-900 dark:text-slate-100 block">Check location for every phone punch</span>
+          <span className="text-slate-500 dark:text-slate-400 text-[11px]">If location is turned off or refused on the phone, the punch is not allowed.</span>
+        </div>
+        <Switch tone="violet" label="Check location for every phone punch" checked={settings.locationCheckEnabled === true} onChange={(v) => onChange({ locationCheckEnabled: v })} />
+      </div>
+      <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 space-y-3">
+        <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">Office pin (optional)</p>
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">With a pin, phone punches farther than the radius are refused, unless the person is allowed Work From Home (then it is saved as outside the office). Without a pin the location is only recorded.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <label className="text-[11px] text-slate-600 dark:text-slate-300 space-y-1">Latitude
+            <input className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-xs" inputMode="decimal" value={settings.officeLat ?? ''} onChange={(e) => onChange({ officeLat: num(e.target.value) })} data-office-lat />
+          </label>
+          <label className="text-[11px] text-slate-600 dark:text-slate-300 space-y-1">Longitude
+            <input className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-xs" inputMode="decimal" value={settings.officeLng ?? ''} onChange={(e) => onChange({ officeLng: num(e.target.value) })} data-office-lng />
+          </label>
+          <label className="text-[11px] text-slate-600 dark:text-slate-300 space-y-1">Allowed radius (metres)
+            <input className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1.5 text-xs" type="number" min={50} max={5000} value={settings.officeRadiusM ?? 300} onChange={(e) => onChange({ officeRadiusM: Math.max(50, Math.min(5000, Number(e.target.value) || 300)) })} data-office-radius />
+          </label>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={useHere} disabled={busy} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer disabled:opacity-60">{busy ? 'Finding location…' : 'Use this device\'s location as the office'}</button>
+          {hasPin && <a className="text-xs font-semibold text-blue-600 underline" href={`https://www.google.com/maps?q=${settings.officeLat},${settings.officeLng}`} target="_blank" rel="noreferrer">See pin on map</a>}
+          {hasPin && <button type="button" className="text-xs font-semibold text-slate-500 hover:text-red-600 cursor-pointer" onClick={() => onChange({ officeLat: undefined, officeLng: undefined })}>Remove pin</button>}
+        </div>
+        {msg && <p className="text-[11px] text-slate-600 dark:text-slate-300">{msg}</p>}
+      </div>
+    </div>
+  );
+}
+

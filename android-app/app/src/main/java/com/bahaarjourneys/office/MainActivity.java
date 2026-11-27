@@ -26,6 +26,7 @@ import android.util.Base64;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
 import android.webkit.MimeTypeMap;
 import android.webkit.PermissionRequest;
@@ -41,7 +42,11 @@ import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -55,7 +60,9 @@ public class MainActivity extends Activity {
 
     static final String HOME = "https://office-attendance-tracker-server-ve.vercel.app/";
     static final String HOST = "office-attendance-tracker-server-ve.vercel.app";
-    static final String CHANNEL = "office-alerts";
+    // v2: louder alerts with a vibration pattern (Android keeps the first settings of a channel, so it has a new id)
+    static final String CHANNEL = "office-alerts-v2";
+    static final String RELEASES = "https://api.github.com/repos/hashim129/office-attendance-tracker-server-vercel/releases/latest";
     private static final int REQ_FILE = 41;
     private static final int REQ_PERMS = 42;
 
@@ -63,6 +70,9 @@ public class MainActivity extends Activity {
     private ProgressBar bar;
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingWebPermission;
+    private GeolocationPermissions.Callback pendingGeo;
+    private String pendingGeoOrigin;
+    private boolean shimDone = false;
     private boolean showingOffline = false;
     private int notifyId = 100;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -98,6 +108,12 @@ public class MainActivity extends Activity {
         s.setJavaScriptCanOpenWindowsAutomatically(true);
         s.setSupportMultipleWindows(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
+        s.setGeolocationEnabled(true);
+        s.setTextZoom(100); // the phone's large-font setting must not break the layout
+        s.setOffscreenPreRaster(true); // smoother scrolling: the page is drawn ahead of time
+        web.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        web.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        if (Build.VERSION.SDK_INT >= 26) web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
         s.setUserAgentString(s.getUserAgentString() + " BahaarOfficeApp/" + BuildConfigVersion.NAME);
 
         CookieManager cm = CookieManager.getInstance();
@@ -131,7 +147,54 @@ public class MainActivity extends Activity {
         askStartupPermissions();
         if (state != null) web.restoreState(state);
         else web.loadUrl(HOME);
+        checkForAppUpdate();
     }
+
+    /** A newer phone app on the download page? Offer it once per version (the office system itself is always live). */
+    private void checkForAppUpdate() {
+        new Thread(() -> {
+            try {
+                String mine = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                HttpURLConnection c = (HttpURLConnection) new URL(RELEASES).openConnection();
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(8000);
+                c.setRequestProperty("Accept", "application/vnd.github+json");
+                StringBuilder sb = new StringBuilder();
+                try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()))) {
+                    String line;
+                    while ((line = r.readLine()) != null) sb.append(line);
+                }
+                org.json.JSONObject j = new org.json.JSONObject(sb.toString());
+                String tag = j.optString("tag_name", "").replace("app-v", "");
+                String url = "";
+                org.json.JSONArray assets = j.optJSONArray("assets");
+                if (assets != null && assets.length() > 0) url = assets.getJSONObject(0).optString("browser_download_url", "");
+                if (tag.isEmpty() || url.isEmpty() || !newer(tag, mine)) return;
+                android.content.SharedPreferences prefs = getSharedPreferences("app", MODE_PRIVATE);
+                if (tag.equals(prefs.getString("offered", ""))) return;
+                prefs.edit().putString("offered", tag).apply();
+                final String link = url, ver = tag;
+                main.post(() -> new android.app.AlertDialog.Builder(this)
+                        .setTitle("New app version " + ver)
+                        .setMessage("A newer Bahaar Office app is ready (faster, with the latest fixes). Download and install it now?")
+                        .setPositiveButton("Update", (d, w) -> openExternal(Uri.parse(link)))
+                        .setNegativeButton("Later", null)
+                        .show());
+            } catch (Exception ignored) { /* offline: try next time */ }
+        }).start();
+    }
+
+    /** "1.0.12" vs "1.0.9" compared number by number. */
+    static boolean newer(String a, String b) {
+        String[] x = a.split("\\."), y = (b == null ? "0" : b).split("\\.");
+        for (int i = 0; i < Math.max(x.length, y.length); i++) {
+            int p = i < x.length ? parse(x[i]) : 0, q = i < y.length ? parse(y[i]) : 0;
+            if (p != q) return p > q;
+        }
+        return false;
+    }
+
+    private static int parse(String v) { try { return Integer.parseInt(v.replaceAll("[^0-9]", "")); } catch (Exception e) { return 0; } }
 
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
@@ -158,8 +221,15 @@ public class MainActivity extends Activity {
             NotificationChannel ch = new NotificationChannel(CHANNEL, "Office alerts", NotificationManager.IMPORTANCE_HIGH);
             ch.setDescription("Punch reminders, follow-ups, invoices and team updates");
             ch.enableVibration(true);
+            ch.setVibrationPattern(new long[]{0, 120, 60, 120, 60, 220});
+            ch.enableLights(true);
+            ch.setLightColor(Color.rgb(37, 99, 235));
+            ch.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
             NotificationManager nm = getSystemService(NotificationManager.class);
-            if (nm != null) nm.createNotificationChannel(ch);
+            if (nm != null) {
+                nm.deleteNotificationChannel("office-alerts"); // the first, quieter channel
+                nm.createNotificationChannel(ch);
+            }
         }
     }
 
@@ -221,13 +291,14 @@ public class MainActivity extends Activity {
         @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
             bar.setVisibility(View.VISIBLE);
+            shimDone = false;
             if (!url.startsWith("file:")) showingOffline = false;
         }
 
         @Override
         public void onPageFinished(WebView view, String url) {
             bar.setVisibility(View.GONE);
-            if (!url.startsWith("file:")) view.evaluateJavascript(SHIM, null);
+            if (!url.startsWith("file:")) { view.evaluateJavascript(SHIM, null); shimDone = true; }
             CookieManager.getInstance().flush();
         }
 
@@ -242,7 +313,7 @@ public class MainActivity extends Activity {
         public void onProgressChanged(WebView view, int p) {
             bar.setProgress(p);
             if (p >= 100) bar.setVisibility(View.GONE);
-            else if (p > 10) view.evaluateJavascript(SHIM, null);
+            else if (p > 10 && !shimDone) { view.evaluateJavascript(SHIM, null); shimDone = true; }
         }
 
         @Override
@@ -259,6 +330,19 @@ public class MainActivity extends Activity {
                     requestPermissions(need.toArray(new String[0]), REQ_PERMS + 1);
                 }
             });
+        }
+
+        @Override
+        public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+            if (!origin.contains(HOST)) { callback.invoke(origin, false, false); return; }
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                callback.invoke(origin, true, false);
+                return;
+            }
+            pendingGeo = callback;
+            pendingGeoOrigin = origin;
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_PERMS + 2);
         }
 
         @Override
@@ -305,6 +389,14 @@ public class MainActivity extends Activity {
             else { pendingWebPermission.deny(); toast("Camera permission is needed for face scan."); }
             pendingWebPermission = null;
         }
+        if (code == REQ_PERMS + 2 && pendingGeo != null) {
+            boolean ok = false;
+            for (int r : results) ok |= r == PackageManager.PERMISSION_GRANTED;
+            pendingGeo.invoke(pendingGeoOrigin, ok, false);
+            if (!ok) toast("Location permission is needed to punch when your office checks location.");
+            pendingGeo = null;
+            pendingGeoOrigin = null;
+        }
     }
 
     @Override
@@ -323,7 +415,17 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        // tells the page it is in the background (alerts then go to the phone's notification bar); JavaScript keeps running
+        web.onPause();
         CookieManager.getInstance().flush();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        web.onResume();
+        // back in front: fetch the newest data at once
+        web.evaluateJavascript("try{window.dispatchEvent(new Event('focus'))}catch(e){}", null);
     }
 
     /** Saves a file into the phone's Downloads folder and returns a link that other apps can open. */
@@ -418,12 +520,16 @@ public class MainActivity extends Activity {
             PendingIntent pi = PendingIntent.getActivity(MainActivity.this, 0, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
             Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(MainActivity.this, CHANNEL) : new Notification.Builder(MainActivity.this);
             b.setSmallIcon(R.drawable.ic_notify)
+                    .setColor(Color.rgb(37, 99, 235))
+                    .setCategory(Notification.CATEGORY_MESSAGE)
+                    .setWhen(System.currentTimeMillis())
+                    .setShowWhen(true)
                     .setContentTitle(title)
                     .setContentText(body)
                     .setStyle(new Notification.BigTextStyle().bigText(body))
                     .setAutoCancel(true)
                     .setContentIntent(pi);
-            if (Build.VERSION.SDK_INT < 26) b.setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL);
+            if (Build.VERSION.SDK_INT < 26) b.setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL).setVibrate(new long[]{0, 120, 60, 120, 60, 220});
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(notifyId++, b.build());
         }
@@ -440,6 +546,8 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public String version() { return BuildConfigVersion.NAME; }
+        public String version() {
+            try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { return BuildConfigVersion.NAME; }
+        }
     }
 }

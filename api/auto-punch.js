@@ -151,7 +151,7 @@ export default async function handler(req, res) {
       }
 
       // The administrator requires everyone to enroll their face first (done through their own login on the website).
-      if (settings.faceEnrollRequired) {
+      if (settings.faceEnrollRequired || emp.faceEnrollRequired) {
         const tpl = await supabaseFetch(`/face_templates?employee_id=eq.${encodeURIComponent(emp.id)}&select=employee_id`);
         if (!tpl?.[0]) {
           return res.status(403).json({
