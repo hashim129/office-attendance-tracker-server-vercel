@@ -1321,6 +1321,10 @@ export default async function handler(req, res) {
     if (String(action).startsWith('sale_') && !canSales) throw forbidden('You do not have access to Sales. Ask an administrator.');
     if (action === 'sale_save') {
       const x = body.sale || {};
+      // Editing a saved coupon is for Admin / CEO / Accounts only.
+      if (x.id && !isAdmin && me.role !== 'accounts') throw forbidden('Only Accounts or an administrator can edit a sales coupon.');
+      const existing = x.id ? await getOne('crm_sales', x.id) : null;
+      if (x.id && !existing) throw notFound('Coupon not found.');
       const saleType = String(x.saleType || '');
       if (!SALE_TYPES[saleType]) throw bad('Choose a sale type.');
       const otherType = saleType === 'others' ? str(x.otherType, 80, { required: true, name: 'Sale type (Others)' }) : '';
@@ -1336,16 +1340,31 @@ export default async function handler(req, res) {
       const saleAmount = money(x.saleAmount, 'Sale amount');
       const psfProfit = money(x.psfProfit, 'PSF / Profit');
       if (costAmount < 0 || saleAmount < 0) throw bad('Cost and sale amounts cannot be negative.');
-      const couponNo = await supabaseFetch('/rpc/crm_next_sale_no', { method: 'POST', body: '{}' });
       const at = nowIso();
-      const row = {
-        id: id('sale'), coupon_no: String(couponNo), created_by: me.id, sale_type: saleType, other_type: otherType,
+      const fields = {
+        sale_type: saleType, other_type: otherType,
         customer_name: str(x.customerName, 160, { required: true, name: 'Customer name' }),
         vendor_name: str(x.vendorName, 160, { required: true, name: 'Vendor name' }),
         package_details: str(x.packageDetails, 2000, { required: true, name: 'Package details' }),
         pax_name: str(x.paxName, 400, { required: true, name: 'PAX name' }),
         currency, cost_amount: costAmount, sale_amount: saleAmount,
         query_code: str(x.queryCode, 80, { required: true, name: 'Query code' }), psf_profit: psfProfit,
+      };
+      if (existing) {
+        // An edit keeps the coupon number, creator, approval and payment status.
+        const row = { ...existing, ...fields, updated_at: at };
+        await upsert('crm_sales', row);
+        const what = changedBits([
+          ['customer', existing.customer_name, row.customer_name], ['vendor', existing.vendor_name, row.vendor_name], ['query code', existing.query_code, row.query_code],
+          ['currency', existing.currency, currency], ['cost', num(existing.cost_amount), costAmount], ['sale', num(existing.sale_amount), saleAmount], ['profit', num(existing.psf_profit), psfProfit],
+          ['PAX', existing.pax_name, row.pax_name], ['package', existing.package_details, row.package_details], ['type', existing.other_type || SALE_TYPES[existing.sale_type], otherType || SALE_TYPES[saleType]],
+        ]);
+        await notify([...(await salesStaffIds()), existing.created_by], 'sale', row.id, `${me.name || 'Someone'} edited sales coupon ${row.coupon_no}${what ? ` (${what})` : ' (details updated)'}.`, me.id);
+        return res.status(200).json({ ok: true, sale: mapSale(row) });
+      }
+      const couponNo = await supabaseFetch('/rpc/crm_next_sale_no', { method: 'POST', body: '{}' });
+      const row = {
+        id: id('sale'), coupon_no: String(couponNo), created_by: me.id, ...fields,
         status: 'pending', payment_status: 'unpaid', review_remarks: '', reviewed_by: null, reviewed_at: null, created_at: at, updated_at: at,
       };
       await upsert('crm_sales', row);
@@ -1514,9 +1533,9 @@ export default async function handler(req, res) {
         return { title: str(sec.title, 160, { name: 'Section title' }), key: keyOf(sec.key, 'sec'), locked: Boolean(sec.locked), lines };
       }).filter((sec) => sec.title || sec.lines.length);
       if (!priced) throw bad('Add at least one priced line to the invoice.');
-      // Save & lock: lines saved as locked cannot be changed or removed by the person who made the invoice, or by Accounts; new lines can always be added.
-      // Admin / CEO may unlock a section or line (and then edit it); anything they leave locked stays locked.
-      if (existing && !isAdmin) {
+      // Save & lock: lines saved as locked cannot be changed or removed by the person who made the invoice; new lines can always be added.
+      // Admin / CEO / Accounts may unlock a section or line (and then edit it).
+      if (existing && !isAdmin && me.role !== 'accounts') {
         const sig = (l) => JSON.stringify([l.description, Boolean(l.note), l.unitPrice ?? null, l.units ?? null, l.currency ?? null, l.rate ?? null, Boolean(l.taxable), l.pax ? Object.keys(l.pax).sort().map((k) => `${k}=${l.pax[k]}`).join('&') : null]);
         const newLineByKey = new Map();
         sections.forEach((sec) => sec.lines.forEach((l) => newLineByKey.set(l.key, { sec, l })));
@@ -1524,13 +1543,13 @@ export default async function handler(req, res) {
         for (const ps of Array.isArray(existing.sections) ? existing.sections : []) {
           if (ps.locked) {
             const ns = ps.key && newSecByKey.get(ps.key);
-            if (!ns || ns.title !== ps.title) throw bad('A saved & locked section cannot be changed or removed. Ask an administrator to unlock it.');
+            if (!ns || ns.title !== ps.title) throw bad('A saved & locked section cannot be changed or removed. Ask Accounts or an administrator to unlock it.');
             ns.locked = true;
           }
           for (const pl of ps.lines || []) {
             if (!pl.locked) continue;
             const f = pl.key && newLineByKey.get(pl.key);
-            if (!f || f.sec.key !== ps.key || sig(f.l) !== sig(pl)) throw bad('A saved & locked line cannot be changed or removed. You can add new lines, or ask an administrator to unlock it.');
+            if (!f || f.sec.key !== ps.key || sig(f.l) !== sig(pl)) throw bad('A saved & locked line cannot be changed or removed. You can add new lines, or ask Accounts or an administrator to unlock it.');
             f.l.locked = true;
           }
         }
@@ -1910,7 +1929,6 @@ export default async function handler(req, res) {
       const status = String(body.status || '');
       if (!['unpaid', 'paid', 'cancelled'].includes(status)) throw bad('Choose Unpaid, Paid or Cancelled.');
       const staff = isAdmin || me.role === 'accounts';
-      if (me.role === 'accounts' && !isAdmin && status !== 'paid') throw forbidden('Accounts Officer can only mark an invoice as received.');
       const creatorCancels = existing.created_by === me.id && status === 'cancelled' && existing.status === 'unpaid';
       // the person who made a customer invoice can also mark it Received (money came in)
       const creatorReceives = existing.created_by === me.id && existing.kind !== 'vendor' && status === 'paid' && existing.status === 'unpaid';
