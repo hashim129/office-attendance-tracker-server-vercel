@@ -13,6 +13,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.media.AudioAttributes;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -536,6 +539,28 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT < 26) b.setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL).setVibrate(new long[]{0, 120, 60, 120, 60, 220});
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm != null) nm.notify(notifyId++, b.build());
+        }
+
+        /** Alert sound while the app is open: the phone's own notification sound, at the notification volume. */
+        @JavascriptInterface
+        public void playSound(String kind) {
+            main.post(() -> {
+                try {
+                    Uri uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+                    if (uri == null) return;
+                    Ringtone r = RingtoneManager.getRingtone(getApplicationContext(), uri);
+                    if (r == null) return;
+                    if (Build.VERSION.SDK_INT >= 21) {
+                        r.setAudioAttributes(new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .build());
+                    }
+                    r.play();
+                } catch (Exception ignored) {
+                    // a sound problem never breaks the app
+                }
+            });
         }
 
         @JavascriptInterface

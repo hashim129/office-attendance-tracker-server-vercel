@@ -4,14 +4,24 @@
  */
 const OFF_KEY = 'crm_sound_off';
 let ctx: AudioContext | null = null;
-let unlocked = false;
+let unlocked = false; // set after the first touch/click/key press
 
 const getCtx = (): AudioContext | null => {
   try {
     const AC = window.AudioContext || (window as any).webkitAudioContext;
     if (!AC) return null;
-    if (!ctx) ctx = new AC();
+    if (!ctx || ctx.state === 'closed') ctx = new AC();
     return ctx;
+  } catch {
+    return null;
+  }
+};
+
+/** The phone app plays the phone's own notification sound (uses the notification volume, not media volume). */
+const phoneApp = (): any => {
+  try {
+    const b = (window as any).BahaarApp;
+    return b && typeof b.playSound === 'function' ? b : null;
   } catch {
     return null;
   }
@@ -33,20 +43,23 @@ export const setSoundOn = (on: boolean) => {
   }
 };
 
-/** Call once at start-up. */
+/** Call once at start-up. Every tap/click/key press keeps sound ready (Windows app, browsers, phones). */
+let unlockInstalled = false;
 export const installSoundUnlock = () => {
+  if (unlockInstalled) return;
+  unlockInstalled = true;
   const unlock = () => {
     const c = getCtx();
-    if (c && c.state === 'suspended') void c.resume();
+    if (!c) return;
     unlocked = true;
-    window.removeEventListener('pointerdown', unlock);
-    window.removeEventListener('keydown', unlock);
+    if (c.state !== 'running') void c.resume().catch(() => undefined);
   };
-  window.addEventListener('pointerdown', unlock);
-  window.addEventListener('keydown', unlock);
+  ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'].forEach((ev) => window.addEventListener(ev, unlock, { passive: true, capture: true }));
+  // coming back to the window/app: wake the sound up again
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && unlocked) unlock(); });
 };
 
-const tone = (c: AudioContext, freq: number, start: number, dur: number, vol = 0.18) => {
+const tone = (c: AudioContext, freq: number, start: number, dur: number, vol = 0.4) => {
   const osc = c.createOscillator();
   const gain = c.createGain();
   osc.type = 'sine';
@@ -62,11 +75,15 @@ const tone = (c: AudioContext, freq: number, start: number, dur: number, vol = 0
 /** 'notice' = soft two-note chime; 'warning' = three quick notes (deadlines, punch-out reminders). */
 export const playAlertSound = (kind: 'notice' | 'warning' = 'notice') => {
   if (!isSoundOn()) return;
+  const app = phoneApp();
+  if (app) {
+    try { app.playSound(kind); return; } catch { /* fall back to the page sound */ }
+  }
   const c = getCtx();
-  if (!c || !unlocked) return;
+  if (!c) return;
   try {
-    if (c.state === 'suspended') void c.resume();
-    const t = c.currentTime + 0.01;
+    if (c.state !== 'running') void c.resume().catch(() => undefined);
+    const t = c.currentTime + 0.05;
     if (kind === 'warning') {
       tone(c, 988, t, 0.18);
       tone(c, 988, t + 0.2, 0.18);
