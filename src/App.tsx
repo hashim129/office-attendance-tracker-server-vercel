@@ -7,8 +7,10 @@ import {
   Employee,
   LeaveRequest,
   OfficeSettings,
+  PunchLocation,
   ShiftSchedule,
 } from './types';
+import { checkPunchLocation, needsPhoneLocation } from './lib/phoneLocation';
 import {
   clearSession,
   CloudSyncState,
@@ -64,6 +66,7 @@ import { PageHero } from './components/common/PageHero';
 import { DirectivePopup } from './components/common/DirectivePopup';
 import { LiveAlerts } from './crm/LiveAlerts';
 import { AccountsAckReminder } from './crm/AfterCreate';
+import { AppUpdateWatcher } from './components/common/AppUpdateWatcher';
 import {pageEnabled} from './lib/pageAccess';
 const EmployeeUniverse = lazy(() => import('./components/desktop/EmployeeUniverse').then(m=>({default:m.EmployeeUniverse})));
 const SuperAdminTab = lazy(() => import('./components/desktop/SuperAdminTab').then(m=>({default:m.SuperAdminTab})));
@@ -131,6 +134,7 @@ export default function App() {
   const [siteDisabled, setSiteDisabled] = useState<boolean>(() => localStorage.getItem('office_site_disabled_v1') === 'true');
   // High-security face scan punch (admin turns it on in Office Settings; off by default)
   const [faceEnrolledIds, setFaceEnrolledIds] = useState<string[]>([]);
+  const [locatingPunch, setLocatingPunch] = useState(false);
   const [faceStatusLoaded, setFaceStatusLoaded] = useState(false);
   const [enrollSelf, setEnrollSelf] = useState<{ employeeId: string; run: (() => void) | null } | null>(null);
   const enrollPromptShownRef = useRef<Set<string>>(new Set());
@@ -314,6 +318,18 @@ export default function App() {
         });
     }, 6000);
 
+    // Coming back to the app (phone app resumed, window focused): fetch the latest straight away.
+    let lastResumeSync = 0;
+    const syncOnResume = () => {
+      if (!bootFinished || document.visibilityState !== 'visible' || Date.now() - lastResumeSync < 3000) return;
+      lastResumeSync = Date.now();
+      if (hasPendingCloudWrites()) { void flushPendingCloudWrites({ respectCooldown: true }); return; }
+      void syncDatabaseFromServer(false).then((updated) => { if (updated) refreshFromLocal(true); }).catch(() => {});
+    };
+    document.addEventListener('visibilitychange', syncOnResume);
+    window.addEventListener('focus', syncOnResume);
+    window.addEventListener('online', syncOnResume);
+
     const ipInterval = setInterval(() => {
       void detectClientNetwork().then(handleNetworkDetection);
     }, 30000);
@@ -329,6 +345,9 @@ export default function App() {
 
     return () => {
       clearInterval(syncInterval);
+      document.removeEventListener('visibilitychange', syncOnResume);
+      window.removeEventListener('focus', syncOnResume);
+      window.removeEventListener('online', syncOnResume);
       clearInterval(ipInterval);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       registerCloudSyncListener(null);
@@ -498,7 +517,7 @@ export default function App() {
   // -------------------------------------------------------------
   // Attendance Clock In / Out / Break Engine
   // -------------------------------------------------------------
-  const handleTimeIn = (employeeId: string, notes?: string) => {
+  const handleTimeIn = (employeeId: string, notes?: string, loc?: PunchLocation) => {
     const todayStr = getTodayDateString();
     const dayName = getDayName(todayStr);
     const nowTime = getCurrentTimeString();
@@ -557,6 +576,7 @@ export default function App() {
         recordUpdatedAt: nowIso,
         lastEditedByRole: actorRole,
         actorAction: 'time_in',
+        ...(loc ? { punchLocations: { ...(nextRecords[existingIdx].punchLocations || {}), in: loc } } : {}),
       };
       nextRecords[existingIdx] = changedRecord;
     } else {
@@ -580,6 +600,7 @@ export default function App() {
         recordUpdatedAt: nowIso,
         lastEditedByRole: actorRole,
         actorAction: 'time_in',
+        ...(loc ? { punchLocations: { in: loc } } : {}),
       };
       nextRecords = [changedRecord, ...nextRecords];
     }
@@ -615,7 +636,7 @@ export default function App() {
     return false;
   };
 
-  const handleTimeOut = (employeeId: string, notes?: string) => {
+  const handleTimeOut = (employeeId: string, notes?: string, loc?: PunchLocation) => {
     const todayStr = getTodayDateString();
     const nowTime = getCurrentTimeString();
     const emp = employees.find((e) => e.id === employeeId);
@@ -669,6 +690,7 @@ export default function App() {
       recordUpdatedAt: nowIso,
       lastEditedByRole: actorRole,
       actorAction: 'time_out',
+      ...(loc ? { punchLocations: { ...(currentRec.punchLocations || {}), out: loc } } : {}),
     };
 
     const nextRecords = [...currentRecords];
@@ -786,13 +808,21 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (settings.faceScanPunchEnabled || settings.faceEnrollRequired || currentUser?.role === 'admin') refreshFaceStatus();
-  }, [settings.faceScanPunchEnabled, settings.faceEnrollRequired, currentUser?.id, currentUser?.role]);
+    if (settings.faceScanPunchEnabled || settings.faceEnrollRequired || currentUser?.faceEnrollRequired || currentUser?.role === 'admin') refreshFaceStatus();
+  }, [settings.faceScanPunchEnabled, settings.faceEnrollRequired, currentUser?.faceEnrollRequired, currentUser?.id, currentUser?.role]);
+
+  /** Face set-up is required for everyone (office setting) or for this person (Employees → Edit). */
+  const faceRequiredFor = (employeeId: string) =>
+    Boolean(settings.faceEnrollRequired || employees.find((e) => e.id === employeeId)?.faceEnrollRequired);
+  // Per-person rule: they cannot use the app until their face is set up (shown right after signing in).
+  const mustEnrollNow = Boolean(
+    currentUser?.faceEnrollRequired && appMode !== 'kiosk' && faceStatusLoaded && !faceEnrolledIds.includes(currentUser.id),
+  );
 
   // When the admin requires every person to enroll their face, ask once after sign-in (and again at any punch).
   useEffect(() => {
     if (
-      settings.faceEnrollRequired &&
+      (settings.faceEnrollRequired || currentUser?.faceEnrollRequired) &&
       faceStatusLoaded &&
       currentUser?.id &&
       appMode !== 'kiosk' &&
@@ -802,10 +832,10 @@ export default function App() {
       enrollPromptShownRef.current.add(currentUser.id);
       setEnrollSelf({ employeeId: currentUser.id, run: null });
     }
-  }, [settings.faceEnrollRequired, faceStatusLoaded, faceEnrolledIds, currentUser?.id, appMode]);
+  }, [settings.faceEnrollRequired, currentUser?.faceEnrollRequired, faceStatusLoaded, faceEnrolledIds, currentUser?.id, appMode]);
 
   const gatePunch = (employeeId: string, run: () => void) => {
-    if (settings.faceEnrollRequired && !faceEnrolledIds.includes(employeeId)) {
+    if (faceRequiredFor(employeeId) && !faceEnrolledIds.includes(employeeId)) {
       if (appMode !== 'kiosk' && currentUserRef.current?.id === employeeId) {
         setEnrollSelf({ employeeId, run });
       } else {
@@ -829,8 +859,19 @@ export default function App() {
     run();
   };
 
-  const handleGatedTimeIn = (id: string, notes?: string) => gatePunch(id, () => handleTimeIn(id, notes));
-  const handleGatedTimeOut = (id: string, notes?: string) => gatePunch(id, () => handleTimeOut(id, notes));
+  // Phone location check (admin switch): take the phone's location first, then the usual face / punch steps.
+  const withPhoneLocation = (employeeId: string, run: (loc?: PunchLocation) => void) => {
+    const emp = employees.find((e) => e.id === employeeId);
+    if (appMode === 'kiosk' || !emp || !needsPhoneLocation(settings, emp)) { run(); return; }
+    setLocatingPunch(true);
+    void checkPunchLocation(settings, emp).then((verdict) => {
+      setLocatingPunch(false);
+      if (!verdict.ok) { alert(verdict.message); return; }
+      run(verdict.loc);
+    });
+  };
+  const handleGatedTimeIn = (id: string, notes?: string) => withPhoneLocation(id, (loc) => gatePunch(id, () => handleTimeIn(id, notes, loc)));
+  const handleGatedTimeOut = (id: string, notes?: string) => withPhoneLocation(id, (loc) => gatePunch(id, () => handleTimeOut(id, notes, loc)));
   const handleGatedStartBreak = (id: string, type: 'lunch' | 'coffee' | 'short_break') =>
     gatePunch(id, () => handleStartBreak(id, type));
   const handleGatedEndBreak = (id: string) => gatePunch(id, () => handleEndBreak(id));
@@ -1094,6 +1135,7 @@ export default function App() {
       className={`${betaEnabled ? 'min-h-screen' : 'min-h-[calc(100vh-2.5rem)]'} bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-all duration-200`}
     >
       {!betaEnabled && <WindowsTitleBar isDark={isDark} onToggleTheme={handleToggleTheme} serverHost={settings.serverHostName} serverPort={settings.serverPort} />}
+      <AppUpdateWatcher />
       {/* Screen Mode Render */}
       {appMode === 'kiosk' ? (
         <Suspense fallback={<TabLoader />}>
@@ -1406,6 +1448,24 @@ export default function App() {
             run();
           }}
         /></Suspense>
+      )}
+
+      {/* Per-person rule: nothing else can be used until the face is set up */}
+      {mustEnrollNow && !enrollSelf && (
+        <div className="fixed inset-0 z-[120] bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" data-face-gate>
+          <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-slate-900 p-6 text-center space-y-4 shadow-2xl">
+            <div className="mx-auto w-16 h-16 rounded-2xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center text-3xl">🙂</div>
+            <h2 className="text-lg font-black text-slate-900 dark:text-slate-100">Set up your face to continue</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-300">Your administrator requires a face set-up for your account before you can use the office app. It takes a few seconds, once.</p>
+            <button type="button" className="w-full rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 cursor-pointer" onClick={() => currentUser && setEnrollSelf({ employeeId: currentUser.id, run: null })} data-face-gate-start>Set up my face</button>
+            <button type="button" className="w-full rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold py-2.5 cursor-pointer" onClick={handleLogout}>Sign out</button>
+          </div>
+        </div>
+      )}
+      {locatingPunch && (
+        <div className="fixed inset-x-0 top-20 z-[110] flex justify-center pointer-events-none" role="status">
+          <div className="rounded-full bg-slate-900/90 text-white text-sm font-semibold px-4 py-2 shadow-xl inline-flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" /> Checking your location…</div>
+        </div>
       )}
 
       {/* Required face set-up through the person's own login */}

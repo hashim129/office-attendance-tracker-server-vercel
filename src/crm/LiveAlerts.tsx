@@ -53,6 +53,8 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
     saveSeen(seen.current);
     setToasts((list) => [...list.filter((x) => x.key !== t.key), t].slice(-4));
     playAlertSound(t.kind === 'notice' ? 'notice' : 'warning');
+    // phones (and the phone app) also buzz
+    try { if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(t.urgent || t.kind !== 'notice' ? [120, 60, 120, 60, 220] : [90, 50, 140]); } catch { /* optional */ }
     try {
       if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') new Notification(t.kind === 'deadline' ? 'Deadline' : t.kind === 'reminder' ? 'Reminder' : 'New notification', { body: t.text, tag: t.key });
     } catch {
@@ -117,27 +119,53 @@ export const LiveAlerts: React.FC<{ crm: CrmState; onOpen: (tab: ActiveDesktopTa
   };
 
   if (toasts.length === 0) return null;
+  const dismiss = (key: string) => setToasts((l) => l.filter((x) => x.key !== key));
   return (
-    <div className="fixed top-[6.25rem] right-4 z-[80] w-[min(92vw,22rem)] space-y-2" role="region" aria-label="Live alerts" aria-live="polite">
-      {toasts.map((t) => (
-        <div key={t.key} className={`rounded-xl border shadow-lg p-3 flex items-start gap-2.5 bg-white dark:bg-slate-900 ${t.urgent ? 'border-red-400 dark:border-red-700' : t.kind === 'deadline' ? 'border-amber-400 dark:border-amber-700' : 'border-blue-300 dark:border-blue-800'}`}>
-          {t.kind !== 'notice' ? <Clock className={`w-4 h-4 mt-0.5 shrink-0 ${t.urgent ? 'text-red-600' : 'text-amber-600'}`} /> : <Bell className="w-4 h-4 mt-0.5 shrink-0 text-blue-600" />}
-          <button className="flex-1 text-left text-xs text-slate-800 dark:text-slate-100 cursor-pointer" onClick={() => { onOpen(t.tab, t.refId); setToasts((l) => l.filter((x) => x.key !== t.key)); }}>
-            <span className="block font-bold text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">{t.ask ? 'Are you still working?' : t.kind === 'reminder' ? 'Punch-out reminder' : t.kind === 'deadline' ? (t.urgent ? 'Deadline now' : 'Deadline soon') : 'New notification'}</span>
-            {t.text}
-          </button>
-          {t.ask && (
-            <button
-              disabled={confirming === t.key}
-              className="self-center shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-2.5 py-1.5 cursor-pointer disabled:opacity-60"
-              onClick={() => confirmWorking(t.key)}
-            >
-              {confirming === t.key ? '…' : "Yes, I'm working"}
+    <div className="live-alerts fixed z-[80] space-y-2 left-2 right-2 top-2 sm:left-auto sm:right-4 sm:top-[6.25rem] sm:w-[22rem]" role="region" aria-label="Live alerts" aria-live="polite">
+      {toasts.map((t) => {
+        const tone = t.urgent ? 'red' : t.kind === 'deadline' || t.kind === 'reminder' ? 'amber' : 'blue';
+        const title = t.ask ? 'Are you still working?' : t.kind === 'reminder' ? 'Punch-out reminder' : t.kind === 'deadline' ? (t.urgent ? 'Deadline now' : 'Deadline soon') : 'New notification';
+        return (
+          <SwipeToast key={t.key} onDismiss={() => dismiss(t.key)} tone={tone} timed={t.kind !== 'deadline' && !t.ask}>
+            <span className={`alert-chip alert-chip-${tone}`}>{t.kind !== 'notice' ? <Clock className="w-4 h-4" /> : <Bell className="w-4 h-4" />}</span>
+            <button className="flex-1 min-w-0 text-left cursor-pointer" onClick={() => { onOpen(t.tab, t.refId); dismiss(t.key); }}>
+              <span className="block font-black text-[11px] uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-0.5">{title}</span>
+              <span className="block text-[13px] leading-snug font-medium text-slate-800 dark:text-slate-100">{t.text}</span>
             </button>
-          )}
-          <button aria-label="Dismiss" className="text-slate-400 hover:text-slate-700 cursor-pointer" onClick={() => setToasts((l) => l.filter((x) => x.key !== t.key))}><X className="w-3.5 h-3.5" /></button>
-        </div>
-      ))}
+            {t.ask && (
+              <button
+                disabled={confirming === t.key}
+                className="self-center shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-2.5 py-1.5 cursor-pointer disabled:opacity-60"
+                onClick={() => confirmWorking(t.key)}
+              >
+                {confirming === t.key ? '…' : "Yes, I'm working"}
+              </button>
+            )}
+            <button aria-label="Dismiss" className="self-start p-1 text-slate-400 hover:text-slate-700 cursor-pointer" onClick={() => dismiss(t.key)}><X className="w-3.5 h-3.5" /></button>
+          </SwipeToast>
+        );
+      })}
     </div>
   );
 };
+
+/** A pop-up card that slides in, shows a shrinking timer line, and can be swiped sideways to dismiss (phones). */
+const SwipeToast: React.FC<{ tone: 'red' | 'amber' | 'blue'; timed: boolean; onDismiss: () => void; children: React.ReactNode }> = ({ tone, timed, onDismiss, children }) => {
+  const [dx, setDx] = useState(0);
+  const start = useRef<number | null>(null);
+  return (
+    <div
+      className={`alert-toast alert-toast-${tone} relative overflow-hidden rounded-2xl border bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-xl p-3 pl-3.5 flex items-start gap-2.5 touch-pan-y`}
+      style={dx ? { transform: `translateX(${dx}px)`, opacity: Math.max(0.2, 1 - Math.abs(dx) / 240), transition: 'none' } : undefined}
+      onPointerDown={(e) => { if (e.pointerType !== 'mouse') start.current = e.clientX; }}
+      onPointerMove={(e) => { if (start.current !== null) setDx(e.clientX - start.current); }}
+      onPointerUp={() => { if (Math.abs(dx) > 90) onDismiss(); else setDx(0); start.current = null; }}
+      onPointerCancel={() => { setDx(0); start.current = null; }}
+      data-alert-toast
+    >
+      {children}
+      {timed && <span className="alert-timer" aria-hidden="true" />}
+    </div>
+  );
+};
+

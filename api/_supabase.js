@@ -128,6 +128,8 @@ function mapDbEmployee(r) {
   const salesTeam = ['B2C', 'B2B'].includes(pendingObj?.salesTeam) ? pendingObj.salesTeam : '';
   const salesTeamHead = Boolean(salesTeam && pendingObj?.salesTeamHead);
   const birthday = /^\d{4}-\d{2}-\d{2}$/.test(String(pendingObj?.birthday || '')) ? String(pendingObj.birthday) : '';
+  const faceEnrollRequired = Boolean(pendingObj?.faceEnrollRequired);
+  const locationCheck = Boolean(pendingObj?.locationCheck);
 
   return {
     id: r.id,
@@ -159,6 +161,8 @@ function mapDbEmployee(r) {
     salesTeam,
     salesTeamHead,
     birthday,
+    faceEnrollRequired,
+    locationCheck,
     avatarAppearance: r.avatar_appearance || undefined,
     gameCharacterId: CHARACTER_IDS.has(r.game_character_id || pendingObj?.gameCharacterId) ? (r.game_character_id || pendingObj?.gameCharacterId) : undefined,
     gamePetId: ['cat','dog','rabbit','owl','hamster','parrot','turtle'].includes(r.game_pet_id || pendingObj?.gamePetId) ? (r.game_pet_id || pendingObj?.gamePetId) : undefined,
@@ -191,6 +195,8 @@ function mapAppEmployeeToDb(e) {
     salesTeam: ['B2C', 'B2B'].includes(e.salesTeam) ? e.salesTeam : '',
     salesTeamHead: Boolean(['B2C', 'B2B'].includes(e.salesTeam) && e.salesTeamHead),
     birthday: /^\d{4}-\d{2}-\d{2}$/.test(String(e.birthday || '')) ? String(e.birthday) : '',
+    faceEnrollRequired: Boolean(e.faceEnrollRequired),
+    locationCheck: Boolean(e.locationCheck),
     gameCharacterId: e.gameCharacterId || existingPending.gameCharacterId || null,
     gamePetId: e.gamePetId || existingPending.gamePetId || 'none',
   };
@@ -300,6 +306,8 @@ function mapDbAttendance(r) {
     wfhReason: r.wfh_reason || '',
     unverifiedMinutes: Number(r.unverified_minutes) || 0,
   };
+  const locs = readJson(r.punch_locations, null);
+  if (locs && typeof locs === 'object') out.punchLocations = locs;
   if (r.work_confirmed_at) out.workConfirmedAt = r.work_confirmed_at;
   if (r.auto_out_at) out.autoOutAt = r.auto_out_at;
   if (r.time_out) out.timeOut = r.time_out;
@@ -339,7 +347,28 @@ function mapAppAttendanceToDb(a) {
     work_confirmed_at: a.workConfirmedAt || a.work_confirmed_at || null,
     auto_out_at: a.autoOutAt || a.auto_out_at || null,
     unverified_minutes: Math.max(0, Math.round(Number(a.unverifiedMinutes ?? a.unverified_minutes) || 0)),
+    punch_locations: cleanPunchLocations(a.punchLocations ?? a.punch_locations),
   };
+}
+
+/** Phone punch locations: { in: {lat,lng,acc,dist,at}, out: {...} }. Anything malformed is dropped. */
+function cleanPunchLocations(v) {
+  const src = readJson(v, null);
+  if (!src || typeof src !== 'object') return null;
+  const out = {};
+  for (const k of ['in', 'out']) {
+    const p = src[k];
+    if (!p || typeof p !== 'object') continue;
+    const lat = Number(p.lat), lng = Number(p.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) continue;
+    const item = { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 };
+    if (Number.isFinite(Number(p.acc))) item.acc = Math.round(Number(p.acc));
+    if (Number.isFinite(Number(p.dist))) item.dist = Math.round(Number(p.dist));
+    if (typeof p.at === 'string') item.at = p.at.slice(0, 40);
+    if (p.outside === true) item.outside = true;
+    out[k] = item;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 function mapDbLeave(r) {
@@ -870,6 +899,13 @@ function mergeSupabaseAttendanceRecordCore(existing, incomingRec, options = {}) 
     unverifiedMinutes: shouldClearTimeOut ? 0 : (incomingRec.actorAction === 'auto_close' ? Number(incomingRec.unverifiedMinutes) || 0 : Number(existing.unverifiedMinutes) || 0),
     lastEditedByRole: actorRole,
     recordUpdatedAt: nowIso,
+    punchLocations: shouldClearTimeIn ? undefined : (() => {
+      const a = existing.punchLocations && typeof existing.punchLocations === 'object' ? existing.punchLocations : {};
+      const b = incomingRec.punchLocations && typeof incomingRec.punchLocations === 'object' ? incomingRec.punchLocations : {};
+      const m = { ...a, ...b };
+      if (shouldClearTimeOut) delete m.out;
+      return Object.keys(m).length ? m : undefined;
+    })(),
   };
 
   delete merged.clearTimeOut;
@@ -958,7 +994,14 @@ async function enforceFacePassForPunch(existing, rec, actorRole, ctx) {
   if (!punchFieldsChanged(existing, rec)) return;
   const setRows = await supabaseFetch('/settings?id=eq.current&select=data');
   const settings = readJson(setRows?.[0]?.data, {}) || {};
-  if (!settings.faceScanPunchEnabled && !settings.faceEnrollRequired) return;
+  const employeeIdForFace = rec.employeeId || existing?.employeeId || '';
+  let personRequired = false;
+  if (!settings.faceEnrollRequired) {
+    const er = await supabaseFetch(`/employees?id=eq.${encodeURIComponent(employeeIdForFace)}&select=pending_device_request`);
+    personRequired = Boolean(readJson(er?.[0]?.pending_device_request, null)?.faceEnrollRequired);
+  }
+  const enrollRequired = Boolean(settings.faceEnrollRequired || personRequired);
+  if (!settings.faceScanPunchEnabled && !enrollRequired) return;
   const isDirectPunchAction = ['time_in', 'time_out', 'start_break', 'end_break'].includes(rec.actorAction);
   if (actorRole === 'admin' && !isDirectPunchAction) return; // admin timesheet corrections on roster bypass face scan
 
@@ -968,8 +1011,8 @@ async function enforceFacePassForPunch(existing, rec, actorRole, ctx) {
   );
   const enrolled = Boolean(tplRows?.[0]);
   if (!enrolled) {
-    // The administrator requires everyone to enroll their face (through their own login) before punching.
-    if (settings.faceEnrollRequired) {
+    // The administrator requires this person (or everyone) to enroll their face through their own login before punching.
+    if (enrollRequired) {
       const err = new Error('Your administrator requires a face scan. Please sign in to your own account and set up your face first.');
       err.status = 403;
       err.code = 'FACE_ENROLL_REQUIRED';

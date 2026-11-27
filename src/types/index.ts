@@ -63,6 +63,8 @@ export interface AttendanceRecord {
   autoOutAt?: string;
   /** Minutes between the last verified moment and the system punch-out; never counted as worked time or overtime */
   unverifiedMinutes?: number;
+  /** Where a phone punch was made (only when location checks are on) */
+  punchLocations?: { in?: PunchLocation; out?: PunchLocation };
   connectionStatus?: 'online' | 'no_internet';
   lastHeartbeatAt?: string;
   lastActivityAt?: string;
@@ -155,6 +157,8 @@ export interface Employee {
   isSuperAdmin?: boolean;
   featureAccess?: Record<string, boolean>;
   allowWorkFromHome?: boolean; // When true, attendance punch in/out has NO IP restriction
+  faceEnrollRequired?: boolean; // Admin: this person must set up their face right after signing in, before using the app
+  locationCheck?: boolean; // Admin: check this person's phone location when punching in / out
   registeredDeviceId?: string; // Persistent device UUID bound to this employee
   registeredDeviceName?: string; // e.g. "Ahmed's Samsung Galaxy A54 (Android)"
   registeredAt?: string;
@@ -205,6 +209,10 @@ export interface OfficeSettings {
   allowAdminBypassIpLock?: boolean;
   faceScanPunchEnabled?: boolean; // High security: punches need a live face scan (off by default)
   faceEnrollRequired?: boolean; // Everyone must enroll their own face (through their own login) before punching
+  locationCheckEnabled?: boolean; // Phone punches (app or mobile browser) record the location, for everyone
+  officeLat?: number; // Office pin for the location check (optional)
+  officeLng?: number;
+  officeRadiusM?: number; // How far from the office pin a phone punch may be (metres)
   faceScanAllowUnenrolled?: boolean; // Staff without an enrolled face may still punch (default true)
   enforceDeviceBinding?: boolean; // Anti-proxy punching: 1 device per employee
   allowAdminBypassDeviceBinding?: boolean;
@@ -246,3 +254,5 @@ export type ActiveDesktopTab =
   | 'crm-payment-tree'
   | 'live-dashboard'
   | 'superadmin';
+
+export interface PunchLocation { lat: number; lng: number; acc?: number; dist?: number; at?: string; outside?: boolean }

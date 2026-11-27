@@ -1,3 +1,4 @@
+import { PunchLocationBadges } from '../common/PunchLocationBadges';
 import React, { useState, useMemo } from 'react';
 import { getPunchNotes, punchNoteLabel } from '../../lib/punchNotes';
 import {
@@ -798,6 +799,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
                         {r.workMode === 'wfh' && (
                           <span title={r.wfhReason ? `Reason: ${r.wfhReason}` : 'Work From Home'} className="ml-1.5 align-middle inline-block px-1.5 py-0.5 rounded text-[9px] font-sans font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">WFH</span>
                         )}
+                        <PunchLocationBadges record={r} />
                       </td>
 
                       <td className="py-3 px-4 font-mono text-right tabular-nums">

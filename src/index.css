@@ -869,3 +869,37 @@ button:not(:disabled):active { transform: scale(0.97); }
   .punch-rise, .profile-rise, .timeline-step, .header-menu-pop, .profile-float { animation: none !important; }
   .header-menu-item:hover, [data-punch-with-desk] button:not(:disabled):hover { transform: none; }
 }
+
+/* Notification Center: on phones it is a sheet that slides up from the bottom */
+@keyframes notif-sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes notif-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 639.98px) {
+  .notif-sheet { animation: notif-sheet-up 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; padding-bottom: env(safe-area-inset-bottom); }
+  .notif-backdrop { animation: notif-fade 0.2s ease-out both; }
+}
+@media (min-width: 640px) {
+  .notif-sheet { transform-origin: top right; animation: header-menu-pop 0.22s cubic-bezier(0.22, 1, 0.36, 1) both; }
+}
+@media (prefers-reduced-motion: reduce) { .notif-sheet, .notif-backdrop { animation: none !important; } }
+
+/* Live alert pop-ups (all screens; full width at the top on phones) */
+@keyframes alert-in-right { from { opacity: 0; transform: translateX(24px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes alert-in-top { from { opacity: 0; transform: translateY(-18px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes alert-timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.alert-toast { animation: alert-in-right 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; transition: transform 0.2s, opacity 0.2s; }
+.alert-toast::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 4px; }
+.alert-toast-blue { border-color: rgb(147 197 253); } .alert-toast-blue::before { background: linear-gradient(#3b82f6, #8b5cf6); }
+.alert-toast-amber { border-color: rgb(252 211 77); } .alert-toast-amber::before { background: linear-gradient(#f59e0b, #f97316); }
+.alert-toast-red { border-color: rgb(248 113 113); } .alert-toast-red::before { background: linear-gradient(#ef4444, #db2777); }
+.alert-chip { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 0.75rem; color: #fff; }
+.alert-chip-blue { background: linear-gradient(135deg, #3b82f6, #8b5cf6); }
+.alert-chip-amber { background: linear-gradient(135deg, #f59e0b, #f97316); }
+.alert-chip-red { background: linear-gradient(135deg, #ef4444, #db2777); }
+.alert-timer { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgb(148 163 184 / 0.5); transform-origin: left; animation: alert-timer 20s linear both; }
+@media (max-width: 639.98px) { .alert-toast { animation-name: alert-in-top; } }
+@media (prefers-reduced-motion: reduce) { .alert-toast, .alert-timer { animation: none !important; } }
+
+/* Phones and the phone app: no grey flash on tap, no double-tap zoom delay */
+html { -webkit-tap-highlight-color: transparent; }
+button, a, [role="button"], input[type="checkbox"], label { touch-action: manipulation; }
+@media (max-width: 639.98px) { .live-alerts { top: calc(env(safe-area-inset-top, 0px) + 0.5rem); } }

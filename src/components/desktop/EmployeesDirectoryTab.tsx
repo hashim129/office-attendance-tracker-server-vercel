@@ -84,6 +84,8 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     hourlyRate: 35,
     isActive: true,
     allowWorkFromHome: false,
+    faceEnrollRequired: false,
+    locationCheck: false,
     salesAccess: false,
     customerPortalAccess: false,
     liveDashboardAccess: false,
@@ -127,6 +129,8 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       hourlyRate: 38,
       isActive: true,
       allowWorkFromHome: false,
+      faceEnrollRequired: false,
+      locationCheck: false,
       salesAccess: false,
       customerPortalAccess: false,
       liveDashboardAccess: false,
@@ -155,6 +159,8 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       hourlyRate: emp.hourlyRate,
       isActive: emp.isActive,
       allowWorkFromHome: Boolean(emp.allowWorkFromHome),
+      faceEnrollRequired: Boolean(emp.faceEnrollRequired),
+      locationCheck: Boolean(emp.locationCheck),
       salesAccess: Boolean(emp.salesAccess),
       customerPortalAccess: Boolean(emp.customerPortalAccess),
       liveDashboardAccess: Boolean(emp.liveDashboardAccess),
@@ -698,6 +704,28 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                   onChange={(e) => setFormData({ ...formData, allowWorkFromHome: e.target.checked })}
                   className="w-4 h-4 mt-0.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
+              </label>
+            </div>
+
+            {/* Security switches for this person */}
+            <div className="p-3.5 rounded-xl bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 space-y-3" data-security-switches>
+              <label className="flex items-start justify-between gap-3 cursor-pointer select-none">
+                <div className="flex-1">
+                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100">Must set up face before using the app</span>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    Right after signing in (website, phone app or Windows app), this person sees a face set-up screen and cannot continue until their face is enrolled. Punches are also refused until then.
+                  </p>
+                </div>
+                <input type="checkbox" data-emp-face-required checked={Boolean(formData.faceEnrollRequired)} onChange={(e) => setFormData({ ...formData, faceEnrollRequired: e.target.checked })} className="w-4 h-4 mt-0.5 rounded text-rose-600 focus:ring-rose-500 cursor-pointer" />
+              </label>
+              <label className="flex items-start justify-between gap-3 cursor-pointer select-none">
+                <div className="flex-1">
+                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100">Check location when punching from a phone</span>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                    On the phone app or a phone browser, punching in / out asks for the phone's location and saves it with the punch. If an office pin is set in Office Settings, punches outside its radius are refused (unless this person is allowed Work From Home).
+                  </p>
+                </div>
+                <input type="checkbox" data-emp-location checked={Boolean(formData.locationCheck)} onChange={(e) => setFormData({ ...formData, locationCheck: e.target.checked })} className="w-4 h-4 mt-0.5 rounded text-rose-600 focus:ring-rose-500 cursor-pointer" />
               </label>
             </div>
 
