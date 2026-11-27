@@ -424,7 +424,7 @@ const mapCustomer = (r) => ({
 const mapFollowup = (r) => ({
   id: r.id, customerId: r.customer_id || null, participantIds: asArray(r.participant_ids), kind: r.kind, subject: r.subject || '', assignedTo: r.assigned_to, remarks: r.remarks || '', dueAt: r.due_at,
   status: r.status, outcomeRemarks: r.outcome_remarks || '', history: asArray(r.history), createdBy: r.created_by,
-  createdAt: r.created_at, updatedAt: r.updated_at, completedAt: r.completed_at, remarkLog: asArray(r.remark_log),
+  createdAt: r.created_at, updatedAt: r.updated_at, completedAt: r.completed_at, remarkLog: asArray(r.remark_log), slotMinutes: r.slot_minutes || null,
 });
 const mapInventory = (r) => ({
   id: r.id, requestedBy: r.requested_by, assignedTo: r.assigned_to, items: asArray(r.items), note: r.note || '', status: r.status,
@@ -485,7 +485,13 @@ const paymentsOf = (r) => {
   if (list.length || !(num(r.advance_paid) > 0) || r.kind === 'vendor') return list;
   return [cleanStored({ id: 'pay-legacy', date: String(r.invoice_date || '').slice(0, 10), amount: num(r.advance_paid), note: 'Advance received', by: r.created_by, at: r.created_at })];
 };
+// Every change to an invoice is kept with date, time, who, what changed and why.
+const logEntry = (me, action, text, reason = '') => ({ id: id('log'), at: nowIso(), by: me.id, byName: me.name || '', action, text: String(text || '').slice(0, 600), reason: String(reason || '').slice(0, 600) });
+const withLog = (row, entry) => ({ ...row, edit_log: [...asArray(row.edit_log), entry].slice(-300) });
+const taggedIds = (r) => asArray(r?.tagged).map((t) => t && t.id).filter(Boolean);
+const canSeeInvoice = (r, me, staff) => Boolean(r) && (staff || r.created_by === me.id || taggedIds(r).includes(me.id));
 const mapInvoice = (r, visaProgress = null) => ({
+  editLog: asArray(r.edit_log), tagged: asArray(r.tagged),
   id: r.id, kind: r.kind === 'vendor' ? 'vendor' : 'customer', crmId: r.crm_id || '', queryCode: r.query_code || '', invoiceNo: r.invoice_no, createdBy: r.created_by, customerName: r.customer_name, customerPhone: r.customer_phone || '',
   customerAddress: r.customer_address || '', customerNtn: r.customer_ntn || '', reference: r.reference || '',
   invoiceDate: r.invoice_date, dueDate: r.due_date || null, travelDate: r.travel_date || null, currency: r.currency, sections: asArray(r.sections),
@@ -644,32 +650,40 @@ async function assertEmployee(empId, label = 'Employee') {
   return found;
 }
 
-// A meeting slot is busy when another scheduled meeting overlaps it.
-async function assertSlotFree(startAt, endAt, exceptId) {
-  const clash = (await getAll('crm_meetings')).find((m) =>
-    m.id !== exceptId && m.status === 'scheduled' && Date.parse(m.start_at) < Date.parse(endAt) && Date.parse(m.end_at) > Date.parse(startAt));
-  if (clash) {
-    throw new HttpError(409, `The CEO already has "${clash.title}" at that time. Please choose another slot.`, 'SLOT_BUSY');
-  }
+// CEO schedule: bookings are made in 15-minute slots, 1 to 4 slots (15, 30, 45 or 60 minutes), and never overlap.
+const SLOT_CHOICES = [15, 30, 45, 60];
+function assertSlotShape(startMs, endMs) {
+  const d = new Date(startMs);
+  if (d.getUTCMinutes() % 15 || d.getUTCSeconds() || d.getUTCMilliseconds()) throw bad('CEO bookings start on a 15-minute mark (for example 2:00, 2:15, 2:30 or 2:45).');
+  if (!SLOT_CHOICES.includes(Math.round((endMs - startMs) / 60000))) throw bad('Choose 1 to 4 slots of 15 minutes (15, 30, 45 or 60 minutes).');
 }
-
-// A "Meeting follow-up" that involves the CEO and has a time also books the CEO's calendar (30 minutes, as with Add to Calendar).
+// A "Meeting follow-up" that involves the CEO and has a time also books the CEO's calendar (its chosen slots; older ones 30 minutes).
 const FOLLOWUP_SLOT_MS = 30 * 60 * 1000;
+const followupSlotMs = (f) => (SLOT_CHOICES.includes(Number(f.slot_minutes)) ? Number(f.slot_minutes) * 60000 : FOLLOWUP_SLOT_MS);
 const ceoIdList = async () => (await activeEmployees()).filter((e) => e.role === 'ceo').map((e) => e.id);
 function ceoFollowupSlots(followups, ceoIds, exceptId) {
   return followups
     .filter((f) => f.id !== exceptId && f.kind === 'meeting' && OPEN.includes(f.status) && f.due_at && !Number.isNaN(Date.parse(f.due_at)))
     .filter((f) => [f.assigned_to, f.created_by, ...asArray(f.participant_ids)].some((x) => ceoIds.includes(x)))
-    .map((f) => ({ id: f.id, title: `Meeting follow-up${f.remarks ? `: ${String(f.remarks).slice(0, 40)}` : ''}`, start: Date.parse(f.due_at), end: Date.parse(f.due_at) + FOLLOWUP_SLOT_MS }));
+    .map((f) => ({ id: f.id, kind: 'followup', title: `Meeting follow-up${f.remarks ? `: ${String(f.remarks).slice(0, 40)}` : ''}`, start: Date.parse(f.due_at), end: Date.parse(f.due_at) + followupSlotMs(f) }));
 }
 /** Everything already booked in the CEO's calendar that overlaps [startMs, endMs). */
 async function findCeoOverlaps(startMs, endMs, { exceptFollowupId, exceptMeetingId } = {}) {
   const [ceoIds, followups, meetings] = await Promise.all([ceoIdList(), getAll('crm_followups'), getAll('crm_meetings')]);
   const out = meetings
-    .filter((m) => m.id !== exceptMeetingId && m.status === 'scheduled' && Date.parse(m.start_at) < endMs && Date.parse(m.end_at) > startMs)
-    .map((m) => ({ id: m.id, title: `CEO meeting: ${m.title}`, start: Date.parse(m.start_at), end: Date.parse(m.end_at) }));
+    .filter((m) => m.id !== exceptMeetingId && ['scheduled', 'pending_approval'].includes(m.status) && Date.parse(m.start_at) < endMs && Date.parse(m.end_at) > startMs)
+    .map((m) => ({ id: m.id, kind: m.status === 'scheduled' ? 'meeting' : 'request', title: `CEO meeting: ${m.title}`, start: Date.parse(m.start_at), end: Date.parse(m.end_at) }));
   for (const s of ceoFollowupSlots(followups, ceoIds, exceptFollowupId)) if (s.start < endMs && s.end > startMs) out.push(s);
   return out;
+}
+const pktTimeOnly = (ms) => new Date(ms).toLocaleString('en-GB', { timeZone: 'Asia/Karachi', hour: 'numeric', minute: '2-digit', hour12: true });
+/** Refuses a booking that would overlap anything already in the CEO's schedule (meetings, requests, meeting follow-ups). */
+async function assertCeoFree(startMs, endMs, except = {}) {
+  const clashes = await findCeoOverlaps(startMs, endMs, except);
+  if (!clashes.length) return;
+  const c = clashes.sort((a, b) => a.start - b.start)[0];
+  const what = c.kind === 'meeting' ? 'a CEO meeting' : c.kind === 'request' ? 'a meeting request waiting for approval' : 'a meeting follow-up';
+  throw new HttpError(409, `Not booked: the CEO already has ${what} from ${pktClock(c.start)} to ${pktTimeOnly(c.end)}. Please pick one of the free slots.`, 'SLOT_BUSY');
 }
 const pktClock = (ms) => new Date(ms).toLocaleString('en-GB', { timeZone: 'Asia/Karachi', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
 /** Tells the CEO and every administrator that two bookings clash. */
@@ -872,7 +886,7 @@ export default async function handler(req, res) {
         // Receipts go to Accounts (and Admin / CEO); everyone else only sees the receipts they made themselves.
         receipts = (receiptRows || []).filter((x) => salesViewer || x.created_by === me.id).map(mapReceipt);
         invoices = invRows
-          .filter((x) => salesViewer || x.created_by === me.id)
+          .filter((x) => canSeeInvoice(x, me, salesViewer))
           .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
           .map((r) => mapInvoice(r, betaEnabled && r.kind !== 'vendor' ? (visaByInvId.get(r.id) || null) : null));
         purchases = (allPurchases || []).filter((x) => salesViewer || x.createdBy === me.id);
@@ -916,8 +930,12 @@ export default async function handler(req, res) {
       const bookedSlots = ceoFollowupSlots(followups, ceoIdsNow).filter((x) => x.end >= Date.now() - 45 * 24 * 3600 * 1000).map((x) => {
         const f = followups.find((r) => r.id === x.id);
         const involved = isAdmin || f.assigned_to === me.id || f.created_by === me.id || asArray(f.participant_ids).includes(me.id);
-        return { id: x.id, title: involved ? x.title : 'Booked (meeting follow-up)', startAt: new Date(x.start).toISOString(), endAt: new Date(x.end).toISOString() };
+        return { id: x.id, kind: 'followup', title: involved ? x.title : 'Booked (meeting follow-up)', startAt: new Date(x.start).toISOString(), endAt: new Date(x.end).toISOString() };
       });
+      for (const m of meetings) {
+        if (m.status !== 'pending_approval' || isAdmin || m.requested_by === me.id || Date.parse(m.end_at) < Date.now() - 86400000) continue;
+        bookedSlots.push({ id: m.id, kind: 'request', title: 'Requested (waiting for approval)', startAt: m.start_at, endAt: m.end_at });
+      }
       const since = Date.now() - 45 * 24 * 3600 * 1000;
       const visibleMeetings = meetings
         .filter((m) => Date.parse(m.end_at) >= since)
@@ -1031,7 +1049,7 @@ export default async function handler(req, res) {
       const ceoIds = await ceoIdList();
       if (![row.assigned_to, row.created_by, ...asArray(row.participant_ids)].some((x) => ceoIds.includes(x))) return [];
       const start = Date.parse(row.due_at);
-      const clashes = await findCeoOverlaps(start, start + FOLLOWUP_SLOT_MS, { exceptFollowupId: row.id });
+      const clashes = await findCeoOverlaps(start, start + followupSlotMs(row), { exceptFollowupId: row.id });
       await notifyOverlap(row.id, 'a meeting follow-up', start, clashes, null);
       return clashes.map((c) => ({ title: c.title, startAt: new Date(c.start).toISOString(), endAt: new Date(c.end).toISOString() }));
     };
@@ -1073,6 +1091,19 @@ export default async function handler(req, res) {
       if (kind === 'internal' && !str(f.subject, 180, { required: true, name: 'Subject' })) throw bad('Enter a subject for this internal follow-up.');
       const label = KIND_LABEL[kind];
       const forWhom = customer ? ` for ${customer.customer_name}` : '';
+      // A Meeting follow-up with the CEO books 1-4 slots of 15 minutes and may not overlap the CEO's schedule.
+      if (kind === 'meeting') {
+        const mins = Number(f.slotMinutes);
+        fields.slot_minutes = SLOT_CHOICES.includes(mins) ? mins : (existingFu?.slot_minutes || 30);
+        const ceoIds = await ceoIdList();
+        const withCeo = [fields.assigned_to, existingFu?.created_by || me.id, ...participantIds].some((x) => ceoIds.includes(x));
+        if (withCeo && fields.due_at && (!existingFu || OPEN.includes(existingFu.status))) {
+          const startMs = Date.parse(fields.due_at);
+          const endMs = startMs + fields.slot_minutes * 60000;
+          if (!existingFu || existingFu.due_at !== fields.due_at || Number(existingFu.slot_minutes) !== fields.slot_minutes) assertSlotShape(startMs, endMs);
+          await assertCeoFree(startMs, endMs, { exceptFollowupId: existingFu?.id });
+        }
+      }
       if (newCustomerRow) await upsert('crm_customers', newCustomerRow);
       if (f.id) {
         const existing = await getOne('crm_followups', f.id);
@@ -1178,7 +1209,8 @@ export default async function handler(req, res) {
       if (m.id) {
         const existing = await getOne('crm_meetings', m.id);
         if (!existing) throw notFound('Meeting not found.');
-        await assertSlotFree(fields.start_at, fields.end_at, existing.id);
+        if (existing.start_at !== fields.start_at || existing.end_at !== fields.end_at) assertSlotShape(Date.parse(fields.start_at), Date.parse(fields.end_at));
+        await assertCeoFree(Date.parse(fields.start_at), Date.parse(fields.end_at), { exceptMeetingId: existing.id });
         const row = { ...existing, ...fields, attendee_ids: attendeeIds, status: existing.status === 'pending_approval' ? 'pending_approval' : 'scheduled', updated_at: nowIso() };
         await upsert('crm_meetings', row);
         await meetingVsFollowups(row);
@@ -1187,7 +1219,8 @@ export default async function handler(req, res) {
         await notify(asArray(existing.attendee_ids).filter((a) => attendeeIds.includes(a)), 'meeting', row.id, `CEO meeting updated: ${row.title}.`, me.id);
         return res.status(200).json({ ok: true, meeting: mapMeeting(row) });
       }
-      await assertSlotFree(fields.start_at, fields.end_at);
+      assertSlotShape(Date.parse(fields.start_at), Date.parse(fields.end_at));
+      await assertCeoFree(Date.parse(fields.start_at), Date.parse(fields.end_at));
       const row = { id: id('mtg'), ...fields, attendee_ids: attendeeIds, status: 'scheduled', requested_by: null, decided_by: null, decision_note: '', created_by: me.id, created_at: nowIso(), updated_at: nowIso() };
       await upsert('crm_meetings', row);
       await meetingVsFollowups(row);
@@ -1204,7 +1237,8 @@ export default async function handler(req, res) {
         if (!canSeeCust(cu)) throw forbidden('You can only use customers you added or that were shared with you.');
       }
       if (Date.parse(fields.start_at) < Date.now() - 5 * 60 * 1000) throw bad('Please choose a time in the future.');
-      await assertSlotFree(fields.start_at, fields.end_at);
+      assertSlotShape(Date.parse(fields.start_at), Date.parse(fields.end_at));
+      await assertCeoFree(Date.parse(fields.start_at), Date.parse(fields.end_at));
       const row = { id: id('mtg'), ...fields, attendee_ids: [me.id], status: 'pending_approval', requested_by: me.id, decided_by: null, decision_note: '', created_by: me.id, created_at: nowIso(), updated_at: nowIso() };
       await upsert('crm_meetings', row);
       await notify(await adminIds(), 'meeting', row.id, `${me.name || 'An employee'} requested a CEO meeting: ${row.title}.`, me.id);
@@ -1217,7 +1251,7 @@ export default async function handler(req, res) {
       if (!existing) throw notFound('Meeting not found.');
       if (existing.status !== 'pending_approval') throw bad('This request has already been decided.');
       const approve = body.approve === true;
-      if (approve) await assertSlotFree(existing.start_at, existing.end_at, existing.id);
+      if (approve) await assertCeoFree(Date.parse(existing.start_at), Date.parse(existing.end_at), { exceptMeetingId: existing.id });
       const row = { ...existing, status: approve ? 'scheduled' : 'rejected', decided_by: me.id, decision_note: str(body.note, 1000, { name: 'Note' }), updated_at: nowIso() };
       await upsert('crm_meetings', row);
       if (approve) await meetingVsFollowups(row);
@@ -1490,6 +1524,8 @@ export default async function handler(req, res) {
       const x = body.invoice || {};
       const existing = x.id ? await getOne('crm_invoices', x.id) : null;
       if (x.id && !existing) throw notFound('Invoice not found.');
+      // Everyone (Admin and CEO included) gives a reason when changing a saved invoice.
+      const editReason = existing ? str(body.editReason, 600, { required: true, name: 'Reason for this edit' }) : '';
       const kind = existing ? (existing.kind === 'vendor' ? 'vendor' : 'customer') : (x.kind === 'vendor' ? 'vendor' : 'customer');
       const vendorBill = kind === 'vendor';
       const usedKeys = new Set();
@@ -1742,8 +1778,14 @@ export default async function handler(req, res) {
         }
       }
       if (existing) {
+        const lineCount = (secs) => asArray(secs).reduce((a, s) => a + asArray(s?.lines).length, 0);
+        const what = changedBits([
+          [vendorBill ? 'vendor' : 'customer', existing.customer_name, base.customer_name], ['currency', existing.currency, base.currency], ['total', num(existing.total), num(base.total)],
+          ['discount', num(existing.discount), num(base.discount)], ['advance', num(existing.advance_paid), num(base.advance_paid)], ['due', existing.due_date, base.due_date], ['travel date', existing.travel_date, base.travel_date], ['payments', paymentsOf(existing).length, asArray(base.payments ?? paymentsOf(existing)).length],
+          ['query code', existing.query_code, base.query_code], ['notes', existing.notes, base.notes], ['lines', lineCount(existing.sections), lineCount(base.sections)], ['vendors', asArray(existing.vendors).length, asArray(base.vendors).length],
+        ]);
         const merged = { ...existing, ...base, updated_at: at };
-        const row = { ...merged, ...settlePatch(merged, existing, me, at) };
+        const row = withLog({ ...merged, ...settlePatch(merged, existing, me, at) }, logEntry(me, 'edit', what || 'Details updated', editReason));
         await upsert('crm_invoices', row);
         await syncReceiptLinks(row.id, paymentsAdded, paymentsRemoved);
         if (visaOp === 'delete') {
@@ -1751,16 +1793,11 @@ export default async function handler(req, res) {
         } else if (visaOp === 'upsert' && visaObj) {
           await upsert('crm_company', { id: `visa-${row.id}`, data: visaObj, updated_at: visaObj.updatedAt });
         }
-        const what = changedBits([
-          [vendorBill ? 'vendor' : 'customer', existing.customer_name, base.customer_name], ['currency', existing.currency, base.currency], ['total', num(existing.total), num(base.total)],
-          ['discount', num(existing.discount), num(base.discount)], ['advance', num(existing.advance_paid), num(base.advance_paid)], ['due', existing.due_date, base.due_date], ['travel date', existing.travel_date, base.travel_date], ['payments', paymentsOf(existing).length, asArray(base.payments ?? paymentsOf(existing)).length],
-          ['query code', existing.query_code, base.query_code], ['notes', existing.notes, base.notes],
-        ]);
-        await notify(await salesStaffIds(), 'invoice', row.id, `${me.name || 'Someone'} edited ${vendorBill ? 'vendor payable' : 'invoice'} ${row.invoice_no}${what ? ` (${what})` : ' (details updated)'}.`, me.id);
+        await notify([...new Set([...(await salesStaffIds()), existing.created_by, ...taggedIds(existing)])], 'invoice', row.id, `${me.name || 'Someone'} edited ${vendorBill ? 'vendor payable' : 'invoice'} ${row.invoice_no}${what ? ` (${what})` : ' (details updated)'}. Reason: ${editReason}`, me.id);
         return res.status(200).json({ ok: true, invoice: mapInvoice(row, visaObj) });
       }
       const invoiceNo = await supabaseFetch(vendorBill ? '/rpc/crm_next_payable_no' : '/rpc/crm_next_invoice_no', { method: 'POST', body: '{}' });
-      const fresh = { id: id('inv'), kind, invoice_no: String(invoiceNo), created_by: me.id, status: 'unpaid', created_at: at, updated_at: at, ...base };
+      const fresh = { id: id('inv'), kind, invoice_no: String(invoiceNo), created_by: me.id, status: 'unpaid', created_at: at, updated_at: at, ...base, edit_log: [logEntry(me, 'create', `Created (total ${currency} ${total})`)], tagged: [] };
       const row = { ...fresh, ...settlePatch(fresh, null, me, at) };
       await upsert('crm_invoices', row);
       await syncReceiptLinks(row.id, paymentsAdded, paymentsRemoved);
@@ -1948,6 +1985,9 @@ export default async function handler(req, res) {
         const remarks = str(body.remarks, 600, { required: true, name: 'Cancellation remarks' });
         row.cancel_remarks = remarks; row.cancelled_by = me.id; row.cancelled_at = at;
       }
+      const vend = existing.kind === 'vendor';
+      const statusText = status === 'cancelled' ? 'Cancelled' : existing.status === 'cancelled' ? 'Reopened' : status === 'paid' ? (vend ? 'Marked PAID' : 'Marked RECEIVED') : (vend ? 'Marked UNPAID' : 'Marked NOT RECEIVED');
+      Object.assign(row, withLog(row, logEntry(me, 'status', statusText, row.cancel_remarks && status === 'cancelled' ? row.cancel_remarks : '')));
       await upsert('crm_invoices', row);
       if (status === 'cancelled') {
         const label = existing.kind === 'vendor' ? 'vendor payable' : 'invoice';
@@ -1968,7 +2008,7 @@ export default async function handler(req, res) {
       if (!(isAdmin || me.role === 'accounts')) throw forbidden('Only Accounts or Admin can mark the vendor side paid.');
       if (existing.kind === 'vendor') throw bad('This is a vendor payable itself. Use its own Mark paid button.');
       const at = nowIso();
-      const row = { ...existing, vendor_status: status, vendor_paid_at: status === 'paid' ? at : null, vendor_paid_by: status === 'paid' ? me.id : null, updated_at: at };
+      const row = withLog({ ...existing, vendor_status: status, vendor_paid_at: status === 'paid' ? at : null, vendor_paid_by: status === 'paid' ? me.id : null, updated_at: at }, logEntry(me, 'vendor', status === 'paid' ? 'Vendor side marked PAID' : 'Vendor side marked UNPAID'));
       await upsert('crm_invoices', row);
       if (existing.created_by !== me.id) await notify([existing.created_by], 'invoice', row.id, `Vendor side of invoice ${existing.invoice_no} was marked ${status.toUpperCase()}.`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
@@ -1986,7 +2026,7 @@ export default async function handler(req, res) {
       const updated = updateVendorPosting(vendors, body.vendorId, posted, me.id, at, () => id('vendor'));
       if (!updated) throw notFound('Vendor line no longer exists. Refresh the invoice.');
       const revision = existing.updated_at ? `eq.${encodeURIComponent(existing.updated_at)}` : 'is.null';
-      const changed = await supabaseFetch(`/crm_invoices?id=eq.${encodeURIComponent(existing.id)}&updated_at=${revision}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ vendors: updated, updated_at: at }) });
+      const changed = await supabaseFetch(`/crm_invoices?id=eq.${encodeURIComponent(existing.id)}&updated_at=${revision}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ vendors: updated, updated_at: at, edit_log: withLog(existing, logEntry(me, 'vendor', `Vendor line ${posted ? 'posted' : 'unposted'}`)).edit_log }) });
       if (!changed?.length) throw bad('Invoice changed. Refresh and try again.');
       return res.status(200).json({ ok: true, invoice: mapInvoice(changed[0]) });
     }
@@ -1999,7 +2039,7 @@ export default async function handler(req, res) {
       if (!(isAdmin || me.role === 'accounts')) throw forbidden('Only Accounts or Admin can post a vendor payable.');
       const posted = body.posted !== false;
       const at = nowIso();
-      const row = { ...existing, vendor_posted: posted, vendor_posted_at: posted ? at : null, vendor_posted_by: posted ? me.id : null, updated_at: at };
+      const row = withLog({ ...existing, vendor_posted: posted, vendor_posted_at: posted ? at : null, vendor_posted_by: posted ? me.id : null, updated_at: at }, logEntry(me, 'vendor', posted ? 'Posted' : 'Unposted'));
       await upsert('crm_invoices', row);
       await notify([existing.created_by, ...(await salesStaffIds())], 'invoice', row.id, `Vendor payable ${row.invoice_no} was ${posted ? 'posted' : 'unposted'} by ${me.name || 'Accounts'}.`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
@@ -2043,12 +2083,42 @@ export default async function handler(req, res) {
       }
       const paid = sumPayments(built.payments);
       const moved = { ...existing, payments: built.payments, advance_paid: paid, balance: r2(Math.max(0, num(existing.total) - paid)), updated_at: at };
-      const row = { ...moved, ...settlePatch(moved, existing, me, at) };
+      const what = action === 'invoice_payment_add' ? built.added[0] : built.removed[0];
+      const row = withLog({ ...moved, ...settlePatch(moved, existing, me, at) }, logEntry(me, 'payment', `${action === 'invoice_payment_add' ? 'Payment recorded' : 'Payment removed'}: ${existing.currency} ${what ? what.amount : ''}`, action === 'invoice_payment_remove' ? str(body.remarks, 300) : ''));
       await upsert('crm_invoices', row);
       await syncReceiptLinks(row.id, built.added, built.removed);
-      const what = action === 'invoice_payment_add' ? built.added[0] : built.removed[0];
       const verb = action === 'invoice_payment_add' ? 'recorded' : `removed (${str(body.remarks, 300)})`;
       await notify([...(await salesStaffIds()), existing.created_by], 'invoice', row.id, `${me.name || 'Someone'} ${verb} a payment of ${existing.currency} ${what ? what.amount : ''} on invoice ${existing.invoice_no}. Balance now ${existing.currency} ${row.balance}.${row.status !== existing.status ? ` The invoice is now ${row.status === 'paid' ? 'RECEIVED (paid in full)' : 'NOT RECEIVED again'}.` : ''}`, me.id);
+      return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
+    }
+
+    // Admin / CEO / Accounts tag employees on an invoice (with optional remarks); tagged employees can see it.
+    if (action === 'invoice_tag' || action === 'invoice_untag') {
+      if (!isAdmin && me.role !== 'accounts') throw forbidden('Only Admin, CEO or Accounts can tag employees on an invoice.');
+      const existing = await getOne('crm_invoices', body.id);
+      if (!existing) throw notFound('Invoice not found.');
+      const at = nowIso();
+      const current = asArray(existing.tagged);
+      const nameOf = new Map((await activeEmployees()).map((e) => [e.id, e.name]));
+      if (action === 'invoice_untag') {
+        const who = String(body.employeeId || '');
+        if (!current.some((t) => t.id === who)) throw notFound('That employee is not tagged on this invoice.');
+        const row = withLog({ ...existing, tagged: current.filter((t) => t.id !== who), updated_at: at }, logEntry(me, 'tag', `Removed tag: ${nameOf.get(who) || 'former employee'}`));
+        await upsert('crm_invoices', row);
+        return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
+      }
+      const remarks = str(body.remarks, 400, { name: 'Remarks' });
+      const wanted = [...new Set(asArray(body.employeeIds).map(String))].filter((x) => !current.some((t) => t.id === x));
+      if (!wanted.length) throw bad('Choose at least one employee who is not tagged yet.');
+      if (wanted.length + current.length > 30) throw bad('An invoice can have up to 30 tagged employees.');
+      for (const w of wanted) if (!nameOf.has(w)) throw bad('One of the chosen employees is not active.');
+      const added = wanted.map((w) => ({ id: w, by: me.id, byName: me.name || '', at, remarks }));
+      const names = wanted.map((w) => nameOf.get(w)).join(', ');
+      const row = withLog({ ...existing, tagged: [...current, ...added], updated_at: at }, logEntry(me, 'tag', `Tagged: ${names}`, remarks));
+      await upsert('crm_invoices', row);
+      const label = existing.kind === 'vendor' ? 'vendor payable' : 'invoice';
+      await notify(wanted, 'invoice', row.id, `${me.name || 'Someone'} tagged you on ${label} ${existing.invoice_no} (${existing.customer_name})${remarks ? `: ${remarks}` : '.'}`, me.id);
+      await notify([...new Set([...(await salesStaffIds()), existing.created_by])].filter((x) => !wanted.includes(x)), 'invoice', row.id, `${me.name || 'Someone'} tagged ${names} on ${label} ${existing.invoice_no}${remarks ? `: ${remarks}` : '.'}`, me.id);
       return res.status(200).json({ ok: true, invoice: mapInvoice(row) });
     }
 
@@ -2207,12 +2277,25 @@ export default async function handler(req, res) {
         throw forbidden('You can only edit your own purchase records.');
       }
 
+      // A purchase is always made against an invoice that already exists.
+      let linkedInvoice = null;
+      const wantedInvoiceId = x.invoiceId ? String(x.invoiceId) : '';
+      if (wantedInvoiceId && wantedInvoiceId !== existing?.invoiceId) {
+        linkedInvoice = await getOne('crm_invoices', wantedInvoiceId);
+        if (!linkedInvoice || linkedInvoice.kind === 'vendor') throw bad('That invoice was not found. Pick an invoice from the list.');
+        if (linkedInvoice.status === 'cancelled') throw bad(`Invoice ${linkedInvoice.invoice_no} is cancelled. Pick another invoice.`);
+        if (!canSeeInvoice(linkedInvoice, me, isAdmin || me.role === 'accounts')) throw forbidden('You can only use invoices you made or were tagged on.');
+      } else if (!wantedInvoiceId && !existing?.invoiceId && !existing) {
+        throw bad('Choose the invoice this purchase is for. Create the invoice first if it does not exist yet.');
+      }
+      const invoiceLink = linkedInvoice ? { invoiceId: linkedInvoice.id, invoiceNo: linkedInvoice.invoice_no } : { invoiceId: existing?.invoiceId || null, invoiceNo: existing?.invoiceNo || null };
+
       const { customCategories } = await getPurchaseSchema();
       const customCatMap = new Map(customCategories.map((c) => [c.id, c.label]));
 
-      const customerName = str(x.customerName, 160, { required: true, name: 'Customer name' });
+      const customerName = str(x.customerName || linkedInvoice?.customer_name, 160, { required: true, name: 'Customer name' });
       const careOf = str(x.careOf, 160, { name: 'C/O' });
-      const crmId = str(x.crmId, 80, { name: 'Query Code / CRM ID' });
+      const crmId = str(x.crmId || linkedInvoice?.crm_id || linkedInvoice?.query_code, 80, { name: 'Query Code / CRM ID' });
       const currency = String(x.currency || 'PKR').toUpperCase();
       if (!/^[A-Z]{3}$/.test(currency)) throw bad('Choose a valid currency.');
       const purchaseDate = String(x.purchaseDate || new Date().toISOString().slice(0, 10)).slice(0, 10);
@@ -2322,6 +2405,7 @@ export default async function handler(req, res) {
       if (existing) {
         const updatedPurchase = {
           ...existing,
+          ...invoiceLink,
           customerName,
           careOf,
           crmId,
@@ -2334,12 +2418,13 @@ export default async function handler(req, res) {
           status,
           updatedAt: at,
         };
-        const saved = await updatePurchaseRow(existingRow, updatedPurchase, at);
         const what = changedBits([
           ['customer', existing.customerName, customerName], ['query code', existing.crmId, crmId], ['currency', existing.currency, currency],
           ['payable', existing.totalPayable, totalPayable], ['receivable', existing.totalReceivable, totalReceivable], ['items', asArray(existing.items).length, items.length],
-          ['date', existing.purchaseDate, purchaseDate], ['notes', existing.notes, notes],
+          ['date', existing.purchaseDate, purchaseDate], ['notes', existing.notes, notes], ['invoice', existing.invoiceNo, invoiceLink.invoiceNo],
         ]);
+        updatedPurchase.editLog = [...asArray(existing.editLog), logEntry(me, 'edit', what || 'Details updated')].slice(-300);
+        const saved = await updatePurchaseRow(existingRow, updatedPurchase, at);
         await notify(await salesStaffIds(), 'invoice', existing.id, `${me.name || 'Someone'} edited vendor purchase ${existing.purchaseNo}${what ? ` (${what})` : ' (details updated)'}.`, me.id);
         return res.status(200).json({ ok: true, purchase: saved });
       }
@@ -2352,6 +2437,8 @@ export default async function handler(req, res) {
         id: rowId,
         purchaseNo,
         createdBy: me.id,
+        ...invoiceLink,
+        editLog: [logEntry(me, 'create', `Created for invoice ${invoiceLink.invoiceNo}`)],
         customerName,
         careOf,
         crmId,
@@ -2366,7 +2453,7 @@ export default async function handler(req, res) {
         updatedAt: at,
       };
       await upsert('crm_company', { id: rowId, data: newPurchase, updated_at: at });
-      await notify(await salesStaffIds(), 'invoice', rowId, `${me.name || 'An employee'} added vendor purchase ${purchaseNo} for ${customerName} (${currency} ${totalPayable}).`, me.id);
+      await notify(await salesStaffIds(), 'invoice', rowId, `${me.name || 'An employee'} added vendor purchase ${purchaseNo} for ${customerName} (invoice ${invoiceLink.invoiceNo}, ${currency} ${totalPayable}).`, me.id);
       return res.status(200).json({ ok: true, purchase: newPurchase });
     }
 
@@ -2376,7 +2463,7 @@ export default async function handler(req, res) {
       const existingRow = await getOne('crm_company', body.id);
       if (!existingRow?.data?.purchaseNo || existingRow.id !== body.id) throw notFound('Purchase record not found.');
       const at = nowIso();
-      const updated = { ...existingRow.data, posted: body.posted, postedAt: body.posted ? at : null, postedBy: body.posted ? me.id : null, updatedAt: at };
+      const updated = { ...existingRow.data, posted: body.posted, postedAt: body.posted ? at : null, postedBy: body.posted ? me.id : null, updatedAt: at, editLog: [...asArray(existingRow.data.editLog), logEntry(me, 'status', body.posted ? 'Posted' : 'Unposted')].slice(-300) };
       const saved = await updatePurchaseRow(existingRow, updated, at);
       return res.status(200).json({ ok: true, purchase: saved });
     }
@@ -2389,7 +2476,7 @@ export default async function handler(req, res) {
       }
       const status = ['unpaid', 'paid', 'partial'].includes(body.status) ? body.status : 'unpaid';
       const at = nowIso();
-      const updated = { ...existingRow.data, status, updatedAt: at };
+      const updated = { ...existingRow.data, status, updatedAt: at, editLog: [...asArray(existingRow.data.editLog), logEntry(me, 'status', `Payment status: ${status}`)].slice(-300) };
       const saved = await updatePurchaseRow(existingRow, updated, at);
       return res.status(200).json({ ok: true, purchase: saved });
     }

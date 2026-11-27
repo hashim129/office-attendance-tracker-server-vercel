@@ -1229,7 +1229,7 @@ export default function App() {
                 setEmployees(list => list.map(employee => employee.id===currentUser.id ? {...employee,...profile} : employee));
               }} />}
 
-              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications') && (
+              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications' || activeTab === 'crm-payment-tree') && (
                 <CrmPage section={activeTab} crm={crm} employees={statEmployees} currentUser={currentUser} onNavigate={setActiveTab} focusId={focusedRecordId} onClearFocus={() => setFocusedRecordId(undefined)} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
               )}
 

@@ -16,6 +16,7 @@ import {
 import { CrmState } from './useCrm';
 import { CreatedStamp, ErrorNote, Field, Pill, StatBar, btnDanger, btnGhost, btnPrimary, cardCls, inputCls } from './ui';
 import { ExportPanel } from './ExportPanel';
+import { EditHistory } from './EditHistory';
 import { purchaseCells, purchaseColumns, purchaseSearch, purchaseSummary } from './exportConfigs';
 
 import { allCurrencies, currencyLabel, fmtAmount } from './currencies';
@@ -76,6 +77,9 @@ interface FormItem {
 interface PurchaseFormState {
   id?: string;
   purchaseNo?: string;
+  /** the invoice this purchase is for (required for a new purchase) */
+  invoiceId: string;
+  invoiceText: string;
   customerName: string;
   careOf: string;
   crmId: string;
@@ -163,6 +167,8 @@ const blankItem = (category: PurchaseCategory, currency = 'PKR'): FormItem => ({
 });
 
 const blankForm = (): PurchaseFormState => ({
+  invoiceId: '',
+  invoiceText: '',
   customerName: '',
   careOf: '',
   crmId: '',
@@ -176,6 +182,8 @@ function toForm(p: CrmPurchase): PurchaseFormState {
   return {
     id: p.id,
     purchaseNo: p.purchaseNo,
+    invoiceId: p.invoiceId || '',
+    invoiceText: p.invoiceNo || '',
     customerName: p.customerName,
     careOf: p.careOf || '',
     crmId: p.crmId || '',
@@ -268,6 +276,10 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
   const customCategories = crm.data.purchaseCustomCategories || [];
   const customers = crm.data.customers || [];
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
+  // Invoices a purchase can be made for: customer invoices (not cancelled) that this person can see.
+  const invoiceChoices = useMemo(() => (crm.data.invoices || []).filter((i) => (i.kind || 'customer') === 'customer' && i.status !== 'cancelled'), [crm.data.invoices]);
+  // Only the invoice number, customer name and who made it (each employee only gets their own or tagged invoices).
+  const invoiceLabel = (i: { invoiceNo: string; customerName: string; createdBy: string }) => `${i.invoiceNo} · ${i.customerName} · by ${empName.get(i.createdBy) || 'Former employee'}`;
   const currencies = useMemo(() => allCurrencies(), []);
 
   const allCategoryEntries = useMemo(() => {
@@ -603,6 +615,10 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
 
   const submitForm = async () => {
     if (!form) return;
+    if (!form.id && !form.invoiceId) {
+      setError('Choose the invoice this purchase is for (search by invoice no., customer or creator name). Create the invoice first if it does not exist yet.');
+      return;
+    }
     if (!form.customerName.trim()) {
       setError('Customer Name is required.');
       return;
@@ -628,6 +644,7 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
       );
       const payload = {
         id: form.id,
+        invoiceId: form.invoiceId || null,
         customerId: matchingCustomer?.id || null,
         customerName: form.customerName.trim(),
         careOf: form.careOf.trim() || null,
@@ -1054,7 +1071,9 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
                   <div className="text-[11px] text-slate-500 mt-1">
                     Purchase Date: <b>{niceDate(p.purchaseDate)}</b> · {items.length}{' '}
                     {items.length === 1 ? 'product entry' : 'product entries'} · <CreatedStamp at={p.createdAt} by={empName.get(p.createdBy) || 'Employee'} />
+                    {p.invoiceNo && <> · Invoice <b className="font-mono text-blue-700">{p.invoiceNo}</b></>}
                   </div>
+                  <div className="mt-1"><EditHistory log={p.editLog} nameOf={(id) => empName.get(id) || 'Former employee'} /></div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -1233,6 +1252,33 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
             {/* LEFT COLUMN: Entry Form */}
             <div className="flex-1 w-full space-y-4 min-w-0">
               <ErrorNote message={error} />
+
+              {/* A purchase is always made for an invoice that already exists */}
+              <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4" data-purchase-invoice>
+                <Field label={form.id && !form.invoiceId ? 'Invoice (link this older purchase to its invoice)' : 'Invoice *'}>
+                  <input
+                    list="purchase-invoices-list"
+                    className={`${inputCls} bg-white`}
+                    value={form.invoiceText}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      const q = text.trim().toLowerCase();
+                      const hit = invoiceChoices.find((i) => invoiceLabel(i).toLowerCase() === q || i.invoiceNo.toLowerCase() === q);
+                      if (!hit) { patchForm({ invoiceText: text, invoiceId: '' }); return; }
+                      patchForm({ invoiceText: invoiceLabel(hit), invoiceId: hit.id, customerName: hit.customerName, crmId: hit.crmId || hit.queryCode || form.crmId, currency: hit.currency || form.currency });
+                    }}
+                    placeholder="Search invoice no., customer or creator name…"
+                  />
+                  <datalist id="purchase-invoices-list">
+                    {invoiceChoices.map((i) => <option key={i.id} value={invoiceLabel(i)} />)}
+                  </datalist>
+                </Field>
+                <p className="mt-1 text-[11px] text-slate-600">
+                  {form.invoiceId
+                    ? <>✓ Linked to invoice <b>{invoiceChoices.find((i) => i.id === form.invoiceId)?.invoiceNo || form.invoiceText}</b>. Customer was filled from it.</>
+                    : invoiceChoices.length ? 'Pick the invoice from the list. Purchases can only be made for invoices that already exist.' : 'No invoices yet. Create the invoice first in the Invoices section, then add its purchase here.'}
+                </p>
+              </div>
 
               {/* Top Required Context: 1. Customer, 2. C/O, 3. Query Code / CRM ID */}
               <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">

@@ -4,9 +4,10 @@ import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmMeeting, crmCall } from './crmApi';
 import { CrmState } from './useCrm';
-import { AddToCalendar, CreatedStamp, Countdown, ErrorNote, StatBar, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, fromLocalInput, inputCls, toLocalInput, useNow } from './ui';
+import { AddToCalendar, CreatedStamp, Countdown, ErrorNote, StatBar, Field, Pill, btnDanger, btnGhost, btnPrimary, cardCls, fmtDateTime, fmtDay, fmtTime, inputCls, useNow } from './ui';
 import { ExportPanel } from './ExportPanel';
 import { meetingCells, meetingColumns, meetingSearch } from './exportConfigs';
+import { CeoSlotPicker, ceoBusyList } from './CeoSlots';
 
 
 interface Props {
@@ -14,18 +15,6 @@ interface Props {
   employees: Employee[];
   currentUser: Employee;
 }
-
-const DAY_START = 8; // availability strip covers 8:00 - 20:00 by default and widens when a meeting falls outside that
-const DAY_END = 20;
-const hourLabel = (h: number) => `${h % 12 || 12}${h % 24 >= 12 ? 'pm' : 'am'}`;
-
-const nextHour = (): Date => {
-  const d = new Date();
-  d.setMinutes(0, 0, 0);
-  d.setHours(d.getHours() + 1);
-  return d;
-};
-const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
 export const MeetingsView: React.FC<Props & { focusId?: string }> = ({ crm, employees, currentUser, focusId }) => {
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
@@ -36,15 +25,15 @@ export const MeetingsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
   const staff = employees.filter((e) => e.isActive !== false);
 
   const now = useNow(15000); // keeps "upcoming" and "done" in step with the clock
-  const [day, setDay] = useState<Date>(() => startOfDay(new Date()));
   const [showPast, setShowPast] = useState(Boolean(focusId));
 
   // meeting form
   const [formMode, setFormMode] = useState<null | 'admin' | 'request'>(null);
   const [editing, setEditing] = useState<CrmMeeting | null>(null);
   const [title, setTitle] = useState('');
-  const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
+  const [startIso, setStartIso] = useState<string | null>(null);
+  const [minutes, setMinutes] = useState(15);
+  const [notice, setNotice] = useState('');
   const [attendees, setAttendees] = useState<string[]>([]);
   const [customerId, setCustomerId] = useState('');
   const [external, setExternal] = useState('');
@@ -70,14 +59,13 @@ export const MeetingsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasNew]);
 
-  const openForm = (mode: 'admin' | 'request', m?: CrmMeeting) => {
-    const s = nextHour();
-    const e = new Date(s.getTime() + 3600 * 1000);
+  const openForm = (mode: 'admin' | 'request', m?: CrmMeeting, pickedIso?: string) => {
     setFormMode(mode);
     setEditing(m || null);
     setTitle(m?.title || '');
-    setStart(toLocalInput(m?.startAt || s.toISOString()));
-    setEnd(toLocalInput(m?.endAt || e.toISOString()));
+    setStartIso(m?.startAt || pickedIso || null);
+    setMinutes(m ? Math.round((Date.parse(m.endAt) - Date.parse(m.startAt)) / 60000) : 15);
+    setNotice('');
     setAttendees(m?.attendeeIds || []);
     setCustomerId(m?.customerId || '');
     setExternal(m?.externalName || '');
@@ -89,11 +77,10 @@ export const MeetingsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy || !formMode) return;
-    const startAt = fromLocalInput(start);
-    const endAt = fromLocalInput(end);
+    const startAt = startIso;
     if (!title.trim()) return setError('Enter a meeting title.');
-    if (!startAt || !endAt) return setError('Choose the start and end time.');
-    if (Date.parse(endAt) <= Date.parse(startAt)) return setError('The end time must be after the start time.');
+    if (!startAt) return setError('Tap a free time in the CEO schedule.');
+    const endAt = new Date(Date.parse(startAt) + minutes * 60000).toISOString();
     setBusy(true);
     setError('');
     try {
@@ -103,7 +90,7 @@ export const MeetingsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
         await crmCall('meeting_request', { meeting: { title, startAt, endAt, location, notes } });
       }
       await crm.refresh();
-      setDay(startOfDay(new Date(startAt)));
+      setNotice(`✓ ${formMode === 'request' ? 'Requested' : 'Booked'}: ${title.trim()} on ${fmtDay(startAt)}, ${fmtTime(startAt)} – ${fmtTime(endAt)} (${minutes} min).${formMode === 'request' ? ' Waiting for approval.' : ''}`);
       setFormMode(null);
     } catch (err: any) {
       setError(err?.message || 'Could not save the meeting.');
@@ -150,19 +137,10 @@ export const MeetingsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
     }
   };
 
-  // ---- availability for the chosen day
-  const todayMs = startOfDay(new Date(now)).getTime();
-  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => new Date(todayMs + i * 86400000)), [todayMs]);
-  const dayStart = day.getTime();
-  const dayEnd = dayStart + 86400000;
-  // Everything that books the CEO on this day: scheduled CEO meetings and Meeting follow-ups with the CEO.
-  const busyToday = useMemo(
-    () => [
-      ...meetings.filter((m) => m.status === 'scheduled').map((m) => ({ id: m.id, title: m.title, startAt: m.startAt, endAt: m.endAt, source: 'meeting' as const })),
-      ...bookedSlots.map((s) => ({ id: s.id, title: s.title, startAt: s.startAt, endAt: s.endAt, source: 'followup' as const })),
-    ].filter((m) => Date.parse(m.startAt) < dayEnd && Date.parse(m.endAt) > dayStart).sort((a, b) => a.startAt.localeCompare(b.startAt)),
-    [meetings, bookedSlots, dayStart, dayEnd]
-  );
+  // ---- the CEO's schedule (scheduled meetings, requests waiting for approval and Meeting follow-ups)
+  const ceoBusy = useMemo(() => ceoBusyList(meetings, bookedSlots), [meetings, bookedSlots]);
+  // older bookings made before overlaps were blocked: still shown so they can be fixed
+  const busyToday = useMemo(() => ceoBusy.filter((m) => Date.parse(m.endAt) >= now).sort((a, b) => a.startAt.localeCompare(b.startAt)), [ceoBusy, now]);
   // two bookings on the same day that overlap in time
   const clashes = useMemo(() => {
     const out: { a: (typeof busyToday)[number]; b: (typeof busyToday)[number] }[] = [];
@@ -171,21 +149,6 @@ export const MeetingsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
     }
     return out;
   }, [busyToday]);
-  // the strip shows 8am-8pm, and stretches (to whole hours) so that every meeting booked that day is visible
-  let fromH = DAY_START;
-  let toH = DAY_END;
-  for (const m of busyToday) {
-    fromH = Math.min(fromH, Math.floor(Math.max(0, Date.parse(m.startAt) - dayStart) / 3600000));
-    toH = Math.max(toH, Math.ceil(Math.min(86400000, Date.parse(m.endAt) - dayStart) / 3600000));
-  }
-  fromH = Math.max(0, fromH);
-  toH = Math.min(24, Math.max(toH, fromH + 1));
-  const winStart = dayStart + fromH * 3600000;
-  const winLen = (toH - fromH) * 3600000;
-  const tickStep = toH - fromH <= 12 ? 2 : toH - fromH <= 18 ? 3 : 4;
-  const ticks: number[] = [];
-  for (let h = fromH; h <= toH; h += tickStep) ticks.push(h);
-  if (ticks[ticks.length - 1] !== toH) ticks.push(toH);
 
   // ---- lists
   const pending = meetings.filter((m) => m.status === 'pending_approval').sort((a, b) => a.startAt.localeCompare(b.startAt));
@@ -281,7 +244,7 @@ export const MeetingsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2"><CalendarClock className="w-4 h-4 text-blue-600" /> CEO availability</h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">Blue blocks are CEO meetings and purple blocks are Meeting follow-ups, so both show the CEO as booked. Pick a free time to request your own meeting. The bar stretches when a meeting falls outside 8am - 8pm.</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">Green times are free, grey times are booked (CEO meetings, requests and meeting follow-ups). Tap a free time to {isAdmin ? 'book' : 'request'} 15 to 60 minutes. Bookings can never overlap.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <ExportPanel
@@ -295,49 +258,13 @@ export const MeetingsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
           </div>
         </div>
 
-        <div className="flex gap-1.5 overflow-x-auto pb-1">
-          {days.map((d) => {
-            const active = d.getTime() === dayStart;
-            const inDay = (a: string, b: string) => Date.parse(a) < d.getTime() + 86400000 && Date.parse(b) > d.getTime();
-            const count = meetings.filter((m) => m.status === 'scheduled' && inDay(m.startAt, m.endAt)).length + bookedSlots.filter((s) => inDay(s.startAt, s.endAt)).length;
-            return (
-              <button
-                key={d.getTime()}
-                onClick={() => setDay(d)}
-                className={`shrink-0 px-3 py-2 rounded-lg border text-xs transition-all duration-200 active:scale-[0.97] cursor-pointer ${active ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-              >
-                <span className="block font-semibold">{d.toLocaleDateString([], { weekday: 'short' })}</span>
-                <span className="block text-[10px] opacity-80">{d.toLocaleDateString([], { day: 'numeric', month: 'short' })}</span>
-                <span className="block text-[10px] opacity-80">{count ? `${count} booked` : 'Free'}</span>
-              </button>
-            );
-          })}
-        </div>
-
+        {notice && <p role="status" className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">{notice}</p>}
         <div>
-          <div className="relative h-9 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 overflow-hidden">
-            {busyToday.map((m) => {
-              const l = Math.max(0, (Date.parse(m.startAt) - winStart) / winLen) * 100;
-              const r = Math.min(1, (Date.parse(m.endAt) - winStart) / winLen) * 100;
-              if (r <= 0 || l >= 100) return null;
-              return <div key={m.id} className={`absolute top-0 bottom-0 border-x ${m.source === 'followup' ? 'bg-violet-500/75 border-violet-700' : 'bg-blue-500/80 border-blue-700'} transition-opacity hover:opacity-80`} style={{ left: `${l}%`, width: `${Math.max(1, r - l)}%` }} title={`${m.title} · ${fmtTime(m.startAt)} – ${fmtTime(m.endAt)}`} />;
-            })}
-          </div>
-          <div className="relative h-4 text-[10px] text-slate-400 mt-1">
-            {ticks.map((h, i) => (
-              <span key={h} className="absolute whitespace-nowrap" style={{ left: `${((h - fromH) / (toH - fromH)) * 100}%`, transform: i === 0 ? 'none' : i === ticks.length - 1 ? 'translateX(-100%)' : 'translateX(-50%)' }}>{hourLabel(h)}</span>
-            ))}
-          </div>
-          <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-2">
-            {busyToday.length ? <>Booked: {busyToday.map((m) => `${fmtTime(m.startAt)}–${fmtTime(m.endAt)}`).join(', ')}</> : 'The CEO is free all day.'}
-          </p>
-          {busyToday.some((m) => m.source === 'followup') && (
-            <p className="text-[11px] text-violet-700 dark:text-violet-300 mt-1">Purple blocks come from Meeting follow-ups with the CEO (30 minutes each).</p>
-          )}
+          <CeoSlotPicker busy={ceoBusy} now={now} onPick={(iso) => openForm(isAdmin ? 'admin' : 'request', undefined, iso)} />
           {clashes.length > 0 && (
             <div role="alert" className="mt-2 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 px-3 py-2 text-xs text-red-700 dark:text-red-300 space-y-0.5">
-              <p className="font-bold">⚠ Overlapping times on this day</p>
-              {clashes.slice(0, 4).map((c, i) => <p key={i}>{c.a.title} ({fmtTime(c.a.startAt)}–{fmtTime(c.a.endAt)}) and {c.b.title} ({fmtTime(c.b.startAt)}–{fmtTime(c.b.endAt)})</p>)}
+              <p className="font-bold">⚠ Older bookings that overlap (please move or cancel one)</p>
+              {clashes.slice(0, 4).map((c, i) => <p key={i}>{fmtDay(c.a.startAt)}: {c.a.title} ({fmtTime(c.a.startAt)}–{fmtTime(c.a.endAt)}) and {c.b.title} ({fmtTime(c.b.startAt)}–{fmtTime(c.b.endAt)})</p>)}
               {clashes.length > 4 && <p>…and {clashes.length - 4} more.</p>}
             </div>
           )}
@@ -382,9 +309,9 @@ export const MeetingsView: React.FC<Props & { focusId?: string }> = ({ crm, empl
       <Modal isOpen={formMode !== null} onClose={() => setFormMode(null)} title={formMode === 'request' ? 'Request a CEO meeting' : editing ? 'Edit CEO meeting' : 'Schedule CEO meeting'} subtitle={formMode === 'request' ? 'The administrator will approve or reject your request.' : 'Chosen employees are notified in their Meetings section.'} maxWidth="lg">
         <form onSubmit={submit} className="space-y-4">
           <Field label="Meeting title"><input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={160} autoFocus /></Field>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Starts"><input type="datetime-local" className={inputCls} value={start} onChange={(e) => setStart(e.target.value)} /></Field>
-            <Field label="Ends"><input type="datetime-local" className={inputCls} value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
+          <div>
+            <span className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">CEO's free times (15-minute slots, up to 4)</span>
+            <CeoSlotPicker busy={ceoBusy} exceptId={editing?.id} now={now} startIso={startIso} minutes={minutes} onChange={(s, m) => { setStartIso(s); setMinutes(m); setError(''); }} />
           </div>
           {formMode === 'admin' && (
             <>
