@@ -257,6 +257,7 @@ export type ActiveDesktopTab =
   | 'crm-notifications'
   | 'crm-payment-tree'
   | 'crm-media'
+  | 'crm-profit'
   | 'live-dashboard'
   | 'superadmin';
 

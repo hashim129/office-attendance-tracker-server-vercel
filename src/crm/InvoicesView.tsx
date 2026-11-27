@@ -376,6 +376,20 @@ const InvoicePreview: React.FC<{ inv: CrmInvoice; company: CompanyProfile; by: s
   );
 };
 
+/** WhatsApp message with the balance, due date and travel date (a Pakistani 0… number gets the 92 country code). */
+const paymentReminderLink = (i: CrmInvoice, company: string) => {
+  let d = String(i.customerPhone || '').replace(/\D/g, '');
+  if (d.startsWith('00')) d = d.slice(2); else if (d.startsWith('0')) d = `92${d.slice(1)}`;
+  const fmt = (x: string) => new Date(`${x.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const bits = [
+    `Dear ${i.customerName},`,
+    `This is a friendly reminder from ${company || 'Bahaar Journeys'} that a balance of ${i.currency} ${Math.round(i.balance).toLocaleString()} is pending on invoice ${i.invoiceNo}${i.dueDate ? `, due by ${fmt(i.dueDate)}` : ''}.`,
+    i.travelDate ? `Your travel date is ${fmt(i.travelDate)}, so please clear it before then.` : '',
+    'If you have already paid, please ignore this message. Thank you!',
+  ].filter(Boolean).join('\n\n');
+  return `https://wa.me/${d}?text=${encodeURIComponent(bits)}`;
+};
+
 export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, employees, currentUser, customerPortalBetaEnabled = false, focusId }) => {
   const isStaff = currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.role === 'ceo';
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
@@ -2060,6 +2074,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                       <button className={btnPrimary} onClick={() => void pdf(i)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
                       {canShare && <button className={btnGhost} onClick={() => void share(i)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
                       {i.status !== 'cancelled' && <button className={btnGhost} onClick={() => setAfter(afterInfo(i))} data-card-whatsapp>WhatsApp / Accounts</button>}
+                      {i.kind !== 'vendor' && i.status === 'unpaid' && i.balance > 0 && <a className={btnGhost} href={paymentReminderLink(i, crm.data.company.name)} target="_blank" rel="noreferrer" data-payment-reminder title="Send the customer a polite WhatsApp reminder of the balance">Payment reminder</a>}
                       <AckBadge kind="invoice" id={i.id} crm={crm} canRequest={false} />
                       {canEdit(i) && <button className={btnGhost} onClick={() => { setForm(toForm(i, company.ntn || '')); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
                       {isStaff && <button className={btnGhost} onClick={() => openTag(i)} data-tag-invoice><UserPlus className="w-3.5 h-3.5" /> Tag</button>}

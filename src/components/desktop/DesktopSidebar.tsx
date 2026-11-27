@@ -27,6 +27,7 @@ import {
   ContactRound,
   ShieldCheck,
   GitBranch,
+  Coins,
 } from 'lucide-react';
 import { ActiveDesktopTab, Employee, OfficeSettings } from '../../types';
 import { CrmBadges } from '../../crm/crmApi';
@@ -291,9 +292,10 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 { tab: 'crm-receipts' as const, label: 'Receipts', Icon: ReceiptText, badge: crmBadges?.receiptNew || 0 },
                 { tab: 'crm-invoices' as const, label: 'Invoices', Icon: FileText, badge: crmBadges?.invoiceNew || 0 },
                 { tab: 'crm-payment-tree' as const, label: 'Payment Tree', Icon: GitBranch, badge: 0 },
+                { tab: 'crm-profit' as const, label: 'Profit & Commission', Icon: Coins, badge: 0 },
                 { tab: 'crm-portal' as const, label: 'Portal Control', Icon: SlidersHorizontal, badge: 0 },
                 { tab: 'crm-notifications' as const, label: 'Notifications', Icon: BellRing, badge: crmBadges?.unreadTotal || 0 },
-              ]).filter((i) => canOpenPage(i.tab)).filter((i) => i.tab !== 'crm-sales' || ['admin', 'accounts', 'ceo'].includes(currentUser.role) || Boolean(currentUser.salesAccess)).filter((i) => i.tab !== 'crm-payment-tree' || ['admin', 'accounts', 'ceo'].includes(currentUser.role)).filter((i) => i.tab !== 'crm-portal' || (['admin', 'ceo'].includes(currentUser.role) && settings.customerPortalBetaEnabled !== false)).map(({ tab, label, Icon, badge }) => (
+              ]).filter((i) => canOpenPage(i.tab)).filter((i) => i.tab !== 'crm-sales' || ['admin', 'accounts', 'ceo'].includes(currentUser.role) || Boolean(currentUser.salesAccess)).filter((i) => (i.tab !== 'crm-payment-tree' && i.tab !== 'crm-profit') || ['admin', 'accounts', 'ceo'].includes(currentUser.role)).filter((i) => i.tab !== 'crm-portal' || (['admin', 'ceo'].includes(currentUser.role) && settings.customerPortalBetaEnabled !== false)).map(({ tab, label, Icon, badge }) => (
                 <button
                   key={tab}
                   onClick={() => onSelectTab(tab)}

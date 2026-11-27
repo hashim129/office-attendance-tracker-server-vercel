@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { createMedia } from './_media.js';
 import { sweepSmart } from './_smart.js';
 import { audit, clientIp } from './_audit.js';
+import { fxRates, toPkr } from './_fx.js';
 import { confirmOpenWork, isSupabaseConfigured, supabaseFetch, sweepShiftReminders } from './_supabase.js';
 import { pushNotificationRows } from './_push.js';
 import { format12h, getShiftEndWindowMs } from './_cloud.js';
@@ -425,6 +426,7 @@ const mapCustomer = (r) => ({
   customerNumber: r.customer_number || '', acquiredThrough: r.acquired_through || '', acquiredBy: r.acquired_by || '',
   sharedWith: cleanSharedIds(r.shared_with), createdBy: r.created_by, createdAt: r.created_at, updatedAt: r.updated_at,
   lastContact: asArray(r.contact_log).slice(-1)[0] || null,
+  birthday: r.birthday || null, passportExpiry: r.passport_expiry || null,
 });
 const mapFollowup = (r) => ({
   id: r.id, customerId: r.customer_id || null, participantIds: asArray(r.participant_ids), kind: r.kind, subject: r.subject || '', assignedTo: r.assigned_to, remarks: r.remarks || '', dueAt: r.due_at,
@@ -855,6 +857,43 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    // Profit & commission per employee for one month, in PKR (foreign currencies at today's rate).
+    if (action === 'profit_report') {
+      const viewer = isAdmin || me.role === 'accounts' || me.role === 'ceo';
+      const month = /^\d{4}-\d{2}$/.test(String(body.month || '')) ? body.month : new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 7);
+      const [fx, salesRows, comRow, staff] = await Promise.all([fxRates(), getAll('crm_sales'), getOne('crm_company', 'commission').catch(() => null), activeEmployees()]);
+      const pct = parseJsonObj(parseJsonObj(comRow?.data, {}).people, {});
+      const inMonth = (x) => new Date(Date.parse(x.created_at) + 5 * 3600e3).toISOString().slice(0, 7) === month;
+      const rows = salesRows.filter((x) => x.status === 'approved' && inMonth(x) && (viewer || x.created_by === me.id));
+      const per = new Map();
+      const missing = new Set();
+      for (const x of rows) {
+        const sale = toPkr(x.sale_amount, x.currency, fx); const cost = toPkr(x.cost_amount, x.currency, fx);
+        if (sale === null || cost === null) { missing.add(x.currency); continue; }
+        const p = per.get(x.created_by) || { id: x.created_by, count: 0, sales: 0, cost: 0, profit: 0, receivedProfit: 0, receivable: 0 };
+        p.count += 1; p.sales += sale; p.cost += cost; p.profit += sale - cost;
+        if (x.payment_status === 'paid') p.receivedProfit += sale - cost; else p.receivable += sale;
+        per.set(x.created_by, p);
+      }
+      const r2x = (n) => Math.round(n);
+      const people = [...per.values()].map((p) => {
+        const c = Number(pct[p.id]) || 0;
+        return { ...p, name: staff.find((e) => e.id === p.id)?.name || 'Former employee', sales: r2x(p.sales), cost: r2x(p.cost), profit: r2x(p.profit), receivedProfit: r2x(p.receivedProfit), receivable: r2x(p.receivable), commissionPct: c, commission: r2x(Math.max(0, p.receivedProfit) * c / 100) };
+      }).sort((a, b) => b.profit - a.profit);
+      if (!viewer && !people.length) people.push({ id: me.id, name: me.name, count: 0, sales: 0, cost: 0, profit: 0, receivedProfit: 0, receivable: 0, commissionPct: Number(pct[me.id]) || 0, commission: 0 });
+      const sum = (k) => people.reduce((a, p) => a + p[k], 0);
+      return res.status(200).json({ ok: true, month, people, totals: { count: sum('count'), sales: sum('sales'), cost: sum('cost'), profit: sum('profit'), receivedProfit: sum('receivedProfit'), receivable: sum('receivable'), commission: sum('commission') }, rates: { date: fx.date, USD: fx.rates?.USD ? Math.round(100 / fx.rates.USD) / 100 : null, AED: fx.rates?.AED ? Math.round(100 / fx.rates.AED) / 100 : null, SAR: fx.rates?.SAR ? Math.round(100 / fx.rates.SAR) / 100 : null }, missingRates: [...missing], canEdit: isAdmin, staff: viewer ? staff.filter((e) => e.role !== 'superadmin').map((e) => ({ id: e.id, name: e.name, commissionPct: Number(pct[e.id]) || 0 })) : [] });
+    }
+    if (action === 'commission_save') {
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can set commission.');
+      const src = parseJsonObj(body.people, {});
+      const people = {};
+      for (const [k, v] of Object.entries(src)) { const n = Math.round(Number(v) * 100) / 100; if (Number.isFinite(n) && n > 0 && n <= 100) people[String(k).slice(0, 80)] = n; }
+      await upsert('crm_company', { id: 'commission', data: { people, updatedAt: nowIso(), updatedBy: me.id }, updated_at: nowIso() });
+      await audit(me, 'changed commission rates', '', clientIp(req));
+      return res.status(200).json({ ok: true });
+    }
+
     // Activity log (Admin / CEO)
     if (action === 'audit_list') {
       if (!isAdmin) throw forbidden('Only Admin or the CEO can see the activity log.');
@@ -1127,8 +1166,20 @@ export default async function handler(req, res) {
         customer_number: str(c.customerNumber, 60, { name: 'Customer number' }),
         acquired_through: str(c.acquiredThrough, 120, { name: 'Acquired through' }),
         acquired_by: str(c.acquiredBy, 80, { name: 'Acquired by' }),
+        birthday: /^\d{4}-\d{2}-\d{2}$/.test(String(c.birthday || '')) ? c.birthday : null,
+        passport_expiry: /^\d{4}-\d{2}-\d{2}$/.test(String(c.passportExpiry || '')) ? c.passportExpiry : null,
         updated_at: nowIso(),
       };
+      // Same phone number already saved? Warn first (the person can still save it on purpose).
+      const digits = (v) => String(v || '').replace(/\D/g, '').replace(/^(0092|92|0)/, '');
+      if (fields.customer_number && digits(fields.customer_number).length >= 7 && !c.allowDuplicate) {
+        const all = (await supabaseFetch('/crm_customers?deleted_at=is.null&select=id,customer_name,customer_number,created_by')) || [];
+        const dup = all.find((x) => x.id !== c.id && digits(x.customer_number) === digits(fields.customer_number));
+        if (dup) {
+          const owner = (await activeEmployees()).find((e) => e.id === dup.created_by)?.name || 'a colleague';
+          throw new HttpError(409, `This number is already saved for ${dup.customer_name} (added by ${owner}). Save anyway?`, 'DUPLICATE_PHONE');
+        }
+      }
       // Only the person who added the customer (or Admin / CEO / Accounts) decides who else may see it.
       const staffList = await activeEmployees();
       const sharedWith = [...new Set(cleanSharedIds(c.sharedWith).map(String))].slice(0, 100);
@@ -1150,6 +1201,31 @@ export default async function handler(req, res) {
       if (cleanNewShared.length) await notify(cleanNewShared, 'followup', row.id, `${me.name || 'A colleague'} shared customer ${fields.customer_name} with you.`, me.id);
       await upsert('crm_customers', row);
       return res.status(200).json({ ok: true, customer: mapCustomer(row) });
+    }
+
+    // Customer history: invoices, receipts, follow-ups, calls and WhatsApps for one customer (what this person may see).
+    if (action === 'customer_history') {
+      const cust = await getOne('crm_customers', body.id);
+      if (!cust || cust.deleted_at) throw notFound('Customer not found.');
+      if (!canSeeCust(cust)) throw forbidden('This customer is not shared with you.');
+      const viewer = isAdmin || me.role === 'accounts' || me.role === 'ceo';
+      const digits = (v) => String(v || '').replace(/\D/g, '').replace(/^(0092|92|0)/, '');
+      const phone = digits(cust.customer_number);
+      const nm = String(cust.customer_name || '').trim().toLowerCase();
+      const same = (name, ph) => (phone.length >= 7 && digits(ph) === phone) || (nm && String(name || '').trim().toLowerCase() === nm);
+      const [invs, rcps, fups] = await Promise.all([
+        supabaseFetch('/crm_invoices?select=id,kind,invoice_no,customer_name,customer_phone,currency,total,balance,status,travel_date,created_by,created_at&order=created_at.desc&limit=2000'),
+        supabaseFetch('/crm_receipts?select=id,receipt_no,client_name,currency,amount_received,created_by,created_at&order=created_at.desc&limit=2000'),
+        supabaseFetch(`/crm_followups?customer_id=eq.${encodeURIComponent(cust.id)}&select=id,kind,subject,remarks,status,due_at,assigned_to,created_at,remark_log&order=created_at.desc`),
+      ]);
+      const mineOk = (r) => viewer || r.created_by === me.id;
+      return res.status(200).json({
+        ok: true,
+        invoices: (invs || []).filter((i) => (i.kind || 'customer') !== 'vendor' && same(i.customer_name, i.customer_phone) && mineOk(i)).map((i) => ({ id: i.id, no: i.invoice_no, currency: i.currency, total: num(i.total), balance: num(i.balance), status: i.status, travelDate: i.travel_date, by: i.created_by, at: i.created_at })),
+        receipts: (rcps || []).filter((r) => same(r.client_name, '') && mineOk(r)).map((r) => ({ id: r.id, no: r.receipt_no, currency: r.currency, amount: num(r.amount_received), by: r.created_by, at: r.created_at })),
+        followups: (fups || []).map((f) => ({ id: f.id, kind: f.kind, subject: f.subject || '', remarks: f.remarks || '', status: f.status, dueAt: f.due_at, by: f.assigned_to, at: f.created_at, remarks_count: asArray(f.remark_log).length })),
+        contacts: asArray(cust.contact_log).slice().reverse(),
+      });
     }
 
     // Call / WhatsApp pressed on a customer: logged automatically (who, how, when).
