@@ -25,16 +25,30 @@ interface Props {
   employees: Employee[];
   onReviewLeave: (id: string, status: 'approved' | 'rejected') => void | Promise<void>;
   blockScreenshots: boolean;
+  /** Newest unread notifications (sign-in requests are answered here) */
+  latest?: { id: string; refId?: string; message: string }[];
 }
 
 const MONEY_TABS: ActiveDesktopTab[] = ['crm-invoices', 'crm-sales', 'crm-receipts', 'crm-purchases', 'crm-payment-tree'];
 const isPhoneWidth = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
 
-export const PhoneShell: React.FC<Props> = ({ currentUser, activeTab, onSelectTab, onOpenMore, onOpenRecord, unread, online, onRefresh, leaves, employees, onReviewLeave, blockScreenshots }) => {
+export const PhoneShell: React.FC<Props> = ({ currentUser, activeTab, onSelectTab, onOpenMore, onOpenRecord, unread, online, onRefresh, leaves, employees, onReviewLeave, blockScreenshots, latest = [] }) => {
   const [phone, setPhone] = useState(isPhoneWidth);
   const [pull, setPull] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [shared, setShared] = useState<{ name: string; file: File } | null>(null);
+  const [loginAsk, setLoginAsk] = useState<{ id: string; message: string } | null>(null);
+  const answered = useRef<Set<string>>(new Set());
+  // a sign-in request for this account (Admin / CEO / Accounts on a computer) pops up here
+  useEffect(() => {
+    const n = latest.find((x) => String(x.refId || '').startsWith('login-') && !answered.current.has(String(x.refId)));
+    if (n && !loginAsk) setLoginAsk({ id: String(n.refId), message: n.message });
+  }, [latest, loginAsk]);
+  const decideLogin = async (id: string, ok: boolean) => {
+    answered.current.add(id);
+    setLoginAsk(null);
+    try { await crmCall('login_decide', { id, ok }); haptic(ok ? 'success' : 'tap'); } catch (e: any) { window.alert(e?.message || 'Could not answer the sign-in request.'); }
+  };
   const startY = useRef<number | null>(null);
   const leavesRef = useRef(leaves); leavesRef.current = leaves;
   const empRef = useRef(employees); empRef.current = employees;
@@ -79,6 +93,10 @@ export const PhoneShell: React.FC<Props> = ({ currentUser, activeTab, onSelectTa
           await onReviewLeave(a, kind === 'leave-approve' ? 'approved' : 'rejected');
           haptic('success');
         }
+      } else if (kind === 'login-approve' || kind === 'login-decline') {
+        if (a) { answered.current.add(a); try { await crmCall('login_decide', { id: a, ok: kind === 'login-approve' }); haptic('success'); } catch (e: any) { window.alert(e?.message || 'Could not answer the sign-in request.'); } }
+      } else if (kind === 'open' && b.startsWith('login-')) {
+        setLoginAsk({ id: b, message: 'Someone is signing in to your account on a computer.' });
       } else if (kind === 'open') {
         const tab = notificationDestination(a, b);
         if (onOpenRecord) onOpenRecord(tab, b || undefined); else onSelectTab(tab);
@@ -166,6 +184,19 @@ export const PhoneShell: React.FC<Props> = ({ currentUser, activeTab, onSelectTa
             <span>More</span>
           </button>
         </nav>
+      )}
+      {loginAsk && (
+        <div className="phone-sheet-backdrop">
+          <div className="phone-sheet" role="dialog" aria-label="Sign-in request" data-login-ask>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Approve this sign-in?</p>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{loginAsk.message}</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button type="button" className="rounded-lg border border-slate-300 dark:border-slate-700 py-2.5 text-sm font-semibold text-red-600" onClick={() => void decideLogin(loginAsk.id, false)}>Decline</button>
+              <button type="button" className="rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white" onClick={() => void decideLogin(loginAsk.id, true)}>Approve</button>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">If this was not you, tap Decline and change your password.</p>
+          </div>
+        </div>
       )}
       {shared && (
         <div className="phone-sheet-backdrop" onClick={() => setShared(null)}>

@@ -4,6 +4,7 @@ import { Download, FileText, Loader2 } from 'lucide-react';
 import { Employee } from '../types';
 import { PdfColumn, dayPk, downloadReportPdf, fmtDayText, safeFileName } from '../lib/reportPdf';
 import { btnGhost, inputCls } from './ui';
+import { crmCall } from './crmApi';
 
 /**
  * "Download PDF" button used in every CRM section.
@@ -105,6 +106,7 @@ export function ExportPanel<T>(props: ExportPanelProps<T>) {
   const quick = (a: string, b: string) => { setFrom(a); setTo(b); };
 
   const download = async () => {
+    void crmCall('audit_note', { what: 'exported a PDF', detail: `${title}: ${matched.length} record${matched.length === 1 ? '' : 's'}` }).catch(() => null);
     setBusy(true);
     setError('');
     try {

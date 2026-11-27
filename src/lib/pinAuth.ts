@@ -68,11 +68,32 @@ async function post(action: string, payload: Record<string, unknown>): Promise<{
 
 const fail = (r: { json: any }, fallback: string): PinResult => ({ ok: false, error: r.json?.error || fallback });
 
+// Admin / CEO / Accounts with a short password must set a longer one right after signing in.
+let mustChangePin = false;
+export function takeMustChangePin(): boolean { const v = mustChangePin; mustChangePin = false; return v; }
+
+/** Admin / CEO / Accounts on a computer: wait (up to ~3 minutes) for the approval on their phone. */
+async function waitForPhone(first: { status: number; json: any }): Promise<{ status: number; json: any }> {
+  if (first.status !== 202 || !first.json?.pendingApproval) return first;
+  const id = first.json.pendingApproval;
+  const say = (waiting: boolean) => { try { window.dispatchEvent(new CustomEvent('bahaar-login-pending', { detail: { waiting } })); } catch { /* ignore */ } };
+  say(true);
+  try {
+    const until = Date.now() + 200000;
+    while (Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const r = await post('login-status', { id });
+      if (r.status !== 202) return r;
+    }
+    return { status: 410, json: { error: 'No approval came from your phone in time. Please sign in again.' } };
+  } finally { say(false); }
+}
+
 export async function verifyEmployeePin(emp: Employee, pin: string): Promise<PinResult> {
   const clean = pin.trim();
   if (emp.pin) return clean === emp.pin ? { ok: true } : { ok: false, error: 'Incorrect PIN or password. Please try again.' };
-  const r = await post('verify', { employeeId: emp.id, pin: clean });
-  if (r.status === 200) { rememberSession(emp.id, clean); gotToken(emp.id, r.json.session); return { ok: true }; }
+  const r = await waitForPhone(await post('verify', { employeeId: emp.id, pin: clean }));
+  if (r.status === 200) { rememberSession(emp.id, clean); gotToken(emp.id, r.json.session); mustChangePin = Boolean(r.json.mustChangePin); return { ok: true }; }
   return fail(r, 'Incorrect PIN or password. Please try again.');
 }
 
@@ -82,8 +103,9 @@ export async function lookupLogin(identifier: string, pin: string, employees: Em
   if (local?.pin) {
     return local.pin === pin.trim() ? { ok: true, employee: local } : { ok: false, error: 'Incorrect PIN or password.' };
   }
-  const r = await post('lookup', { identifier, pin: pin.trim() });
+  const r = await waitForPhone(await post('lookup', { identifier, pin: pin.trim() }));
   if (r.status === 200) {
+    mustChangePin = Boolean(r.json.mustChangePin);
     const emp = employees.find((e) => e.id === r.json.employeeId);
     const authenticatedEmployee = emp || r.json.employee;
     if (authenticatedEmployee) { rememberSession(authenticatedEmployee.id, pin.trim()); gotToken(authenticatedEmployee.id, r.json.session); return { ok: true, employee: authenticatedEmployee }; }

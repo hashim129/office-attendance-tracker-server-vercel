@@ -66,7 +66,7 @@ import { DesktopHeader } from './components/desktop/DesktopHeader';
 import { DesktopSidebar } from './components/desktop/DesktopSidebar';
 import { PunchClockTab } from './components/desktop/PunchClockTab';
 import { ChangePasswordModal } from './components/common/ChangePasswordModal';
-import { verifyAdminPin, rememberSession, takePendingToken } from './lib/pinAuth';
+import { verifyAdminPin, rememberSession, takePendingToken, takeMustChangePin } from './lib/pinAuth';
 import { QuickJump } from './components/common/QuickJump';
 import { CRM_ENABLED } from './crm/config';
 import { useCrm } from './crm/useCrm';
@@ -206,6 +206,7 @@ export default function App() {
     return () => { active = false; window.clearInterval(timer); };
   }, [currentUser?.id, currentUser?.isSuperAdmin]);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
+  const [forcedPinChange, setForcedPinChange] = useState<boolean>(false);
   const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-') || activeTab === 'live-dashboard' || (betaEnabled && activeTab === 'clock'));
 
   // Password Modal
@@ -529,6 +530,7 @@ export default function App() {
 
   const handleLogin = (employee: Employee, keepLoggedIn: boolean) => {
     setCurrentUser(employee);
+    if (takeMustChangePin()) { setForcedPinChange(true); setIsChangePasswordOpen(true); }
     saveSession(employee.id, keepLoggedIn, takePendingToken(employee.id));
     if (employee.isSuperAdmin) { setSiteDisabled(false); localStorage.removeItem('office_site_disabled_v1'); }
     // The pre-login endpoint returns only a safe directory projection. Fetch the full
@@ -1292,6 +1294,7 @@ export default function App() {
             employees={employees}
             onReviewLeave={(id, status) => handleReviewLeave(id, status)}
             blockScreenshots={settings.blockScreenshots === true}
+            latest={CRM_ENABLED ? crm.badges.unreadLatest : []}
           />
 
           {/* Body Split: Sidebar + Active Viewport */}
@@ -1591,9 +1594,10 @@ export default function App() {
       {currentUser && (
         <ChangePasswordModal
           isOpen={isChangePasswordOpen}
-          onClose={() => setIsChangePasswordOpen(false)}
+          onClose={() => { setIsChangePasswordOpen(false); setForcedPinChange(false); }}
           currentUser={currentUser}
           onUpdatePin={handleUpdatePin}
+          forced={forcedPinChange}
         />
       )}
     </div>

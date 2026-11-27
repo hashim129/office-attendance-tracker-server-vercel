@@ -9,6 +9,8 @@ interface ChangePasswordModalProps {
   onClose: () => void;
   currentUser: Employee;
   onUpdatePin: (employeeId: string, newPin: string) => void;
+  /** Admin / CEO / Accounts with a short password: cannot be closed until a 6+ character password is set. */
+  forced?: boolean;
 }
 
 export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
@@ -16,7 +18,10 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   onClose,
   currentUser,
   onUpdatePin,
+  forced = false,
 }) => {
+  const strong = ['admin', 'ceo', 'accounts'].includes(currentUser.role) || currentUser.isSuperAdmin === true;
+  const minLen = strong ? 6 : 4;
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -38,8 +43,8 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     }
 
     const trimmedNew = newPin.trim();
-    if (trimmedNew.length < 4) {
-      setError('New password / PIN must be at least 4 characters or digits.');
+    if (trimmedNew.length < minLen) {
+      setError(strong ? 'Admin, CEO and Accounts passwords need at least 6 characters.' : 'New password / PIN must be at least 4 characters or digits.');
       return;
     }
 
@@ -73,6 +78,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   };
 
   const handleClose = () => {
+    if (forced && !success) { setError('Please set a new password of at least 6 characters to continue.'); return; }
     setError(null);
     setSuccess(false);
     setCurrentPin('');
@@ -85,8 +91,8 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title="Change Portal Password / PIN"
-      subtitle={`Account: ${currentUser.name} (${currentUser.employeeCode})`}
+      title={forced ? 'Set a stronger password' : 'Change Portal Password / PIN'}
+      subtitle={forced ? 'Admin, CEO and Accounts accounts now need a password of at least 6 characters.' : `Account: ${currentUser.name} (${currentUser.employeeCode})`}
     >
       {success ? (
         <div className="py-8 text-center space-y-3">

@@ -28,6 +28,7 @@ import {
   importDatabaseBackup,
   resetToFactoryDefaults,
 } from '../../lib/storage';
+import { SecurityPanel } from './SecurityPanel';
 import { detectClientNetwork, describeIpRule, doesIpMatchRule, toNetworkRule } from '../../lib/ipSecurity';
 import {
   downloadWindowsBatFile,
@@ -733,6 +734,37 @@ export const OfficeSettingsTab: React.FC<OfficeSettingsTabProps> = ({
               }}
             />
           </div>
+          <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div className="text-xs min-w-0">
+              <span className="font-semibold text-slate-900 dark:text-slate-100 block">Admin, CEO and Accounts approve computer sign-ins on their phone</span>
+              <span className="text-slate-500 dark:text-slate-400 text-[11px]">When one of them signs in on a computer, their Bahaar Office phone app asks “Approve this sign-in?”. Only applies once that person has the phone app signed in.</span>
+            </div>
+            <Switch
+              label="Admin, CEO and Accounts approve computer sign-ins on their phone"
+              checked={formData.phoneApprovalForAdmins !== false}
+              onChange={(v) => {
+                const updated = { ...formData, phoneApprovalForAdmins: v };
+                setFormData(updated);
+                onUpdateSettings(updated);
+              }}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div className="text-xs min-w-0">
+              <span className="font-semibold text-slate-900 dark:text-slate-100 block">Staff sign in only from the office network or the phone app</span>
+              <span className="text-slate-500 dark:text-slate-400 text-[11px]">Employees cannot sign in on a computer outside the office Wi-Fi. Work-from-home staff, Admin, CEO and Accounts are not affected.</span>
+            </div>
+            <Switch
+              label="Staff sign in only from the office network or the phone app"
+              checked={formData.staffSignInOfficeOnly === true}
+              onChange={(v) => {
+                const updated = { ...formData, staffSignInOfficeOnly: v };
+                setFormData(updated);
+                onUpdateSettings(updated);
+              }}
+            />
+          </div>
+          <SecurityPanel />
           <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
             <div className="text-xs min-w-0">
               <span className="font-semibold text-slate-900 dark:text-slate-100 block">Block screenshots of money pages (phone app)</span>
