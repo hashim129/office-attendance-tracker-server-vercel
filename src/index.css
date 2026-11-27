@@ -915,29 +915,6 @@ button, a, [role="button"], input[type="checkbox"], label { touch-action: manipu
   .page-enter > * > * { animation-duration: 0.2s; animation-delay: 0s !important; }
 }
 
-/* ---- Calmer staff UI (28 Nov): solid colours, no floating cards or rainbow hovers ---- */
-.nav-pill { background: #2563eb; box-shadow: none; border-radius: 0.6rem; }
-.nav-scope button:hover { transform: none; }
-.nav-scope button:not(.text-white):hover,
-.dark .nav-scope button:not(.text-white):hover { background-image: none !important; }
-.nav-scope button:not(.text-white):hover { background-color: rgb(241 245 249) !important; }
-.dark .nav-scope button:not(.text-white):hover { background-color: rgb(30 41 59) !important; }
-.nav-scope button > svg:first-child,
-.nav-scope button > div:first-child > svg:first-child,
-.nav-scope button > span:first-child > svg:first-child { background: transparent; color: inherit; box-shadow: none; }
-.nav-scope button:not(.text-white):hover > svg:first-child,
-.nav-scope button:not(.text-white):hover > div:first-child > svg:first-child,
-.nav-scope button:not(.text-white):hover > span:first-child > svg:first-child { background: transparent; color: inherit; box-shadow: none; }
-.nav-scope button.text-white > svg:first-child,
-.nav-scope button.text-white > div:first-child > svg:first-child,
-.nav-scope button.text-white > span:first-child > svg:first-child { background: transparent; }
-.lift:hover, .hover-card:hover,
-.page-enter .rounded-2xl.border:hover,
-.page-enter .rounded-xl.border:hover { transform: none; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08); }
-.dark .lift:hover, .dark .hover-card:hover,
-.dark .page-enter .rounded-2xl.border:hover,
-.dark .page-enter .rounded-xl.border:hover { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
-
 /* loading placeholders */
 .skeleton { background: linear-gradient(90deg, rgb(241 245 249) 25%, rgb(226 232 240) 37%, rgb(241 245 249) 63%); background-size: 400% 100%; animation: skeleton 1.3s ease infinite; }
 .dark .skeleton { background: linear-gradient(90deg, rgb(30 41 59) 25%, rgb(51 65 85) 37%, rgb(30 41 59) 63%); background-size: 400% 100%; }
