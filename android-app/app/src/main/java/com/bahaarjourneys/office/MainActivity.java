@@ -42,7 +42,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
-import android.widget.ProgressBar;
+import android.widget.ImageView;
 import android.widget.Toast;
 
 import java.io.BufferedReader;
@@ -70,7 +70,7 @@ public class MainActivity extends Activity {
     private static final int REQ_PERMS = 42;
 
     private WebView web;
-    private ProgressBar bar;
+    private FrameLayout loader; // Bahaar Journeys logo in the middle while the app first opens (no top progress bar)
     private ValueCallback<Uri[]> fileCallback;
     private PermissionRequest pendingWebPermission;
     private GeolocationPermissions.Callback pendingGeo;
@@ -92,12 +92,23 @@ public class MainActivity extends Activity {
         web = new WebView(this);
         web.setBackgroundColor(Color.parseColor("#1438A8"));
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        bar.setMax(100);
-        bar.setIndeterminate(false);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3));
-        root.addView(bar, lp);
+        web.setVerticalScrollBarEnabled(false);
+        web.setHorizontalScrollBarEnabled(false);
+        loader = new FrameLayout(this);
+        loader.setBackgroundResource(R.drawable.splash);
+        loader.setClickable(true);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.loading_logo);
+        logo.setAdjustViewBounds(true);
+        FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(Math.min(dp(280), Math.round(getResources().getDisplayMetrics().widthPixels * 0.72f)), ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.CENTER);
+        loader.addView(logo, llp);
+        root.addView(loader, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        logo.setAlpha(0f);
+        logo.setScaleX(0.94f);
+        logo.setScaleY(0.94f);
+        logo.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(450).start();
         setContentView(root);
+        main.postDelayed(this::hideLoader, 15000); // never keep the logo up if the network is slow
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -201,6 +212,13 @@ public class MainActivity extends Activity {
 
     private static int parse(String v) { try { return Integer.parseInt(v.replaceAll("[^0-9]", "")); } catch (Exception e) { return 0; } }
 
+    private void hideLoader() {
+        if (loader == null) return;
+        final View l = loader;
+        loader = null;
+        l.animate().alpha(0f).setDuration(320).withEndAction(() -> l.setVisibility(View.GONE)).start();
+    }
+
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
     private static String quote(String v) {
@@ -295,14 +313,13 @@ public class MainActivity extends Activity {
 
         @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-            bar.setVisibility(View.VISIBLE);
             shimDone = false;
             if (!url.startsWith("file:")) showingOffline = false;
         }
 
         @Override
         public void onPageFinished(WebView view, String url) {
-            bar.setVisibility(View.GONE);
+            main.postDelayed(MainActivity.this::hideLoader, 250);
             if (!url.startsWith("file:")) { view.evaluateJavascript(SHIM, null); shimDone = true; }
             CookieManager.getInstance().flush();
         }
@@ -316,8 +333,7 @@ public class MainActivity extends Activity {
     private class Chrome extends WebChromeClient {
         @Override
         public void onProgressChanged(WebView view, int p) {
-            bar.setProgress(p);
-            if (p >= 100) bar.setVisibility(View.GONE);
+            if (p >= 100) main.postDelayed(MainActivity.this::hideLoader, 250);
             else if (p > 10 && !shimDone) { view.evaluateJavascript(SHIM, null); shimDone = true; }
         }
 

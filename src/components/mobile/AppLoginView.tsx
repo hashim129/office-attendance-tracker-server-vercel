@@ -4,8 +4,8 @@ import { verifyEmployeePin, lookupLogin } from '../../lib/pinAuth';
 import './appLogin.css';
 
 /**
- * Phone app sign-in (Android APK only). The Bahaar Journeys logo drops in as a 3D tile,
- * a blue gradient page with a light sign-in sheet slides up, and after a correct password
+ * Phone app sign-in (Android APK only). The Bahaar Journeys logo sits in the middle of
+ * a blue gradient page (same spot as the app's opening screen), then moves up as the light sign-in sheet slides up, and after a correct password
  * the screen hands over smoothly to the home page.
  */
 interface Props {
@@ -52,7 +52,7 @@ export const AppLoginView: React.FC<Props> = ({ employees, onLogin, companyName,
 
   useEffect(() => {
     if (phase !== 'intro') return;
-    const t = window.setTimeout(() => setPhase('form'), 1750);
+    const t = window.setTimeout(() => setPhase('form'), 900);
     return () => window.clearTimeout(t);
   }, [phase]);
 
@@ -137,21 +137,14 @@ export const AppLoginView: React.FC<Props> = ({ employees, onLogin, companyName,
     <div className={`al-root al-${phase}`} data-app-login>
       <div className="al-glow al-glow-a" aria-hidden />
       <div className="al-glow al-glow-b" aria-hidden />
-      <div className="al-orbs" aria-hidden><i /><i /><i /><i /><i /></div>
 
       <div className="al-stage">
-        <div className="al-logo-wrap">
-          <div className="al-logo-tile" role="img" aria-label={companyName || 'Bahaar Journeys'}>
-            <div className="al-logo-face">
-              <img src="/bahaar-logo.png" alt="" draggable={false} />
-              <span className="al-sheen" aria-hidden />
-            </div>
+        <div className="al-brand">
+          <img className="al-logo" src="/bahaar-logo-white.png" alt={companyName || 'Bahaar Journeys'} draggable={false} />
+          <div className="al-hello">
+            <p className="al-hello-sub">{greet}</p>
+            <h1 className="al-hello-title">Welcome to the office</h1>
           </div>
-          <div className="al-logo-shadow" aria-hidden />
-        </div>
-        <div className="al-hello">
-          <p className="al-hello-sub">{greet}</p>
-          <h1 className="al-hello-title">Welcome to the office</h1>
         </div>
       </div>
 
