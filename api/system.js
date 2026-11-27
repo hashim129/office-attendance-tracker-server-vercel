@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { evaluateAttendancePresenceAndAutoClose, format12h, getShiftEndWindowMs, setNoCacheHeaders } from './_cloud.js';
 import { isSupabaseConfigured, supabaseFetch, sweepAutoClose, sweepShiftReminders } from './_supabase.js';
 import { getSessionEmployee } from './_session.js';
-import { pendingForDevice, pushPending, registerDevice, unregisterDevice } from './_push.js';
+import { pendingForDevice, pushPending, pushStatus, registerDevice, unregisterDevice } from './_push.js';
 
 /**
  * Background jobs that must run even when nobody has the app open.
@@ -39,6 +39,8 @@ export default async function handler(req, res) {
       const push = await pushPending().catch(() => ({ sent: 0, error: true }));
       return res.status(200).json({ ok: true, reminders, closed, push, at: new Date().toISOString() });
     }
+
+    if (task === 'push-status') return res.status(200).json({ ok: true, ...(await pushStatus()) });
 
     if (task.startsWith('push-')) {
       if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'Use POST.' });
