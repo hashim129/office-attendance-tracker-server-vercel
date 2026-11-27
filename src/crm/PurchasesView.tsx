@@ -278,7 +278,8 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   // Invoices a purchase can be made for: customer invoices (not cancelled) that this person can see.
   const invoiceChoices = useMemo(() => (crm.data.invoices || []).filter((i) => (i.kind || 'customer') === 'customer' && i.status !== 'cancelled'), [crm.data.invoices]);
-  const invoiceLabel = (i: { invoiceNo: string; customerName: string; crmId?: string; queryCode?: string }) => `${i.invoiceNo} · ${i.customerName}${i.crmId || i.queryCode ? ` · ${i.crmId || i.queryCode}` : ''}`;
+  // Only the invoice number, customer name and who made it (each employee only gets their own or tagged invoices).
+  const invoiceLabel = (i: { invoiceNo: string; customerName: string; createdBy: string }) => `${i.invoiceNo} · ${i.customerName} · by ${empName.get(i.createdBy) || 'Former employee'}`;
   const currencies = useMemo(() => allCurrencies(), []);
 
   const allCategoryEntries = useMemo(() => {
@@ -615,7 +616,7 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
   const submitForm = async () => {
     if (!form) return;
     if (!form.id && !form.invoiceId) {
-      setError('Choose the invoice this purchase is for (search by invoice no., customer or CRM ID). Create the invoice first if it does not exist yet.');
+      setError('Choose the invoice this purchase is for (search by invoice no., customer or creator name). Create the invoice first if it does not exist yet.');
       return;
     }
     if (!form.customerName.trim()) {
@@ -1266,7 +1267,7 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
                       if (!hit) { patchForm({ invoiceText: text, invoiceId: '' }); return; }
                       patchForm({ invoiceText: invoiceLabel(hit), invoiceId: hit.id, customerName: hit.customerName, crmId: hit.crmId || hit.queryCode || form.crmId, currency: hit.currency || form.currency });
                     }}
-                    placeholder="Search invoice no., customer name or CRM ID…"
+                    placeholder="Search invoice no., customer or creator name…"
                   />
                   <datalist id="purchase-invoices-list">
                     {invoiceChoices.map((i) => <option key={i.id} value={invoiceLabel(i)} />)}
@@ -1274,7 +1275,7 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
                 </Field>
                 <p className="mt-1 text-[11px] text-slate-600">
                   {form.invoiceId
-                    ? <>✓ Linked to invoice <b>{invoiceChoices.find((i) => i.id === form.invoiceId)?.invoiceNo || form.invoiceText}</b>. Customer and CRM ID were filled from it.</>
+                    ? <>✓ Linked to invoice <b>{invoiceChoices.find((i) => i.id === form.invoiceId)?.invoiceNo || form.invoiceText}</b>. Customer was filled from it.</>
                     : invoiceChoices.length ? 'Pick the invoice from the list. Purchases can only be made for invoices that already exist.' : 'No invoices yet. Create the invoice first in the Invoices section, then add its purchase here.'}
                 </p>
               </div>

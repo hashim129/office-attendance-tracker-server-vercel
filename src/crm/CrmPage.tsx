@@ -12,9 +12,10 @@ import { InvoicesView } from './InvoicesView';
 import { ReceiptsView } from './ReceiptsView';
 import { NotificationsView } from './NotificationsView';
 import { PortalControlView } from './PortalControlView';
+import { PaymentTreeView } from './PaymentTreeView';
 import { ActiveDesktopTab } from '../types';
 
-export type CrmSection = 'crm-customers' | 'crm-tasks' | 'crm-meetings' | 'crm-inventory' | 'crm-sales' | 'crm-purchases' | 'crm-invoices' | 'crm-receipts' | 'crm-portal' | 'crm-notifications';
+export type CrmSection = 'crm-customers' | 'crm-tasks' | 'crm-meetings' | 'crm-inventory' | 'crm-sales' | 'crm-purchases' | 'crm-invoices' | 'crm-receipts' | 'crm-portal' | 'crm-notifications' | 'crm-payment-tree';
 
 interface Props {
   section: CrmSection;
@@ -57,6 +58,7 @@ export const CrmPage: React.FC<Props> = ({ section, crm, employees, currentUser,
       {section === 'crm-invoices' && <InvoicesView key={focusId || 'all'} focusId={focusId} crm={crm} employees={employees} currentUser={currentUser} customerPortalBetaEnabled={Boolean(customerPortalBetaEnabled)} />}
       {section === 'crm-portal' && (['admin', 'ceo'].includes(currentUser.role) ? <PortalControlView crm={crm} /> : <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center text-xs text-slate-500">Portal Control is only for Admin and the CEO.</div>)}
       {section === 'crm-receipts' && <ReceiptsView portalEnabled={Boolean(customerPortalBetaEnabled)} key={focusId || 'all'} focusId={focusId} crm={crm} employees={employees} currentUser={currentUser} />}
+      {section === 'crm-payment-tree' && (['admin', 'ceo', 'accounts'].includes(currentUser.role) ? <PaymentTreeView crm={crm} employees={employees} onNavigate={onNavigate} /> : <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center text-xs text-slate-500">The Payment Tree is only for Admin, the CEO and Accounts.</div>)}
       {section === 'crm-notifications' && <NotificationsView crm={crm} onOpen={onNavigate} />}
       {section === 'crm-meetings' && <MeetingsView key={focusId || 'all'} focusId={focusId} crm={crm} employees={employees} currentUser={currentUser} />}
     </div>
