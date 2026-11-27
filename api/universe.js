@@ -2,7 +2,7 @@ import { getSessionEmployee } from './_session.js';
 import { supabaseFetch } from './_supabase.js';
 import { CHARACTER_IDS as CHARACTERS } from '../src/lib/universeCharacters.js';
 
-import { validAppearance, wardrobe } from '../src/lib/avatarWardrobe.js';
+import { validAppearance, wardrobe, roleCanWear, roleCanWearLook } from '../src/lib/avatarWardrobe.js';
 
 const PETS = new Set(['cat','dog','rabbit','owl','hamster','parrot','turtle','none']);
 const PRIVATE_TABLE = 'employee_universe_private_messages';
@@ -101,6 +101,9 @@ export default async function handler(req, res) {
       if (!PETS.has(petId)) return response(res, 400, { error: 'Choose a pet from the approved gallery.' });
       if (body.appearance !== undefined && !validAppearance(body.appearance)) return response(res,400,{error:'Invalid avatar options.'});
       if (body.photo !== undefined && !wardrobe.photo.includes(String(body.photo))) return response(res,400,{error:'Choose a profile picture from the gallery.'});
+      const role = String(actor.role || 'employee');
+      if (body.appearance && !roleCanWearLook(role, body.appearance, actor.isSuperAdmin === true)) return response(res,403,{error:'Some avatar items are reserved for Admin, CEO or Accounts only.'});
+      if (body.photo !== undefined && !roleCanWear(role, 'photo', String(body.photo), actor.isSuperAdmin === true)) return response(res,403,{error:'That profile picture is reserved for another role.'});
       const profile = body.profile && typeof body.profile === 'object' ? body.profile : {};
       const name = String(profile.name || actor.name || '').trim();
       const email = String(profile.email || actor.email || '').trim();

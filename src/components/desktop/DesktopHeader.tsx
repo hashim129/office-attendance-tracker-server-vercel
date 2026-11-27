@@ -1,7 +1,9 @@
 import { crmCall } from '../../crm/crmApi';
 import { notificationDestination } from '../../crm/notificationTarget';
 import { isWorkPrompt } from '../../crm/ui';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { EmployeeAvatar } from '../common/EmployeeIdentity';
+import { hasProfilePicture } from '../../lib/profilePictures';
 import {
   LogOut,
   Shield,
@@ -21,6 +23,8 @@ import {
   Menu,
   Moon,
   Sun,
+  ChevronDown,
+  ContactRound,
 } from 'lucide-react';
 import { ActiveDesktopTab, AppMode, CeoComment, Employee } from '../../types';
 import { CloudSyncState } from '../../lib/storage';
@@ -33,6 +37,10 @@ interface DesktopHeaderProps {
   ceoComments?: CeoComment[];
   onMarkCeoCommentRead?: (commentId: string) => void;
   onOpenChangePassword?: () => void;
+  /** Opens My Profile (the profile now lives in this header menu). */
+  onOpenProfile?: () => void;
+  /** Show the 3D avatar look (Employee Universe on). */
+  showAvatar?: boolean;
   isNetworkOnline?: boolean;
   cloudSyncState?: CloudSyncState;
   onRetrySync?: () => void;
@@ -57,6 +65,8 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   ceoComments = [],
   onMarkCeoCommentRead,
   onOpenChangePassword,
+  onOpenProfile,
+  showAvatar = false,
   isNetworkOnline = true,
   cloudSyncState,
   onRetrySync,
@@ -73,6 +83,15 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCrmBell, setShowCrmBell] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const profileRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!showProfile) return;
+    const close = (e: MouseEvent | TouchEvent) => { if (profileRef.current && !profileRef.current.contains(e.target as Node)) setShowProfile(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowProfile(false); };
+    document.addEventListener('mousedown', close); document.addEventListener('touchstart', close); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('touchstart', close); document.removeEventListener('keydown', esc); };
+  }, [showProfile]);
   const [confirmingWork, setConfirmingWork] = useState(false);
   const [workConfirmFeedback, setWorkConfirmFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const confirmWorking = async () => {
@@ -234,7 +253,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         <div className="relative">
           <button
             type="button"
-            onClick={() => { setShowNotifications((v) => !v); setShowCrmBell(false); }}
+            onClick={() => { setShowNotifications((v) => !v); setShowCrmBell(false); setShowProfile(false); }}
             className={`relative rounded-xl p-2.5 transition-all hover:-translate-y-0.5 hover:shadow-sm ${headerBetaEnabled ? 'bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/20 hover:from-blue-700 hover:to-indigo-700' : 'text-slate-500 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-300'}`}
             title="Smart notification center"
             aria-label={`Notifications, ${unreadCount + crmUnread} unread`}
@@ -300,59 +319,65 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
 
         <div className="h-5 w-px bg-slate-200 dark:bg-slate-800 hidden sm:block" />
 
-        {/* Profile Card */}
-        <div className="flex items-center gap-2.5 sm:gap-3 pl-2 sm:pl-3 border-l border-slate-200 dark:border-slate-700">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/70 dark:to-indigo-900/50 text-blue-700 dark:text-blue-200 flex items-center justify-center font-bold text-sm ring-1 ring-blue-200/80 dark:ring-blue-800/70 shadow-sm">
-            {currentUser.name.charAt(0)}
-          </div>
-          <div className="hidden md:block text-left">
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] font-bold text-slate-900 dark:text-slate-100">
-                {currentUser.name}
-              </span>
-              <span
-                className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded ${
-                  currentUser.role === 'admin'
-                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300'
-                    : currentUser.role === 'ceo'
-                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 border border-amber-300 dark:border-amber-700 font-black'
-                    : currentUser.role === 'accounts'
-                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300'
-                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                }`}
-              >
-                {currentUser.role === 'ceo'
-                  ? 'CEO'
-                  : currentUser.role === 'accounts'
-                  ? 'Accounts Officer'
-                  : currentUser.role}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {currentUser.department} · {currentUser.employeeCode}
-            </p>
-          </div>
-
-          {/* Change PIN / Password button */}
-          {onOpenChangePassword && (
-            <button
-              onClick={onOpenChangePassword}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all hover:-translate-y-0.5 hover:shadow-sm cursor-pointer border ${headerBetaEnabled ? 'border-blue-200 bg-gradient-to-r from-white to-blue-50 text-blue-700 shadow-sm dark:border-slate-700 dark:from-slate-800 dark:to-slate-900 dark:text-blue-300' : 'border-slate-200 text-slate-600 hover:text-blue-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-slate-800'}`}
-              title="Change your portal password / PIN"
-            >
-              <KeyRound className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-              <span className="hidden sm:inline">Password</span>
-            </button>
-          )}
-
-          {/* Logout / Switch User */}
+        {/* Compact profile menu: profile, password and sign-out in one place */}
+        <div className="relative" ref={profileRef}>
           <button
-            onClick={onLogout}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-            title="Sign out or switch employee"
+            type="button"
+            onClick={() => { setShowProfile((v) => !v); setShowNotifications(false); }}
+            className={`group flex items-center gap-2 rounded-2xl border py-1 pl-1 pr-2 sm:pr-2.5 transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-[.98] ${showProfile ? 'border-blue-300 bg-blue-50/80 shadow-sm dark:border-blue-700 dark:bg-slate-800' : 'border-slate-200 bg-white/80 dark:border-slate-700 dark:bg-slate-900/80'}`}
+            aria-haspopup="menu"
+            aria-expanded={showProfile}
+            title="My profile & account"
           >
-            <LogOut className="w-4 h-4" />
+            {(showAvatar && currentUser.gameCharacterId) || hasProfilePicture(currentUser.avatarAppearance)
+              ? <EmployeeAvatar characterId={showAvatar ? currentUser.gameCharacterId : undefined} appearance={currentUser.avatarAppearance} name={currentUser.name} size="sm" />
+              : <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-sm font-bold text-white shadow-sm">{currentUser.name.charAt(0)}</span>}
+            <span className="hidden md:flex flex-col items-start leading-tight">
+              <span className="max-w-[140px] truncate text-[13px] font-bold text-slate-900 dark:text-slate-100">{currentUser.name}</span>
+              <span className={`mt-0.5 rounded px-1.5 text-[9px] font-black uppercase tracking-wider ${currentUser.role === 'admin' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300' : currentUser.role === 'ceo' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200' : currentUser.role === 'accounts' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'}`}>{currentUser.role === 'ceo' ? 'CEO' : currentUser.role === 'accounts' ? 'Accounts' : currentUser.role}</span>
+            </span>
+            <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-300 ${showProfile ? 'rotate-180 text-blue-600' : ''}`} />
           </button>
+          {showProfile && (
+            <div role="menu" className="header-menu-pop absolute right-0 z-50 mt-2 w-[min(92vw,18.5rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+              <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 px-4 py-4 text-white">
+                <div className="pointer-events-none absolute -right-6 -top-8 h-24 w-24 rounded-full bg-white/15" aria-hidden />
+                <div className="relative flex items-center gap-3">
+                  <EmployeeAvatar characterId={showAvatar ? currentUser.gameCharacterId : undefined} petId={showAvatar ? currentUser.gamePetId : undefined} appearance={currentUser.avatarAppearance} name={currentUser.name} size="md" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-black">{currentUser.name}</p>
+                    <p className="truncate text-[11px] text-white/80">{currentUser.designation || currentUser.department}</p>
+                    <p className="mt-0.5 font-mono text-[10px] text-white/70">{currentUser.department} · {currentUser.employeeCode}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="p-1.5">
+                {onOpenProfile && (
+                  <button role="menuitem" onClick={() => { setShowProfile(false); onOpenProfile(); }} className="header-menu-item flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-blue-50 dark:text-slate-200 dark:hover:bg-slate-800">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"><ContactRound className="h-4 w-4" /></span>
+                    <span className="flex-1"><span className="block">My profile & avatar</span><span className="block text-[10px] font-normal text-slate-500">Details, picture, 3D look</span></span>
+                  </button>
+                )}
+                {onOpenChangePassword && (
+                  <button role="menuitem" onClick={() => { setShowProfile(false); onOpenChangePassword(); }} className="header-menu-item flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-emerald-50 dark:text-slate-200 dark:hover:bg-slate-800">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><KeyRound className="h-4 w-4" /></span>
+                    <span className="flex-1"><span className="block">Change password</span><span className="block text-[10px] font-normal text-slate-500">Update your password / PIN</span></span>
+                  </button>
+                )}
+                {currentUser.role === 'admin' && (
+                  <button role="menuitem" onClick={() => { setShowProfile(false); onSwitchToKiosk(); }} className="header-menu-item flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 dark:text-slate-200 dark:hover:bg-slate-800 sm:hidden">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"><Monitor className="h-4 w-4" /></span>
+                    <span className="flex-1">Lobby kiosk mode</span>
+                  </button>
+                )}
+                <div className="my-1 h-px bg-slate-100 dark:bg-slate-800" />
+                <button role="menuitem" onClick={() => { setShowProfile(false); onLogout(); }} className="header-menu-item flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-100 dark:bg-rose-950"><LogOut className="h-4 w-4" /></span>
+                  <span className="flex-1">Sign out</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -16,17 +16,43 @@ export const wardrobe = {
   cheeks: ['None','Blush','Freckles','Blush + freckles'],
   beard: ['None','Full','Goatee','Moustache','Stubble'],
   glasses: ['None','Round','Square','Sunglasses','Aviator','Star shades'],
-  hat: ['None','Beanie','Fedora','Cap','Hijab','Turban','Headphones','Crown','Party hat'],
+  hat: ['None','Beanie','Fedora','Cap','Hijab','Turban','Headphones','Crown','Party hat','Admin shield cap','CEO royal crown','Accounts visor'],
   earrings: ['None','Studs','Hoops','Drops'],
-  top: ['Hoodie','Varsity','Polo','Tee','Suit','Kurta','Blazer','Sweater','Jersey','Abaya'],
+  top: ['Hoodie','Varsity','Polo','Tee','Suit','Kurta','Blazer','Sweater','Jersey','Abaya','Admin command jacket','CEO gold sherwani','Accounts ledger vest'],
   fabric: ['#313747','#079ba9','#3859b6','#ae3351','#e79a39','#8656a6','#3b796a','#e8ded4','#111111','#ffffff','#1f7a3d','#c9a227'],
   pants: ['#293446','#5c85a7','#665850','#ddd3b9','#30332f','#7a1f2b','#ffffff'],
   shoes: ['#faf4df','#262b33','#c45146','#4479b4','#e2b33c','#2f8f6f'],
-  status: ['None','Focus mode 🎧','In a meeting 📅','On a call 📞','Lunch break 🍛','Celebrating 🎉','Travelling ✈️','Need coffee ☕'],
+  status: ['None','Focus mode 🎧','In a meeting 📅','On a call 📞','Lunch break 🍛','Celebrating 🎉','Travelling ✈️','Need coffee ☕','Admin on duty 🛡️','CEO in the house 👑','Accounts closing books 💼'],
   // Static profile pictures (src/lib/profilePictures.tsx). 'None' = use the 3D avatar or initials.
-  photo: ['None', ...Array.from({ length: 24 }, (_, i) => `pf-${String(i + 1).padStart(2, '0')}`)],
-  bg: ['#e3e8fa','#fde2e4','#e2f6ec','#fff2cc','#e6e0ff','#d6f0ff','#ffe5d0','#1e2a44'],
+  photo: ['None', ...Array.from({ length: 24 }, (_, i) => `pf-${String(i + 1).padStart(2, '0')}`), 'admin-1','admin-2','admin-3','ceo-1','ceo-2','ceo-3','accounts-1','accounts-2','accounts-3'],
+  bg: ['#e3e8fa','#fde2e4','#e2f6ec','#fff2cc','#e6e0ff','#d6f0ff','#ffe5d0','#1e2a44','#2b1f4d','#3b2a05','#06352b'],
 };
+
+/**
+ * Role-only items. Each set can be worn only by people with that role
+ * (the built-in Super Admin counts as Admin). Everyone can still SEE them on others.
+ */
+export const EXCLUSIVE = {
+  admin: { hat: ['Admin shield cap'], top: ['Admin command jacket'], status: ['Admin on duty 🛡️'], photo: ['admin-1','admin-2','admin-3'], bg: ['#2b1f4d'] },
+  ceo: { hat: ['CEO royal crown'], top: ['CEO gold sherwani'], status: ['CEO in the house 👑'], photo: ['ceo-1','ceo-2','ceo-3'], bg: ['#3b2a05'] },
+  accounts: { hat: ['Accounts visor'], top: ['Accounts ledger vest'], status: ['Accounts closing books 💼'], photo: ['accounts-1','accounts-2','accounts-3'], bg: ['#06352b'] },
+};
+export const EXCLUSIVE_LABEL = { admin: 'Admin only', ceo: 'CEO only', accounts: 'Accounts only' };
+/** Which role owns this option, or '' if anyone may use it. */
+export function exclusiveOwner(key, value) {
+  for (const [role, set] of Object.entries(EXCLUSIVE)) if (set[key]?.includes(value)) return role;
+  return '';
+}
+export function roleCanWear(role, key, value, isSuperAdmin = false) {
+  const owner = exclusiveOwner(key, value);
+  if (!owner) return true;
+  return owner === role || (owner === 'admin' && isSuperAdmin);
+}
+/** True when every role-only option in the look belongs to this person's role. */
+export function roleCanWearLook(role, look, isSuperAdmin = false) {
+  if (!look || typeof look !== 'object') return true;
+  return Object.entries(look).every(([key, value]) => roleCanWear(role, key, value, isSuperAdmin));
+}
 export function validAppearance(value) {
   return value && typeof value === 'object' && !Array.isArray(value) &&
     Object.keys(value).length <= 40 &&
@@ -36,7 +62,11 @@ export function validAppearance(value) {
 export function randomAppearance(base = {}) {
   const pick = (key) => wardrobe[key][Math.floor(Math.random() * wardrobe[key].length)];
   const out = {};
-  for (const key of Object.keys(wardrobe)) if (!['model','status','bg','photo'].includes(key)) out[key] = pick(key);
+  for (const key of Object.keys(wardrobe)) if (!['model','status','bg','photo'].includes(key)) {
+    let v = pick(key);
+    while (exclusiveOwner(key, v)) v = pick(key); // the dice never hands out role-only items
+    out[key] = v;
+  }
   // Most people do not wear a hat or glasses every day; keep it realistic.
   if (Math.random() < .55) out.hat = 'None';
   if (Math.random() < .5) out.glasses = 'None';

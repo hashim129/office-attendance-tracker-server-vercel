@@ -87,7 +87,7 @@ export function studio(id, portrait=false, appearance={}) {
     oval(hip,navy,0,-.20,0,.135,.25,.135); oval(knee,navy,0,-.19,0,.106,.23,.105);
     oval(knee,v.shoes,0,-.39,.055,.129,.086,.203); legs.push([hip,knee]);
     const shoulder=group(torso,s*.302,.52,0), elbow=group(shoulder,0,-.295,0);
-    const sleeve=v.top==='Varsity'?'#ece2cd':v.fabric;
+    const sleeve=v.top==='Varsity'?'#ece2cd':v.top==='Admin command jacket'?'#2e1f5e':v.top==='CEO gold sherwani'?'#b8892b':v.top==='Accounts ledger vest'?'#f4f1ea':v.fabric;
     oval(shoulder,sleeve,0,-.13,0,.106,.19,.108); oval(elbow,longSleeve?sleeve:skin,0,-.13,0,.078,.164,.081);
     oval(elbow,skin,0,-.28,0,.081,.092,.073); arms.push([shoulder,elbow]);
   }

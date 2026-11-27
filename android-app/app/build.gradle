@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.bahaarjourneys.office'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.bahaarjourneys.office'
+        minSdk 24
+        targetSdk 34
+        versionCode Integer.parseInt(System.getenv('APP_VERSION_CODE') ?: '1')
+        versionName System.getenv('APP_VERSION_NAME') ?: '1.0'
+    }
+
+    signingConfigs {
+        release {
+            // Uses the KEYSTORE_* secrets when set; otherwise the bundled office key in this folder.
+            storeFile file(System.getenv('KEYSTORE_FILE') ?: 'bahaar-office.keystore')
+            storePassword System.getenv('KEYSTORE_PASSWORD') ?: 'bahaaroffice'
+            keyAlias System.getenv('KEY_ALIAS') ?: 'bahaar'
+            keyPassword System.getenv('KEY_PASSWORD') ?: 'bahaaroffice'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

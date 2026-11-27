@@ -13,7 +13,19 @@ export const PROFILE_PICTURES = Array.from({ length: 24 }, (_, i) => ({
   bg: BG[(i * 3) % BG.length],
   face: FACES[i % FACES.length],
 }));
-export const PROFILE_PICTURE_IDS = PROFILE_PICTURES.map((p) => p.id);
+/** Role-only pictures (see EXCLUSIVE in avatarWardrobe.js). Everyone sees them; only that role can pick them. */
+export const ROLE_PICTURES = [
+  { id: 'admin-1', role: 'admin', from: '#4c1d95', to: '#8b5cf6', emblem: 'shield' },
+  { id: 'admin-2', role: 'admin', from: '#1e1b4b', to: '#6366f1', emblem: 'key' },
+  { id: 'admin-3', role: 'admin', from: '#312e81', to: '#c026d3', emblem: 'gear' },
+  { id: 'ceo-1', role: 'ceo', from: '#78350f', to: '#f59e0b', emblem: 'crown' },
+  { id: 'ceo-2', role: 'ceo', from: '#111827', to: '#b45309', emblem: 'star' },
+  { id: 'ceo-3', role: 'ceo', from: '#7f1d1d', to: '#eab308', emblem: 'trophy' },
+  { id: 'accounts-1', role: 'accounts', from: '#064e3b', to: '#10b981', emblem: 'coin' },
+  { id: 'accounts-2', role: 'accounts', from: '#134e4a', to: '#14b8a6', emblem: 'chart' },
+  { id: 'accounts-3', role: 'accounts', from: '#14532d', to: '#84cc16', emblem: 'calc' },
+] as const;
+export const PROFILE_PICTURE_IDS = [...PROFILE_PICTURES.map((p) => p.id), ...ROLE_PICTURES.map((p) => p.id)];
 export const hasProfilePicture = (appearance?: Record<string, string> | null) =>
   Boolean(appearance?.photo && PROFILE_PICTURE_IDS.includes(appearance.photo));
 
@@ -36,7 +48,34 @@ function FaceArt({ face }: { face: Face }) {
   }
 }
 
+function Emblem({ kind }: { kind: string }) {
+  const G = '#fde68a', W = '#ffffff';
+  switch (kind) {
+    case 'shield': return <><path d="M40 12 L62 20 V38 Q62 56 40 68 Q18 56 18 38 V20 Z" fill={W} opacity=".95" /><path d="M31 40 l7 7 13 -15" stroke="#6d28d9" strokeWidth="5" fill="none" strokeLinecap="round" strokeLinejoin="round" /></>;
+    case 'key': return <><circle cx="30" cy="34" r="12" fill="none" stroke={W} strokeWidth="6" /><path d="M40 40 L62 62 M52 52 l6 -6 M57 57 l6 -6" stroke={W} strokeWidth="6" strokeLinecap="round" /></>;
+    case 'gear': return <><circle cx="40" cy="40" r="17" fill="none" stroke={W} strokeWidth="9" strokeDasharray="7 5" /><circle cx="40" cy="40" r="8" fill={W} /></>;
+    case 'crown': return <><path d="M16 56 L20 26 L32 40 L40 20 L48 40 L60 26 L64 56 Z" fill={G} /><rect x="16" y="56" width="48" height="7" rx="2" fill={G} /><circle cx="40" cy="47" r="4" fill="#dc2626" /><circle cx="27" cy="49" r="3" fill="#2563eb" /><circle cx="53" cy="49" r="3" fill="#16a34a" /></>;
+    case 'star': return <><path d="M40 12 l8 17 18 2 -13 12 4 18 -17 -9 -17 9 4 -18 -13 -12 18 -2 z" fill={G} /><text x="40" y="74" textAnchor="middle" fontSize="9" fontWeight="900" fill={W}>CEO</text></>;
+    case 'trophy': return <><path d="M26 16 H54 V30 Q54 46 40 48 Q26 46 26 30 Z" fill={G} /><path d="M26 22 H16 Q16 36 28 36 M54 22 H64 Q64 36 52 36" stroke={G} strokeWidth="4" fill="none" /><rect x="36" y="48" width="8" height="10" fill={G} /><rect x="26" y="58" width="28" height="7" rx="2" fill={G} /></>;
+    case 'coin': return <><circle cx="40" cy="40" r="22" fill={G} /><circle cx="40" cy="40" r="16" fill="none" stroke="#b45309" strokeWidth="2.5" /><text x="40" y="47" textAnchor="middle" fontSize="20" fontWeight="900" fill="#92400e">₨</text></>;
+    case 'chart': return <><rect x="18" y="44" width="10" height="18" rx="2" fill={W} /><rect x="35" y="32" width="10" height="30" rx="2" fill={W} /><rect x="52" y="20" width="10" height="42" rx="2" fill={G} /><path d="M16 36 L34 24 L46 30 L64 14" stroke={G} strokeWidth="4" fill="none" strokeLinecap="round" /></>;
+    default: return <><rect x="22" y="14" width="36" height="52" rx="6" fill={W} /><rect x="27" y="19" width="26" height="12" rx="2" fill="#065f46" />{[0, 1, 2].map((r) => [0, 1, 2].map((c) => <rect key={`${r}${c}`} x={27 + c * 9} y={36 + r * 9} width="7" height="6" rx="1.5" fill={c === 2 && r === 2 ? G : '#94a3b8'} />))}</>;
+  }
+}
+
 export const ProfilePicture: React.FC<{ id: string; className?: string; title?: string }> = ({ id, className = 'h-full w-full', title }) => {
+  const role = ROLE_PICTURES.find((p) => p.id === id);
+  if (role) {
+    const gid = `rp-${role.id}`;
+    return (
+      <svg viewBox="0 0 80 80" className={className} role="img" aria-label={title || 'Profile picture'}>
+        <defs><linearGradient id={gid} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor={role.from} /><stop offset="1" stopColor={role.to} /></linearGradient></defs>
+        <rect width="80" height="80" rx="14" fill={`url(#${gid})`} />
+        <circle cx="66" cy="12" r="18" fill="#ffffff" opacity=".12" />
+        <Emblem kind={role.emblem} />
+      </svg>
+    );
+  }
   const pic = PROFILE_PICTURES.find((p) => p.id === id);
   if (!pic) return null;
   return (
@@ -48,8 +87,25 @@ export const ProfilePicture: React.FC<{ id: string; className?: string; title?: 
   );
 };
 
-/** Grid picker used on My Profile. */
-export const ProfilePicturePicker: React.FC<{ value: string; onChange: (id: string) => void }> = ({ value, onChange }) => (
+const ROLE_NAME: Record<string, string> = { admin: 'Admin only', ceo: 'CEO only', accounts: 'Accounts only' };
+/** Grid picker used on My Profile. Role-only pictures appear first for that role; other roles' sets are not offered. */
+export const ProfilePicturePicker: React.FC<{ value: string; onChange: (id: string) => void; role?: string; isSuperAdmin?: boolean }> = ({ value, onChange, role = 'employee', isSuperAdmin = false }) => {
+  const mine = ROLE_PICTURES.filter((p) => p.role === role || (p.role === 'admin' && isSuperAdmin));
+  return (
+  <div className="space-y-3">
+  {mine.length > 0 && (
+    <div className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-white to-violet-50 p-3 dark:border-amber-900/60 dark:from-amber-950/30 dark:via-slate-900 dark:to-violet-950/30">
+      <p className="mb-2 text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-300">✨ {ROLE_NAME[mine[0].role]} · exclusive pictures</p>
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 md:grid-cols-9">
+        {mine.map((p) => (
+          <button key={p.id} type="button" onClick={() => onChange(p.id)} aria-pressed={value === p.id} aria-label={`${ROLE_NAME[p.role]} picture ${p.id.split('-')[1]}`} className={`relative aspect-square rounded-2xl transition hover:-translate-y-0.5 hover:scale-105 ${value === p.id ? 'ring-4 ring-amber-500 ring-offset-2 dark:ring-offset-slate-900' : ''}`}>
+            <ProfilePicture id={p.id} />
+            <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 rounded-full bg-amber-500 px-1.5 text-[8px] font-black uppercase text-white shadow">{p.role === 'accounts' ? 'ACC' : p.role.toUpperCase()}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )}
   <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
     <button type="button" onClick={() => onChange('None')} aria-pressed={!value || value === 'None'} className={`flex aspect-square items-center justify-center rounded-2xl border-2 border-dashed text-[10px] font-bold text-slate-500 transition hover:scale-105 ${!value || value === 'None' ? 'border-blue-600 text-blue-700' : 'border-slate-300 dark:border-slate-700'}`}>No picture</button>
     {PROFILE_PICTURES.map((p) => (
@@ -58,4 +114,6 @@ export const ProfilePicturePicker: React.FC<{ value: string; onChange: (id: stri
       </button>
     ))}
   </div>
-);
+  </div>
+  );
+};
