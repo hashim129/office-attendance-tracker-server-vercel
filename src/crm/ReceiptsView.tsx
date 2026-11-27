@@ -88,6 +88,20 @@ export const ReceiptsView: React.FC<Props & { focusId?: string; portalEnabled?: 
   const empName = useMemo(() => new Map(employees.map((e) => [e.id, e.name])), [employees]);
   const currencies = useMemo(() => allCurrencies(), []);
   const [form, setForm] = useState<FormState | null>(null);
+  // Opened from the phone app's "New receipt" shortcut, or with a screenshot shared from another app
+  useEffect(() => {
+    let flag = '';
+    try { flag = sessionStorage.getItem('bahaar_open_new') || ''; } catch { /* ignore */ }
+    if (flag !== 'receipt') return;
+    try { sessionStorage.removeItem('bahaar_open_new'); } catch { /* ignore */ }
+    setForm(blankForm());
+    const shared = (window as any).__bahaarSharedFile as File | undefined;
+    if (shared) {
+      (window as any).__bahaarSharedFile = undefined;
+      if (/^image\//.test(shared.type)) void compressImage(shared).then((img) => setForm((f) => (f ? { ...f, proofImage: img, removeProof: false } : f))).catch(() => null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [view, setView] = useState<CrmReceipt | null>(receipts.find((r) => r.id === focusId) || null);
   const [proof, setProof] = useState<{ loading: boolean; image: string | null }>({ loading: false, image: null });
   const [busy, setBusy] = useState(false);

@@ -27,6 +27,7 @@ import {
   ContactRound,
   ShieldCheck,
   GitBranch,
+  CalendarDays,
 } from 'lucide-react';
 import { ActiveDesktopTab, Employee, OfficeSettings } from '../../types';
 import { CrmBadges } from '../../crm/crmApi';
@@ -256,6 +257,24 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                   </div>
                 </a>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Media Team: weekly social media posting calendar */}
+        {crmEnabled && canOpenPage('crm-media') && (['admin', 'ceo'].includes(currentUser.role) || currentUser.mediaTeam) && (
+          <div>
+            <p className="px-3 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 mb-2">Media Team</p>
+            <div className="space-y-1 mb-1">
+              <button
+                onClick={() => onSelectTab('crm-media')}
+                data-nav-media
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
+                  activeTab === 'crm-media' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                <div className="flex items-center gap-3"><CalendarDays className="w-4 h-4 shrink-0" /><span>Posting Calendar</span></div>
+              </button>
             </div>
           </div>
         )}

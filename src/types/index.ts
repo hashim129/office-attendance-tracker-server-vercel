@@ -146,6 +146,7 @@ export interface Employee {
   salesAccess?: boolean; // Admin-selected: may open the Sales section
   liveDashboardAccess?: boolean; // Admin-selected: may open the Live Dashboard
   teamPresenceAccess?: boolean; // Admin-selected: may view Team Presence; hidden for employees by default
+  mediaTeam?: boolean; // Admin-selected: member of the Media Team (Posting Calendar)
   leaderboardAccess?: boolean; // Admin-selected: may see the sales leaderboard
   payablesAccess?: boolean; // Admin-selected: may see the payables-due calendar
   salesTeam?: '' | 'B2C' | 'B2B'; // Sales team the employee belongs to (set by an administrator)
@@ -208,6 +209,7 @@ export interface OfficeSettings {
   allowedOfficeIsps?: { ispName: string; label: string; addedAt: string }[];
   allowAdminBypassIpLock?: boolean;
   faceScanPunchEnabled?: boolean; // High security: punches need a live face scan (off by default)
+  blockScreenshots?: boolean; // Phone app: no screenshots / screen recording on invoices, sales, receipts, purchases, payment tree
   faceEnrollRequired?: boolean; // Everyone must enroll their own face (through their own login) before punching
   locationCheckEnabled?: boolean; // Phone punches (app or mobile browser) record the location, for everyone
   officeLat?: number; // Office pin for the location check (optional)
@@ -252,6 +254,7 @@ export type ActiveDesktopTab =
   | 'crm-portal'
   | 'crm-notifications'
   | 'crm-payment-tree'
+  | 'crm-media'
   | 'live-dashboard'
   | 'superadmin';
 

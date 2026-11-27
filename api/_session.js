@@ -33,7 +33,7 @@ function secret() {
 }
 
 export function issueSession(employeeId, now = Date.now()) {
-  const body = Buffer.from(JSON.stringify({ i: employeeId, x: now + SESSION_TTL_MS })).toString('base64url');
+  const body = Buffer.from(JSON.stringify({ i: employeeId, x: now + SESSION_TTL_MS, t: now })).toString('base64url');
   const sig = crypto.createHmac('sha256', secret()).update(body).digest('base64url');
   return `${body}.${sig}`;
 }
@@ -47,10 +47,16 @@ export async function getSessionEmployee(token, now = Date.now()) {
   const b = Buffer.from(expected);
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try {
-    const { i, x } = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    const { i, x, t } = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
     if (typeof x !== 'number' || x <= now || !i) return null;
     const row = await getEmployeeRow(i);
     if (!row || row.is_active === false || (await isSiteDisabled(now) && row.role !== 'superadmin')) return null;
+    // Admin pressed "Sign out of all devices": sessions issued before that moment stop working.
+    let pend = row.pending_device_request;
+    if (typeof pend === 'string') { try { pend = JSON.parse(pend); } catch { pend = null; } }
+    const cutoff = Number(pend?.signOutBefore) || 0;
+    const issuedAt = typeof t === 'number' ? t : x - SESSION_TTL_MS;
+    if (cutoff && issuedAt < cutoff) return null;
     return row.role === 'superadmin' ? { ...row, role: 'admin', isSuperAdmin: true, featureAccess: row.page_access || {} } : { ...row, featureAccess: row.page_access || {} };
   } catch {
     return null;

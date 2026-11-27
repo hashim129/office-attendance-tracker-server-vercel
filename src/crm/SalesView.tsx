@@ -213,7 +213,7 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
     setRemarks('');
   };
 
-  const filters: [typeof filter, string][] = [['all', 'All'], ['pending', `Pending (${counts.pending})`], ['approved', 'Approved'], ['unpaid', 'Not paid'], ['paid', 'Paid'], ['declined', 'Declined']];
+  const filters: [typeof filter, string][] = [['all', 'All'], ['pending', `Pending (${counts.pending})`], ['approved', 'Approved'], ['unpaid', 'Receivable'], ['paid', 'Received'], ['declined', 'Cancelled']];
 
   return (
     <div className="space-y-4">
@@ -222,32 +222,31 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
         <div>
           <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 inline-flex items-center gap-2"><Receipt className="w-4 h-4 text-blue-600" /> Sales</h2>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-            {seesAll ? 'Every sales coupon from every employee. Accounts reviews and marks them.' : 'Generate a coupon for each sale. Accounts will review it and mark it paid or not paid.'}
+            {seesAll ? 'Every employee’s sales. A sale is added automatically each time an invoice is generated, and counts towards that employee’s target.' : 'Your sales are added automatically each time you generate an invoice, and count towards your sales target.'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ExportPanel
             title="Sales" rows={crm.data.sales} columns={saleColumns()} toCells={(s) => saleCells(s, (id) => empName.get(id) || 'Former employee', (crm.data.saleTypes || {}) as Record<string, string>)}
-            getCreatedAt={(s) => s.createdAt} getCreatorId={(s) => s.createdBy} searchFields={saleSearch} searchHint="Coupon no., query code, customer or vendor"
+            getCreatedAt={(s) => s.createdAt} getCreatorId={(s) => s.createdBy} searchFields={saleSearch} searchHint="Invoice no., query code, customer or vendor"
             employees={employees} currentUser={currentUser} companyName={crm.data.company.name} summaryOf={saleSummary} landscape
           />
-          <button className={btnPrimary} onClick={() => { setForm(emptyForm); setError(''); setFormOpen(true); }}><Plus className="w-3.5 h-3.5" /> Generate Sales Coupon</button>
         </div>
       </div>
 
       <StatBar
-        title={seesAll ? 'All coupons: paid, not paid and rejected' : 'Your coupons: paid, not paid and rejected'}
+        title={seesAll ? 'All sales: received, receivable and cancelled' : 'Your sales: received, receivable and cancelled'}
         segments={[
-          { label: 'Paid', count: counts.paid, tone: 'green' },
-          { label: `Not paid (${counts.pending} awaiting review)`, count: counts.unpaid, tone: 'amber' },
-          { label: 'Rejected', count: counts.declined, tone: 'red' },
+          { label: 'Received', count: counts.paid, tone: 'green' },
+          { label: counts.pending ? `Receivable (${counts.pending} older coupons awaiting review)` : 'Receivable', count: counts.unpaid, tone: 'amber' },
+          { label: 'Cancelled', count: counts.declined, tone: 'red' },
         ]}
       />
 
       {seesAll && (
         <>
           {stats.length === 0 ? (
-            <div className={`${cardCls} p-6 text-center text-xs text-slate-500`}>No sales coupons yet. Live totals and charts will appear here as soon as the first coupon is generated.</div>
+            <div className={`${cardCls} p-6 text-center text-xs text-slate-500`}>No sales yet. Totals and charts appear here as soon as the first invoice is generated.</div>
           ) : (
             <>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -261,29 +260,29 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
                       <div>
                         <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Receivables</p>
                         <p className="text-base font-bold font-mono tabular-nums text-blue-600 dark:text-blue-400">{money(c.receivable, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">all created coupons · not yet paid: {money(c.receivableOpen, c.currency)}</p>
+                        <p className="text-[10px] text-slate-400">all sales · not yet received: {money(c.receivableOpen, c.currency)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Payables</p>
                         <p className="text-base font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400">{money(c.payable, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">all created coupons · not yet paid: {money(c.payableOpen, c.currency)}</p>
+                        <p className="text-[10px] text-slate-400">all sales · not yet paid to vendors: {money(c.payableOpen, c.currency)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Expected profit</p>
                         <p className="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">{money(c.expectedProfit, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">sale − cost, all created coupons</p>
+                        <p className="text-[10px] text-slate-400">sale − cost, all sales</p>
                       </div>
                       <div>
                         <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Profit earned</p>
                         <p className="text-sm font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400">{money(c.realisedProfit, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">coupons marked paid</p>
+                        <p className="text-[10px] text-slate-400">sales received</p>
                       </div>
                     </div>
                     {c.pendingCount > 0 && <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-2">{c.pendingCount} coupon{c.pendingCount > 1 ? 's' : ''} waiting for review · {money(c.pendingValue, c.currency)}</p>}
                   </div>
                 ))}
               </div>
-              <p className="text-[10px] text-slate-400 px-1">Profit = sale amount − cost amount. Receivables and payables count every coupon as soon as it is created (declined ones are left out). Each currency is kept separate (no conversion).</p>
+              <p className="text-[10px] text-slate-400 px-1">Profit = sale amount − cost amount. Receivables and payables count every sale as soon as its invoice is created (cancelled ones are left out). Each currency is kept separate (no conversion).</p>
 
               <div className={`${cardCls} p-4 space-y-4`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -315,13 +314,13 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
               <button key={id} onClick={() => setFilter(id)} className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border cursor-pointer ${filter === id ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}>{label}</button>
             ))}
           </div>
-          <input className={`${inputCls} md:max-w-xs`} placeholder="Search coupon no., customer, PAX, vendor…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input className={`${inputCls} md:max-w-xs`} placeholder="Search invoice no., customer, PAX, vendor…" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         {error && !formOpen && !deciding && <ErrorNote message={error} />}
       </div>
 
       {shown.length === 0 ? (
-        <div className={`${cardCls} p-8 text-center text-xs text-slate-500`}>{sales.length === 0 ? 'No coupons yet. Press “Generate Sales Coupon” to add the first one.' : 'No coupons match this filter.'}</div>
+        <div className={`${cardCls} p-8 text-center text-xs text-slate-500`}>{sales.length === 0 ? 'No sales yet. Generate an invoice and it appears here automatically.' : 'No sales match this filter.'}</div>
       ) : (
         <div className="space-y-2">
           <div className="hidden lg:grid lg:grid-cols-[1fr_1.5fr_1.2fr_1.3fr_0.8fr_auto] gap-3 px-4 text-[10px] uppercase tracking-wider font-bold text-slate-500">
@@ -367,7 +366,7 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
                   <div className="col-span-2 lg:col-span-1 lg:w-44 lg:text-right space-y-1.5">
                     <div className="flex flex-wrap lg:justify-end gap-1">
                       <Pill tone={s.status === 'approved' ? 'green' : s.status === 'declined' ? 'red' : 'amber'}>{s.status === 'approved' ? 'Approved' : s.status === 'declined' ? 'Declined' : 'Waiting for review'}</Pill>
-                      {s.status === 'approved' && <Pill tone={s.paymentStatus === 'paid' ? 'green' : 'red'}>{s.paymentStatus === 'paid' ? 'Paid' : 'Not paid'}</Pill>}
+                      {s.status === 'approved' && <Pill tone={s.paymentStatus === 'paid' ? 'green' : 'red'}>{s.paymentStatus === 'paid' ? 'Received' : 'Receivable'}</Pill>}
                     </div>
                     <div className="flex flex-wrap lg:justify-end gap-1.5">
                       {canReview && (
@@ -402,6 +401,11 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
                           <option value="paid">Payment: Paid</option>
                         </select>
                       )}
+                      {s.id.startsWith('sale-inv') ? (
+                        <span className="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-600 dark:text-slate-300" data-auto-sale>
+                          From invoice {s.couponNo} · {s.status === 'declined' ? 'Cancelled' : s.paymentStatus === 'paid' ? 'Received' : 'Receivable'}
+                        </span>
+                      ) : <>
                       {canReview && s.status === 'pending' && (
                         <>
                           <button className={btnPrimary} onClick={() => { setDeciding({ s, status: 'approved' }); setRemarks(''); setError(''); }}><Check className="w-3.5 h-3.5" /> Approve</button>
@@ -422,6 +426,7 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
                       {(isAdmin || (mineCoupon && s.status === 'pending')) && (
                         <button className={btnDanger} aria-label="Delete coupon" onClick={() => { if (window.confirm(`Delete coupon ${s.couponNo}?`)) void act('sale_delete', { id: s.id }); }}><Trash2 className="w-3.5 h-3.5" /></button>
                       )}
+                      </>}
                     </div>
                   </div>
                 </div>

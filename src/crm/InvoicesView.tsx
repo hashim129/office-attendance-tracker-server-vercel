@@ -398,6 +398,15 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
   };
 
   const [form, setForm] = useState<FormState | null>(null);
+  // Opened from the phone app's "New invoice" shortcut
+  useEffect(() => {
+    let flag = '';
+    try { flag = sessionStorage.getItem('bahaar_open_new') || ''; } catch { /* ignore */ }
+    if (flag !== 'invoice') return;
+    try { sessionStorage.removeItem('bahaar_open_new'); } catch { /* ignore */ }
+    setForm(blankForm('customer', crm.data.company.ntn || ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Cards start folded so the page stays short; people open the ones they need.
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
   const toggleOpen = (id: string) => setOpenIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });

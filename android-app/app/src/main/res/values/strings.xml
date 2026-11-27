@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Bahaar Office</string>
+    <string name="sc_punch">Punch in</string>
+    <string name="sc_invoice">New invoice</string>
+    <string name="sc_receipt">New receipt</string>
+    <string name="sc_followups">Follow-ups</string>
+    <string name="widget_desc">Today\'s punch status with a Punch in / out button</string>
 </resources>

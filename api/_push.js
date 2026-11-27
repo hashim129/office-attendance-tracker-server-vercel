@@ -14,7 +14,7 @@ import { supabaseFetch } from './_supabase.js';
 const CHANNEL = 'office-alerts-v2';
 const LABEL = {
   reminder: 'Reminder', invoice: 'Invoice', receipt: 'Receipt', sale: 'Sales', purchase: 'Purchase',
-  followup: 'Follow-up', task: 'Task', meeting: 'Meeting', customer: 'Customer', inventory: 'Inventory', leave: 'Leave',
+  followup: 'Follow-up', task: 'Task', meeting: 'Meeting', customer: 'Customer', inventory: 'Inventory', leave: 'Leave', media: 'Media',
 };
 export const pushTitle = (category) => `Bahaar Office · ${LABEL[category] || 'Update'}`;
 
@@ -64,9 +64,9 @@ async function sendOne(sa, token, n) {
     body: JSON.stringify({
       message: {
         token,
-        notification: { title: pushTitle(n.category), body: String(n.message || '').slice(0, 900) },
-        data: { id: String(n.id || ''), category: String(n.category || ''), refId: String(n.ref_id || '') },
-        android: { priority: 'HIGH', notification: { channel_id: CHANNEL, sound: 'default', tag: String(n.id || ''), default_vibrate_timings: true } },
+        // data-only, so the app builds the notification itself (with Punch in / Approve buttons); every app version reads title/body from data
+        data: { id: String(n.id || ''), category: String(n.category || ''), refId: String(n.ref_id || ''), title: pushTitle(n.category), body: String(n.message || '').slice(0, 900) },
+        android: { priority: 'HIGH', ttl: '86400s' },
       },
     }),
   });
@@ -147,13 +147,17 @@ export async function pendingForDevice(body) {
   const rows = (await supabaseFetch(`/push_devices?device_key=eq.${encodeURIComponent(key)}&select=employee_id,last_poll_at,fcm_token`)) || [];
   const dev = rows[0];
   if (!dev) return { ok: false, gone: true };
+  // office arrive / leave reminder (only sent by phones whose person switched it on)
+  if (body.lat !== undefined && body.lng !== undefined) {
+    try { const { officeGeofence } = await import('./_smart.js'); await officeGeofence(dev.employee_id, Number(body.lat), Number(body.lng), Number(body.acc) || 0); } catch (e) { console.error('geofence', e?.message); }
+  }
   const now = new Date();
   const since = dev.last_poll_at && Date.parse(dev.last_poll_at) > now - 86400000 ? dev.last_poll_at : new Date(now - 30 * 60 * 1000).toISOString();
   // with working Firebase delivery, already-pushed items are skipped so nothing shows twice
   const pushedFilter = dev.fcm_token && fcmEnabled() ? '&pushed_at=is.null' : '';
-  const items = (await supabaseFetch(`/crm_notifications?employee_id=eq.${encodeURIComponent(dev.employee_id)}&read_at=is.null&created_at=gt.${encodeURIComponent(since)}${pushedFilter}&select=id,category,message&order=created_at.asc&limit=20`)) || [];
+  const items = (await supabaseFetch(`/crm_notifications?employee_id=eq.${encodeURIComponent(dev.employee_id)}&read_at=is.null&created_at=gt.${encodeURIComponent(since)}${pushedFilter}&select=id,category,message,ref_id&order=created_at.asc&limit=20`)) || [];
   await supabaseFetch(`/push_devices?device_key=eq.${encodeURIComponent(key)}`, { method: 'PATCH', body: JSON.stringify({ last_poll_at: now.toISOString() }) });
-  return { ok: true, items: items.map((n) => ({ id: n.id, title: pushTitle(n.category), body: n.message })) };
+  return { ok: true, items: items.map((n) => ({ id: n.id, title: pushTitle(n.category), body: n.message, category: n.category, refId: n.ref_id || '' })) };
 }
 
 /** Quick health check (no secrets): is Firebase set up, and does Google accept our key? */

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, Search, Trash2, X, ClipboardList, Globe } from 'lucide-react';
+import { Pencil, Plus, Search, Trash2, X, ClipboardList, Globe, Phone } from 'lucide-react';
 import { Employee } from '../types';
 import { Modal } from '../components/common/Modal';
 import { CrmCustomer, CrmPortalQuery, crmCall } from './crmApi';
@@ -16,11 +16,25 @@ interface Props {
   currentUser: Employee;
 }
 
+const telDigits = (v: string) => { const d = String(v || '').replace(/[^\d+]/g, ''); return d.replace(/\D/g, '').length >= 7 ? d : ''; };
+/** WhatsApp needs the country code: a Pakistani number starting with 0 becomes 92… */
+const waDigits = (v: string) => { let d = String(v || '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); else if (d.startsWith('0')) d = `92${d.slice(1)}`; return d; };
+const lastContactText = (lc: { at: string; byName?: string; how: string }) => {
+  const mins = Math.max(0, Math.round((Date.now() - Date.parse(lc.at)) / 60000));
+  const ago = mins < 60 ? `${mins || 1} min ago` : mins < 1440 ? `${Math.round(mins / 60)} h ago` : `${Math.round(mins / 1440)} d ago`;
+  return `${lc.how === 'whatsapp' ? 'WhatsApp' : 'Call'} · ${ago}${lc.byName ? ` · ${lc.byName.split(' ')[0]}` : ''}`;
+};
+
 export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) => {
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const seesAll = ['admin', 'ceo', 'accounts'].includes(currentUser.role);
   const canChange = (c: CrmCustomer) => seesAll || c.createdBy === currentUser.id;
   const { customers, followups } = crm.data;
+  const [contacted, setContacted] = useState<Record<string, { at: string; byName?: string; how: 'call' | 'whatsapp' }>>({});
+  const logContact = async (id: string, how: 'call' | 'whatsapp') => {
+    setContacted((m) => ({ ...m, [id]: { at: new Date().toISOString(), byName: currentUser.name, how } }));
+    try { await crmCall('customer_contact', { id, how }); } catch { /* the call still happens */ }
+  };
   const portalQueries = crm.data.portalQueries || [];
   // Opening the Customers page clears its "new" badge shortly after (so the person sees what is new first).
   const hasNewCustomers = crm.data.unread.some((u) => u.category === 'customer');
@@ -341,7 +355,16 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
                       {c.description && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 max-w-xs whitespace-pre-wrap break-words">{c.description}</p>}
                     </td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{c.companyName || '—'}</td>
-                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{c.customerNumber || '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                      {c.customerNumber || '—'}
+                      {telDigits(c.customerNumber) && (
+                        <div className="mt-1 flex gap-1" data-contact-buttons>
+                          <a href={`tel:${telDigits(c.customerNumber)}`} onClick={() => void logContact(c.id, 'call')} className="inline-flex items-center gap-1 rounded-md border border-slate-200 dark:border-slate-700 px-2 py-1 text-[11px] font-medium hover:bg-slate-50 dark:hover:bg-slate-800"><Phone className="w-3 h-3" /> Call</a>
+                          <a href={`https://wa.me/${waDigits(c.customerNumber)}`} target="_blank" rel="noreferrer" onClick={() => void logContact(c.id, 'whatsapp')} className="inline-flex items-center gap-1 rounded-md border border-slate-200 dark:border-slate-700 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30">WhatsApp</a>
+                        </div>
+                      )}
+                      {(contacted[c.id] || c.lastContact) && <p className="mt-1 text-[10.5px] text-slate-400">Last contact: {lastContactText(contacted[c.id] || c.lastContact!)}</p>}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1 max-w-xs">
                         {c.destinations.length ? c.destinations.map((d) => <Pill key={d} tone="blue">{d}</Pill>) : <span className="text-slate-400">—</span>}

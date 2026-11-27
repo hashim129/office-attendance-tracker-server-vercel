@@ -36,6 +36,7 @@ export default async function handler(req, res) {
       if (!secret || !safeEqual(given, secret)) return res.status(401).json({ ok: false, error: 'Unauthorized' });
       const reminders = await sweepShiftReminders({ getShiftEndWindowMs, format12h });
       const closed = await sweepAutoClose(evaluateAttendancePresenceAndAutoClose);
+      const smart = await import('./_smart.js').then((m) => m.sweepSmart()).catch(() => null);
       const push = await pushPending().catch(() => ({ sent: 0, error: true }));
       return res.status(200).json({ ok: true, reminders, closed, push, at: new Date().toISOString() });
     }

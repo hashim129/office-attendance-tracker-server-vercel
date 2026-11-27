@@ -18,6 +18,7 @@ import {
   ScanFace,
 } from 'lucide-react';
 import { Employee, Role, ShiftSchedule, AttendanceRecord } from '../../types';
+import { crmCall } from '../../crm/crmApi';
 import { Modal } from '../common/Modal';
 import { Switch } from '../common/Switch';
 import { adminSetPin } from '../../lib/pinAuth';
@@ -92,6 +93,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
     teamPresenceAccess: false,
     leaderboardAccess: false,
     payablesAccess: false,
+    mediaTeam: false,
     salesTeam: '' as '' | 'B2C' | 'B2B',
     salesTeamHead: false,
     birthday: '',
@@ -137,6 +139,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       teamPresenceAccess: false,
       leaderboardAccess: false,
       payablesAccess: false,
+      mediaTeam: false,
       salesTeam: '',
       salesTeamHead: false,
       birthday: '',
@@ -167,6 +170,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
       teamPresenceAccess: Boolean(emp.teamPresenceAccess),
       leaderboardAccess: Boolean(emp.leaderboardAccess),
       payablesAccess: Boolean(emp.payablesAccess),
+      mediaTeam: Boolean(emp.mediaTeam),
       salesTeam: (emp.salesTeam === 'B2C' || emp.salesTeam === 'B2B' ? emp.salesTeam : '') as '' | 'B2C' | 'B2B',
       salesTeamHead: Boolean(emp.salesTeam && emp.salesTeamHead),
       birthday: emp.birthday || '',
@@ -764,6 +768,21 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
               </label>
             </div>
 
+            {editingEmp && editingEmp.id !== currentUserId && (
+              <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold text-slate-900 dark:text-slate-100">Lost or changed phone?</p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Signs {editingEmp.name.split(' ')[0]} out of every phone and browser and stops their phone notifications. They can sign in again with their password.</p>
+                </div>
+                <button type="button" data-signout-all className="shrink-0 rounded-lg border border-red-300 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950/40"
+                  onClick={async () => {
+                    if (!window.confirm(`Sign ${editingEmp.name} out of all devices now?`)) return;
+                    try { await crmCall('employee_signout_all', { employeeId: editingEmp.id }); window.alert(`${editingEmp.name} has been signed out of all devices.`); }
+                    catch (e: any) { window.alert(e?.message || 'Could not sign out.'); }
+                  }}>Sign out of all devices</button>
+              </div>
+            )}
+
             <div className="p-3.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900/60 space-y-3">
               <p className="text-xs font-bold text-slate-900 dark:text-slate-100">Extra access switches</p>
               {([
@@ -771,6 +790,7 @@ export const EmployeesDirectoryTab: React.FC<EmployeesDirectoryTabProps> = ({
                 ['teamPresenceAccess', 'Can view Team Presence (P/A)', 'Allows this employee to open the live team roster. Hidden for employees unless explicitly enabled by an administrator.'],
                 ['leaderboardAccess', 'Can see the sales leaderboard and targets', 'Shows every salesperson\'s monthly totals (never cost or profit). Admin, CEO and Accounts always see it.'],
                 ['payablesAccess', 'Can see the payables-due calendar', 'Shows unpaid vendor bills and their due dates. Admin, CEO and Accounts always see it.'],
+                ['mediaTeam', 'Media Team member', 'Opens the Posting Calendar: plan and mark the weekly social media posts. Admin and CEO always see it.'],
               ] as const).map(([key, title, hint]) => (
                 <label key={key} className="flex items-start justify-between gap-3 cursor-pointer select-none">
                   <div className="flex-1">
