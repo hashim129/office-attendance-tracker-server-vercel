@@ -27,7 +27,6 @@ import {
   ContactRound,
   ShieldCheck,
   GitBranch,
-  CalendarDays,
 } from 'lucide-react';
 import { ActiveDesktopTab, Employee, OfficeSettings } from '../../types';
 import { CrmBadges } from '../../crm/crmApi';
