@@ -412,6 +412,8 @@ export interface CrmPurchase {
   /** The invoice this purchase was made for */
   invoiceId?: string | null;
   invoiceNo?: string | null;
+  /** true when the linked invoice was cancelled: left out of totals */
+  invoiceCancelled?: boolean;
   editLog?: EditLogEntry[];
   createdBy: string;
   customerName: string;

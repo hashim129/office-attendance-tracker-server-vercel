@@ -500,7 +500,7 @@ const mapInvoice = (r, visaProgress = null) => ({
   subtotal: num(r.subtotal), taxAmount: num(r.tax_amount), total: num(r.total), balance: num(r.balance), notes: r.notes || '',
   vendors: asArray(r.vendors), ntn: r.ntn === null || r.ntn === undefined ? null : String(r.ntn), showNtn: r.show_ntn !== false,
   status: r.status, paymentReceived: Boolean(r.payment_received), paymentReceivedAt: r.payment_received_at || null, paymentReceivedBy: r.payment_received_by || null, paymentReceivedAuto: Boolean(r.payment_received_auto), travelers: asArray(r.travelers), vendorPosted: Boolean(r.vendor_posted), vendorPostedAt: r.vendor_posted_at || null, vendorPostedBy: r.vendor_posted_by || null, vendorStatus: r.vendor_status === 'paid' ? 'paid' : 'unpaid', vendorPaidAt: r.vendor_paid_at || null, vendorPaidBy: r.vendor_paid_by || null,
-  cancelRemarks: r.cancel_remarks || '', cancelledBy: r.cancelled_by || null, cancelledAt: r.cancelled_at || null,
+  cancelRemarks: /^\s*\d{4,8}\s*$/.test(r.cancel_remarks || '') ? '' : (r.cancel_remarks || ''), cancelledBy: r.cancelled_by || null, cancelledAt: r.cancelled_at || null,
   visaProgress: r.kind === 'vendor' ? null : (visaProgress || null), createdAt: r.created_at, updatedAt: r.updated_at,
 });
 const RECEIPT_ITEMS = ['Package', 'Visa Charges', 'Air Tickets', 'Hotel', 'Transfers', 'Insurance', 'Service Charges'];
@@ -899,7 +899,10 @@ export default async function handler(req, res) {
           .filter((x) => canSeeInvoice(x, me, salesViewer))
           .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
           .map((r) => mapInvoice(r, betaEnabled && r.kind !== 'vendor' ? (visaByInvId.get(r.id) || null) : null));
-        purchases = (allPurchases || []).filter((x) => salesViewer || x.createdBy === me.id);
+        // A purchase made for a cancelled invoice is flagged so it stays out of payable / receivable totals.
+        const cancelledInvIds = new Set(invRows.filter((r) => r.status === 'cancelled').map((r) => r.id));
+        purchases = (allPurchases || []).filter((x) => salesViewer || x.createdBy === me.id)
+          .map((x) => (x.invoiceId && cancelledInvIds.has(x.invoiceId) ? { ...x, invoiceCancelled: true } : x));
         // Sales target / leaderboard / payables-due calendar for the Live Dashboard.
         // Totals only (never cost or profit); the leaderboard and payables need Admin / CEO / Accounts or an admin-granted switch.
         const monthKey = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 7);
@@ -1994,6 +1997,7 @@ export default async function handler(req, res) {
       };
       if (status === 'cancelled') {
         const remarks = str(body.remarks, 600, { required: true, name: 'Cancellation remarks' });
+        if (/^\s*\d{4,8}\s*$/.test(remarks)) throw bad('Please write the reason in words. Never type a PIN in the remarks.');
         row.cancel_remarks = remarks; row.cancelled_by = me.id; row.cancelled_at = at;
       }
       const vend = existing.kind === 'vendor';

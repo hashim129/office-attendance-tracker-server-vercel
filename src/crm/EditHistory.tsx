@@ -18,7 +18,7 @@ export const EditHistory: React.FC<{ log?: EditLogEntry[]; nameOf?: (id: string)
           {items.map((e) => (
             <li key={e.id} className="text-slate-600 dark:text-slate-300">
               <span className="text-slate-400">{fmtDateTime(e.at)}</span> · <b>{e.byName || nameOf?.(e.by) || 'Former employee'}</b> — {e.text}
-              {e.reason && <span className="block text-slate-500 dark:text-slate-400 italic">Reason: {e.reason}</span>}
+              {e.reason && !/^\s*\d{4,8}\s*$/.test(e.reason) && <span className="block text-slate-500 dark:text-slate-400 italic">Reason: {e.reason}</span>}
             </li>
           ))}
         </ol>

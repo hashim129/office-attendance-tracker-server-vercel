@@ -283,7 +283,9 @@ function toForm(inv: CrmInvoice, companyNtn = ''): FormState {
   };
 }
 
-const statusTone = (s: CrmInvoice['status']) => (s === 'paid' ? 'green' : s === 'cancelled' ? 'slate' : 'amber') as 'green' | 'slate' | 'amber';
+const statusTone = (s: CrmInvoice['status']) => (s === 'paid' ? 'green' : s === 'cancelled' ? 'red' : 'amber') as 'green' | 'red' | 'amber';
+/** A remark that is only 4-8 digits is a PIN typed by mistake, never shown. */
+const safeRemark = (r?: string) => (r && !/^\s*\d{4,8}\s*$/.test(r) ? r : '');
 const niceDate = (iso: string | null) => (iso ? new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
 
 /** On-screen copy of the invoice (the PDF follows the same layout as your sample invoice). */
@@ -931,6 +933,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
   const cancelWithRemarks = async (i: CrmInvoice) => {
     const remarks = (window.prompt(`Why is ${i.invoiceNo} being cancelled? Remarks are required.`) || '').trim();
     if (!remarks) { setError('Cancelling needs remarks, so nothing was cancelled.'); return; }
+    if (!safeRemark(remarks)) { setError('Please write the reason in words. Never type a PIN in the remarks.'); return; }
     await act('invoice_status', { id: i.id, status: 'cancelled', remarks });
   };
 
@@ -974,7 +977,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
             segments={[
               { label: 'Not received', count: receivableCounts.unpaid, tone: 'amber' },
               { label: 'Received', count: receivableCounts.paid, tone: 'green' },
-              { label: 'Cancelled', count: receivableCounts.cancelled, tone: 'slate' },
+              { label: 'Cancelled', count: receivableCounts.cancelled, tone: 'red' },
             ]}
           />
           <div className={`${cardCls} p-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs`}>
@@ -998,7 +1001,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
             segments={[
               { label: 'Unpaid', count: payableCounts.unpaid, tone: 'amber' },
               { label: 'Paid', count: payableCounts.paid, tone: 'green' },
-              { label: 'Cancelled', count: payableCounts.cancelled, tone: 'slate' },
+              { label: 'Cancelled', count: payableCounts.cancelled, tone: 'red' },
             ]}
           />
           <div className={`${cardCls} p-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs`}>
@@ -1143,7 +1146,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
             });
 
             return (
-              <div key={i.id} className={`${cardCls} p-4 inv-card ${openIds.has(i.id) ? '' : 'inv-collapsed'} ${fullyPaid(i) ? '!bg-emerald-100/80 !border-emerald-300 dark:!bg-emerald-950/40 dark:!border-emerald-800/70' : ''}`}>
+              <div key={i.id} className={`${cardCls} p-4 inv-card ${openIds.has(i.id) ? '' : 'inv-collapsed'} ${i.status === 'cancelled' ? '!bg-red-50 !border-red-300 dark:!bg-red-950/40 dark:!border-red-800/70' : fullyPaid(i) ? '!bg-emerald-100/80 !border-emerald-300 dark:!bg-emerald-950/40 dark:!border-emerald-800/70' : ''}`}>
                 <div className={`grid grid-cols-1 ${!vendorSide ? 'lg:grid-cols-2' : ''} gap-4`}>
                   {/* LEFT HALF (50%): Customer Receivable Side */}
                   <div className={`min-w-0 flex flex-col justify-between space-y-3 ${i.status === 'paid' && !vendorSide ? 'rounded-lg p-2.5 -m-2.5 bg-emerald-100/90 dark:bg-emerald-950/50' : ''}`}>
@@ -2159,8 +2162,8 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                     </div>
                   )}
                 </div>
-                {i.status === 'cancelled' && i.cancelRemarks && (
-                  <p className="mt-3 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-100/80 dark:bg-slate-800/60 px-2.5 py-1.5 text-slate-700 dark:text-slate-300"><b>Cancelled</b>{i.cancelledBy ? ` by ${(empName.get(i.cancelledBy) || "a team member")}` : ''}: {i.cancelRemarks}</p>
+                {i.status === 'cancelled' && (
+                  <p className="mt-3 text-[11px] rounded-lg border border-red-200 dark:border-red-800/60 bg-red-100/80 dark:bg-red-950/50 px-2.5 py-1.5 text-red-700 dark:text-red-300"><b>Cancelled</b>{i.cancelledBy ? ` by ${(empName.get(i.cancelledBy) || "a team member")}` : ''}{safeRemark(i.cancelRemarks) ? `: ${safeRemark(i.cancelRemarks)}` : ''}</p>
                 )}
                 <button type="button" onClick={() => toggleOpen(i.id)} aria-expanded={openIds.has(i.id)}
                   className="mt-3 w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/50 hover:bg-white dark:hover:bg-slate-800 py-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer transition-colors">

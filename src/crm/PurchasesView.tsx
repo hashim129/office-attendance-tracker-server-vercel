@@ -339,6 +339,7 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
     const payMap = new Map<string, number>();
     const recMap = new Map<string, number>();
     purchases.forEach((p) => {
+      if (p.invoiceCancelled) return; // cancelled invoices never count in totals
       (p.items || []).forEach((it) => {
         const cur = it.currency || p.currency || 'PKR';
         payMap.set(cur, (payMap.get(cur) || 0) + (Number(it.payable) || 0));
