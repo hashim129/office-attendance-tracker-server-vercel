@@ -471,6 +471,32 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
     setError('');
   };
 
+  // Invoice picker: a plain click list (works in every browser, the phone app and the Windows app).
+  const [invoicePickerOpen, setInvoicePickerOpen] = useState(false);
+  const normText = (t: string) => String(t || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const findInvoice = (text: string) => {
+    const q = normText(text);
+    if (!q) return null;
+    return invoiceChoices.find((i) => normText(invoiceLabel(i)) === q || normText(i.invoiceNo) === q) || null;
+  };
+  const pickInvoice = (hit: (typeof invoiceChoices)[number]) => {
+    setForm((cur) => cur ? {
+      ...cur,
+      invoiceText: invoiceLabel(hit),
+      invoiceId: hit.id,
+      customerName: hit.customerName,
+      crmId: hit.crmId || hit.queryCode || cur.crmId,
+      currency: hit.currency || cur.currency,
+    } : cur);
+    setError('');
+  };
+  const invoiceMatches = useMemo(() => {
+    const q = normText(form?.invoiceText || '');
+    const list = q ? invoiceChoices.filter((i) => normText(invoiceLabel(i)).includes(q)) : invoiceChoices;
+    return list.slice(0, 30);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form?.invoiceText, invoiceChoices, empName]);
+
   const patchItem = (idx: number, p: Partial<FormItem>) => {
     setForm((cur) => {
       if (!cur) return cur;
@@ -615,7 +641,10 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
 
   const submitForm = async () => {
     if (!form) return;
-    if (!form.id && !form.invoiceId) {
+    // If the invoice was typed in full instead of clicked, link it now.
+    const typedHit = !form.invoiceId ? findInvoice(form.invoiceText) : null;
+    const linkedInvoiceId = form.invoiceId || typedHit?.id || '';
+    if (!form.id && !linkedInvoiceId) {
       setError('Choose the invoice this purchase is for (search by invoice no., customer or creator name). Create the invoice first if it does not exist yet.');
       return;
     }
@@ -644,7 +673,7 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
       );
       const payload = {
         id: form.id,
-        invoiceId: form.invoiceId || null,
+        invoiceId: linkedInvoiceId || null,
         customerId: matchingCustomer?.id || null,
         customerName: form.customerName.trim(),
         careOf: form.careOf.trim() || null,
@@ -1257,21 +1286,35 @@ export const PurchasesView: React.FC<Props & { portalEnabled?: boolean }> = ({ c
               <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4" data-purchase-invoice>
                 <Field label={form.id && !form.invoiceId ? 'Invoice (link this older purchase to its invoice)' : 'Invoice *'}>
                   <input
-                    list="purchase-invoices-list"
                     className={`${inputCls} bg-white`}
                     value={form.invoiceText}
+                    autoComplete="off"
+                    onFocus={() => setInvoicePickerOpen(true)}
+                    onBlur={() => window.setTimeout(() => setInvoicePickerOpen(false), 200)}
                     onChange={(e) => {
                       const text = e.target.value;
-                      const q = text.trim().toLowerCase();
-                      const hit = invoiceChoices.find((i) => invoiceLabel(i).toLowerCase() === q || i.invoiceNo.toLowerCase() === q);
+                      setInvoicePickerOpen(true);
+                      const hit = findInvoice(text);
                       if (!hit) { patchForm({ invoiceText: text, invoiceId: '' }); return; }
-                      patchForm({ invoiceText: invoiceLabel(hit), invoiceId: hit.id, customerName: hit.customerName, crmId: hit.crmId || hit.queryCode || form.crmId, currency: hit.currency || form.currency });
+                      pickInvoice(hit);
                     }}
                     placeholder="Search invoice no., customer or creator name…"
                   />
-                  <datalist id="purchase-invoices-list">
-                    {invoiceChoices.map((i) => <option key={i.id} value={invoiceLabel(i)} />)}
-                  </datalist>
+                  {invoicePickerOpen && !form.invoiceId && invoiceMatches.length > 0 && (
+                    <div className="mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg divide-y divide-slate-100">
+                      {invoiceMatches.map((i) => (
+                        <button
+                          key={i.id}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => { pickInvoice(i); setInvoicePickerOpen(false); }}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 active:bg-blue-100"
+                        >
+                          <b className="font-mono">{i.invoiceNo}</b> · {i.customerName} <span className="text-slate-500">· by {empName.get(i.createdBy) || 'Former employee'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </Field>
                 <p className="mt-1 text-[11px] text-slate-600">
                   {form.invoiceId
