@@ -412,25 +412,52 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
   };
 
   const [form, setForm] = useState<FormState | null>(null);
-  // Unsaved new invoices are kept on this device (also without internet) and offered back next time.
-  const draftKey = `bahaar_invoice_draft_${currentUser.id}`;
-  useEffect(() => {
-    if (!form || (form as any).id) return;
-    const t = window.setTimeout(() => { try { localStorage.setItem(draftKey, JSON.stringify({ at: Date.now(), form })); } catch { /* storage full */ } }, 600);
-    return () => window.clearTimeout(t);
-  }, [form, draftKey]);
-  const draftOrBlank = (kind: 'customer' | 'vendor') => {
+  // Drafts (always on): every invoice being typed, new or an edit, is kept on this device as you type.
+  // If the person is signed out, the page reloads or the internet drops, it is offered back on the Invoices page.
+  const draftPrefix = `bahaar_invoice_draft_${currentUser.id}_`;
+  const keyFor = (f: FormState) => draftPrefix + (f.id ? f.id : `new-${f.kind || 'customer'}`);
+  const snapshot = useRef<string>('');
+  const savedOk = useRef(false);
+  const [drafts, setDrafts] = useState<{ key: string; at: number; form: FormState }[]>([]);
+  const readDrafts = () => {
+    const out: { key: string; at: number; form: FormState }[] = [];
     try {
-      const raw = localStorage.getItem(draftKey);
-      if (raw) {
-        const d = JSON.parse(raw);
-        if (d?.form && (d.form.kind || 'customer') === kind && Date.now() - d.at < 14 * 86400000) {
-          const when = new Date(d.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
-          if (window.confirm(`You have an unsaved ${kind === 'vendor' ? 'vendor payable' : 'invoice'} draft${d.form.customerName ? ` for ${d.form.customerName}` : ''} from ${when}. Continue it?`)) return d.form;
-          localStorage.removeItem(draftKey);
-        }
+      for (let k = 0; k < localStorage.length; k++) {
+        const key = localStorage.key(k) || '';
+        if (!key.startsWith(draftPrefix)) continue;
+        const d = JSON.parse(localStorage.getItem(key) || 'null');
+        if (d?.form && Date.now() - d.at < 30 * 86400000) out.push({ key, at: d.at, form: d.form }); else localStorage.removeItem(key);
       }
     } catch { /* ignore */ }
+    setDrafts(out.sort((a, b) => b.at - a.at));
+  };
+  useEffect(() => { readDrafts(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  const prevForm = useRef<FormState | null>(null);
+  useEffect(() => {
+    const before = prevForm.current;
+    prevForm.current = form;
+    if (form && !before) { snapshot.current = JSON.stringify(form); savedOk.current = false; return; }
+    if (!form && before) {
+      // closed: drop the draft if it was saved or nothing was changed, otherwise keep it
+      try { if (savedOk.current || JSON.stringify(before) === snapshot.current) localStorage.removeItem(keyFor(before)); } catch { /* ignore */ }
+      savedOk.current = false;
+      readDrafts();
+      return;
+    }
+    if (!form) return;
+    const t = window.setTimeout(() => {
+      try {
+        if (JSON.stringify(form) !== snapshot.current) localStorage.setItem(keyFor(form), JSON.stringify({ at: Date.now(), form }));
+      } catch { /* storage full */ }
+    }, 400);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
+  const continueDraft = (d: { key: string; form: FormState }) => { setForm(d.form); setError(''); setNotice('Continuing your unsaved draft. Press Save when you are done.'); };
+  const discardDraft = (key: string) => { try { localStorage.removeItem(key); } catch { /* ignore */ } readDrafts(); };
+  const draftOrBlank = (kind: 'customer' | 'vendor') => {
+    const d = drafts.find((x) => x.key === `${draftPrefix}new-${kind}`);
+    if (d) { window.setTimeout(() => setNotice('Continuing your unsaved draft. Press Save when you are done.'), 0); return d.form; }
     return blankForm(kind, crm.data.company.ntn || '');
   };
 
@@ -874,7 +901,8 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
     try {
       const wasNew = !form.id;
       const r = await crmCall<{ invoice: CrmInvoice }>('invoice_save', { invoice: buildPayload(lockIdx), ...(editReason ? { editReason } : {}) });
-      try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
+      try { localStorage.removeItem(keyFor(form)); } catch { /* ignore */ }
+      savedOk.current = true;
       if (wasNew) createdNow.current = r.invoice.id;
       await crm.refresh();
       if (close) {
@@ -884,11 +912,14 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
           setAfter(afterInfo(r.invoice));
         } else setView(r.invoice);
       } else {
-        setForm(toForm(r.invoice, company.ntn || ''));
+        const next = toForm(r.invoice, company.ntn || '');
+        snapshot.current = JSON.stringify(next);
+        savedOk.current = false;
+        setForm(next);
         setNotice(`Saved and locked. ${r.invoice.invoiceNo} is stored; locked lines can no longer be edited (only Accounts or an administrator can unlock them), but you can keep adding new lines.`);
       }
     } catch (err: any) {
-      setError(err?.message || 'Could not save the invoice.');
+      setError(`${err?.message || 'Could not save the invoice.'}${err?.code === 'SESSION_REQUIRED' ? ' Your work is kept as a draft on this device: sign in again and continue it from the Invoices page.' : ''}`);
     } finally {
       setBusy(false);
     }
@@ -987,6 +1018,22 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
 
   return (
     <div className="space-y-4">
+      {drafts.length > 0 && !form && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 space-y-2" data-invoice-drafts>
+          <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">Unsaved invoice work on this device</p>
+          {drafts.map((d) => (
+            <div key={d.key} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="text-amber-900 dark:text-amber-100">
+                {d.form.id ? `Changes to ${allInvoices.find((x) => x.id === d.form.id)?.invoiceNo || 'an invoice'}` : `New ${d.form.kind === 'vendor' ? 'vendor payable' : 'invoice'}`}{d.form.customerName ? ` · ${d.form.customerName}` : ''} · {new Date(d.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+              </span>
+              <span className="flex gap-2">
+                <button type="button" className={btnPrimary} onClick={() => continueDraft(d)}>Continue</button>
+                <button type="button" className={btnGhost} onClick={() => { if (window.confirm('Delete this unsaved draft?')) discardDraft(d.key); }}>Discard</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className={`${cardCls} p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3`}>
         <div>
           <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 inline-flex items-center gap-2"><FileText className="w-4 h-4 text-blue-600" /> Invoices</h2>
@@ -1209,6 +1256,12 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                           <Pill tone="blue">CRM / Query: {crmQueryOf(i) || '—'}</Pill>
                           <span className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{i.customerName}</span>
                           <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? (vendorSide ? 'Paid' : 'Received') : i.status === 'cancelled' ? 'Cancelled' : (vendorSide ? 'Unpaid' : 'Not received')}</Pill>
+                          {!vendorSide && i.status === 'unpaid' && i.balance > 0 && (
+                            <a href={paymentReminderLink(i, crm.data.company.name)} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} data-payment-reminder title="Send the customer a polite WhatsApp reminder of the balance"
+                              className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                              Payment reminder
+                            </a>
+                          )}
                           {showVisa && <Pill tone={visaTone(vStatus)}>Visa: {VISA_STATUS_LABEL[vStatus]}</Pill>}
                           {showHotel && <Pill tone={visaTone(hStatus)}>Hotel: {HOTEL_STATUS_LABEL[hStatus]}{savedHotelName ? ` (${savedHotelName.slice(0, 24)})` : ''}</Pill>}
                           {showTicket && <Pill tone={visaTone(tStatus)}>Ticket: {VISA_STATUS_LABEL[tStatus]}</Pill>}
@@ -2097,7 +2150,6 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                       <button className={btnPrimary} onClick={() => void pdf(i)}><FileDown className="w-3.5 h-3.5" /> Download PDF</button>
                       {canShare && <button className={btnGhost} onClick={() => void share(i)}><Share2 className="w-3.5 h-3.5" /> Share</button>}
                       {i.status !== 'cancelled' && <button className={btnGhost} onClick={() => setAfter(afterInfo(i))} data-card-whatsapp>WhatsApp / Accounts</button>}
-                      {i.kind !== 'vendor' && i.status === 'unpaid' && i.balance > 0 && <a className={btnGhost} href={paymentReminderLink(i, crm.data.company.name)} target="_blank" rel="noreferrer" data-payment-reminder title="Send the customer a polite WhatsApp reminder of the balance">Payment reminder</a>}
                       <AckBadge kind="invoice" id={i.id} crm={crm} canRequest={false} />
                       {canEdit(i) && <button className={btnGhost} onClick={() => { setForm(toForm(i, company.ntn || '')); setError(''); }}><Pencil className="w-3.5 h-3.5" /> Edit</button>}
                       {isStaff && <button className={btnGhost} onClick={() => openTag(i)} data-tag-invoice><UserPlus className="w-3.5 h-3.5" /> Tag</button>}
