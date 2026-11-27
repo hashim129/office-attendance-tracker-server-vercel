@@ -833,88 +833,56 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
         </div>
     </>
   );
+  const timelineSteps: { key: string; kind: 'in' | 'break' | 'out'; label: string; time: string; note?: string; active?: boolean }[] = todayRecord
+    ? [
+        { key: 'in', kind: 'in', label: 'Time In', time: formatTime12h(todayRecord.timeIn), note: todayRecord.notes || undefined },
+        ...todayRecord.breaks.map((b, idx) => ({ key: b.id || `b${idx}`, kind: 'break' as const, label: `${b.type} break`, time: `${formatTime12h(b.start)}${b.end ? ` – ${formatTime12h(b.end)}` : ''}`, active: !b.end })),
+        ...(todayRecord.timeOut ? [{ key: 'out', kind: 'out' as const, label: 'Time Out', time: formatTime12h(todayRecord.timeOut) }] : []),
+      ]
+    : [];
+  const stepStyle = {
+    in: { dot: 'bg-emerald-500 ring-emerald-100 dark:ring-emerald-950', icon: <LogIn className="w-3.5 h-3.5 text-white" />, text: 'text-emerald-700 dark:text-emerald-300' },
+    break: { dot: 'bg-amber-500 ring-amber-100 dark:ring-amber-950', icon: <Coffee className="w-3.5 h-3.5 text-white" />, text: 'text-amber-700 dark:text-amber-300' },
+    out: { dot: 'bg-rose-500 ring-rose-100 dark:ring-rose-950', icon: <LogOut className="w-3.5 h-3.5 text-white" />, text: 'text-rose-700 dark:text-rose-300' },
+  } as const;
   const timelineCard = (
     <>
-        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xs border border-slate-200 dark:border-slate-800 space-y-4">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <Timer className="w-4 h-4 text-slate-500" />
-            <span>Today's Activity Log</span>
-          </h3>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-xs border border-slate-200 dark:border-slate-800 transition-shadow hover:shadow-md">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300"><Timer className="w-4 h-4" /></span>
+              <span>Today's Activity</span>
+            </h3>
+            {todayRecord && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{timelineSteps.length} {timelineSteps.length === 1 ? 'event' : 'events'}</span>}
+          </div>
 
           {!todayRecord ? (
-            <div className="py-8 text-center text-xs text-slate-400">
-              No punch recorded yet today. Click "Punch Time In" when you begin work.
+            <div className="rounded-xl border border-dashed border-slate-200 py-6 text-center text-xs text-slate-400 dark:border-slate-700">
+              <Clock className="mx-auto mb-1.5 h-5 w-5 text-slate-300" />
+              Nothing yet today. Press <strong>Time In</strong> to start.
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800">
-                <LogIn className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">Time In</span>
-                    <span className="font-mono font-medium text-slate-600 dark:text-slate-400">
-                      {formatTime12h(todayRecord.timeIn)}
-                    </span>
-                  </div>
-                  {todayRecord.notes && (
-                    <p className="text-[11px] text-slate-500 mt-0.5 break-words">
-                      Note: {todayRecord.notes}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Breaks */}
-              {todayRecord.breaks.map((b, idx) => (
-                <div
-                  key={b.id || idx}
-                  className="flex items-start gap-3 p-3 rounded-lg bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/30 text-xs"
-                >
-                  <Coffee className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-amber-900 dark:text-amber-200 capitalize">
-                        {b.type} Break
-                      </span>
-                      <span className="font-mono text-amber-800 dark:text-amber-300">
-                        {formatTime12h(b.start)} {b.end ? `– ${formatTime12h(b.end)}` : '(Active)'}
-                      </span>
+            <ol className="relative ml-3.5 border-l-2 border-dashed border-slate-200 dark:border-slate-700">
+              {timelineSteps.map((step, i) => (
+                <li key={step.key} className="timeline-step relative pb-3 pl-6 last:pb-0" style={{ animationDelay: `${120 + i * 90}ms` }}>
+                  <span className={`absolute -left-[15px] top-0 flex h-7 w-7 items-center justify-center rounded-full ring-4 ${stepStyle[step.kind].dot} ${step.active ? 'animate-pulse' : ''}`}>{stepStyle[step.kind].icon}</span>
+                  <div className="rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800/60">
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className={`font-bold capitalize ${stepStyle[step.kind].text}`}>{step.label}{step.active && <span className="ml-1.5 rounded bg-amber-200 px-1 text-[9px] font-black uppercase text-amber-900">Now</span>}</span>
+                      <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">{step.time}</span>
                     </div>
+                    {step.note && <p className="mt-0.5 break-words text-[11px] text-slate-500">Note: {step.note}</p>}
                   </div>
-                </div>
+                </li>
               ))}
-
-              {/* Time Out */}
-              {todayRecord.timeOut && (
-                <div className="flex items-start gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800">
-                  <LogOut className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">Time Out</span>
-                      <span className="font-mono font-medium text-slate-600 dark:text-slate-400">
-                        {formatTime12h(todayRecord.timeOut)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            </ol>
           )}
 
-          {/* Shift Details Helper */}
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 space-y-1">
-            <div className="flex justify-between">
-              <span>Shift:</span>
-              <span className="font-medium text-slate-700 dark:text-slate-300">{userShift.name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Expected Hours:</span>
-              <span className="font-medium text-slate-700 dark:text-slate-300">{userShift.expectedHours}h daily</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Daily Punch Policy:</span>
-              <span className="font-medium text-blue-600 dark:text-blue-400">1 Punch Cycle / Day</span>
-            </div>
+          {/* Shift details */}
+          <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-xl bg-slate-50 px-2 py-2 dark:bg-slate-800/60"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Shift</p><p className="mt-0.5 truncate text-[11px] font-bold text-slate-700 dark:text-slate-200" title={userShift.name}>{userShift.name}</p></div>
+            <div className="rounded-xl bg-slate-50 px-2 py-2 dark:bg-slate-800/60"><p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">Expected</p><p className="mt-0.5 text-[11px] font-bold text-slate-700 dark:text-slate-200">{userShift.expectedHours}h daily</p></div>
+            <div className="rounded-xl bg-blue-50 px-2 py-2 dark:bg-blue-950/40"><p className="text-[9px] font-bold uppercase tracking-wide text-blue-400">Policy</p><p className="mt-0.5 text-[11px] font-bold text-blue-700 dark:text-blue-300">1 punch / day</p></div>
           </div>
         </div>
     </>
@@ -1004,19 +972,22 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
       {desk ? (
         <>
           {/* Date, welcome and live clock on top; then the small Universe desk on the left of the punch card; the rest below */}
-          {welcomeBanner}
+          <div className="punch-rise">{welcomeBanner}</div>
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] gap-4 sm:gap-5 items-start" data-punch-with-desk>
-            <div className="min-w-0">{desk}</div>
-            {punchCard}
+            {/* Avatar desk with today's activity right under it */}
+            <div className="min-w-0 space-y-4 sm:space-y-5">
+              <div className="punch-rise" style={{ animationDelay: '60ms' }}>{desk}</div>
+              <div className="punch-rise" style={{ animationDelay: '180ms' }}>{timelineCard}</div>
+            </div>
+            <div className="punch-rise min-w-0" style={{ animationDelay: '120ms' }}>{punchCard}</div>
           </div>
-          {timelineCard}
         </>
       ) : (
         <>
-          {welcomeBanner}
+          <div className="punch-rise">{welcomeBanner}</div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5 items-start">
             {punchCard}
-            {timelineCard}
+            <div className="punch-rise" style={{ animationDelay: '150ms' }}>{timelineCard}</div>
           </div>
         </>
       )}

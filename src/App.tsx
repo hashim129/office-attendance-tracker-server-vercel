@@ -1136,6 +1136,8 @@ export default function App() {
             ceoComments={ceoComments}
             onMarkCeoCommentRead={handleMarkCeoCommentRead}
             onOpenChangePassword={() => setIsChangePasswordOpen(true)}
+            onOpenProfile={(currentUser.isSuperAdmin === true || currentUser.featureAccess?.['employee-profile'] !== false) ? () => setActiveTab('employee-profile') : undefined}
+            showAvatar={settings.employeeUniverseBetaEnabled === true}
             isNetworkOnline={isNetworkOnline}
             cloudSyncState={cloudSyncState}
             onRetrySync={() => void retryCloudOutboxNow()}
@@ -1224,7 +1226,7 @@ export default function App() {
                 /></>
               )}
 
-              {activeTab === 'employee-profile' && currentUser && <EmployeeProfileTab beta={settings.employeeUniverseBetaEnabled===true} employee={currentUser} onSaved={(profile) => {
+              {activeTab === 'employee-profile' && currentUser && <EmployeeProfileTab beta={settings.employeeUniverseBetaEnabled===true} employee={currentUser} onOpenChangePassword={() => setIsChangePasswordOpen(true)} onSaved={(profile) => {
                 setCurrentUser(user => user ? {...user,...profile} : user);
                 setEmployees(list => list.map(employee => employee.id===currentUser.id ? {...employee,...profile} : employee));
               }} />}

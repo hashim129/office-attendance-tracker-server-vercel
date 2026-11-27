@@ -165,9 +165,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               <span>My Attendance & Stats</span>
             </button>}
 
-            {canOpenPage('employee-profile')&&<button onClick={() => handleTabClick('employee-profile')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${activeTab==='employee-profile'?'bg-blue-600 text-white shadow-xs':'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'}`}>
-              <ContactRound className="w-4 h-4 shrink-0"/><span>My Profile</span>
-            </button>}
+            {/* My Profile moved to the profile menu in the top bar */}
 
             {canOpenPage('team-attendance')&&(['admin', 'ceo'].includes(currentUser.role) || currentUser.teamPresenceAccess === true) && (
               <button

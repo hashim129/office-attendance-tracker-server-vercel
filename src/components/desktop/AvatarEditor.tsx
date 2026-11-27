@@ -1,5 +1,5 @@
 import React,{useRef,useState} from 'react';
-import {wardrobe,randomAppearance} from '../../lib/avatarWardrobe.js';
+import {wardrobe,randomAppearance,exclusiveOwner,roleCanWear,EXCLUSIVE_LABEL} from '../../lib/avatarWardrobe.js';
 import {humanCharacter} from '../../lib/universeCharacters.js';
 import {GAME_CHARACTERS,GAME_PETS} from '../common/EmployeeIdentity';
 import {AvatarStage,type Phase} from './UniverseOffice';
@@ -26,13 +26,21 @@ const looks:Record<string,Record<string,string>>={
   'Party time':{model:'Human',hat:'Party hat',glasses:'Star shades',top:'Tee',fabric:'#ae3351',expression:'Laughing',bg:'#fff2cc',status:'Celebrating 🎉'},
   'Royal':{model:'Human',hat:'Crown',top:'Suit',fabric:'#c9a227',expression:'Cool',earrings:'Studs',bg:'#e6e0ff'},
 };
+/** One full outfit per role, made from that role's exclusive items. */
+const roleLooks:Record<string,[string,Record<string,string>]>={
+  admin:['🛡️ Admin command',{model:'Human',hat:'Admin shield cap',top:'Admin command jacket',glasses:'Aviator',expression:'Cool',pants:'#293446',shoes:'#262b33',bg:'#2b1f4d',status:'Admin on duty 🛡️'}],
+  ceo:['👑 CEO royal',{model:'Human',hat:'CEO royal crown',top:'CEO gold sherwani',expression:'Happy',pants:'#ffffff',shoes:'#e2b33c',bg:'#3b2a05',status:'CEO in the house 👑'}],
+  accounts:['💼 Accounts pro',{model:'Human',hat:'Accounts visor',top:'Accounts ledger vest',glasses:'Square',expression:'Happy',pants:'#30332f',shoes:'#262b33',bg:'#06352b',status:'Accounts closing books 💼'}],
+};
 const names:Partial<Record<Key,string>>={iris:'Eye color',brows:'Eyebrows',face:'Face shape',skin:'Skin or fur',hairStyle:'Hairstyle',hairColor:'Hair color',fabric:'Outfit color',pants:'Trouser color',shoes:'Shoe color',beard:'Facial hair',expression:'Expression',cheeks:'Cheeks',hat:'Headwear',earrings:'Earrings',bg:'Background',status:'My status (shown on my desk)',top:'Outfit',model:'Character type',body:'Body shape'};
 const poses:[Phase,string][]=[['portrait','🙂 Idle'],['wave','👋 Wave'],['dance','💃 Dance'],['walk','🚶 Walk'],['arriving','💻 Punch-in']];
 const SAVED='avatar-saved-looks';
 function readSaved():Record<string,string>[]{try{const v=JSON.parse(localStorage.getItem(SAVED)||'[]');return Array.isArray(v)?v.slice(0,3):[];}catch{return [];}}
 
-type Props={id:string;pet:string;value:Record<string,string>;onId:(id:string)=>void;onPet:(id:string)=>void;onChange:(v:Record<string,string>)=>void};
-export function AvatarEditor({id,pet,value,onId,onPet,onChange}:Props){
+type Props={id:string;pet:string;value:Record<string,string>;onId:(id:string)=>void;onPet:(id:string)=>void;onChange:(v:Record<string,string>)=>void;role?:string;isSuperAdmin?:boolean};
+export function AvatarEditor({id,pet,value,onId,onPet,onChange,role='employee',isSuperAdmin=false}:Props){
+  const can=(key:string,option:string)=>roleCanWear(role,key,option,isSuperAdmin);
+  const myRoleLook=roleLooks[role]||(isSuperAdmin?roleLooks.admin:undefined);
   const [panel,setPanel]=useState<string>('Body');
   const [angle,setAngle]=useState(0);
   const [close,setClose]=useState(true);
@@ -79,12 +87,14 @@ export function AvatarEditor({id,pet,value,onId,onPet,onChange}:Props){
         <fieldset className="mt-4"><legend className="mb-1 text-sm font-semibold">My saved looks</legend><div className="grid grid-cols-3 gap-2">{[0,1,2].map(i=><div key={i} className="rounded-lg border border-dashed border-slate-300 p-2 text-center text-[11px] dark:border-slate-700"><p className="font-semibold">Look {i+1}</p><div className="mt-1 flex justify-center gap-1"><button type="button" className="rounded bg-slate-100 px-1.5 py-0.5 dark:bg-slate-800" onClick={()=>saveSlot(i)}>Save</button><button type="button" disabled={!saved[i]} className="rounded bg-indigo-100 px-1.5 py-0.5 text-indigo-800 disabled:opacity-40" onClick={()=>saved[i]&&change({...saved[i]})}>Wear</button></div></div>)}</div></fieldset>
       </div>
       <div>
+        {myRoleLook&&<div className="mb-4 rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 via-white to-violet-50 p-3 dark:border-amber-900/60 dark:from-amber-950/30 dark:via-slate-900 dark:to-violet-950/30"><p className="text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-300">✨ Exclusive to your role</p><p className="mb-2 text-[11px] text-slate-500">Only {role==='ceo'?'the CEO':role==='accounts'?'Accounts':'Admins'} can wear these. Items marked with a star are yours alone.</p><button type="button" className="rounded-xl bg-gradient-to-r from-amber-500 to-violet-600 px-4 py-2 text-xs font-bold text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg" onClick={()=>change({...value,...myRoleLook[1]})}>Wear {myRoleLook[0]}</button></div>}
         <fieldset className="mb-4"><legend className="mb-2 text-sm font-semibold">Complete looks</legend><div className="flex flex-wrap gap-2">{Object.entries(looks).map(([name,look])=><button key={name} type="button" className={btn} onClick={()=>change({...look})}>{name}</button>)}</div></fieldset>
         <div className="mb-5 flex flex-wrap gap-2" role="tablist">{Object.entries(panels).map(([key,p])=><button type="button" role="tab" aria-selected={panel===key} key={key} className={'rounded-full border px-3 py-1.5 text-sm '+(key===panel?'border-indigo-700 bg-indigo-700 text-white':'border-slate-200 dark:border-slate-700')} onClick={()=>chooseFace(key)}>{p.icon} {key}</button>)}</div>
-        {panels[panel].keys.map(key=><fieldset key={key} className="mb-4"><legend className="mb-1 text-sm font-semibold">{names[key]||key}</legend><div className="flex flex-wrap gap-2">{wardrobe[key].map(option=>{
+        {panels[panel].keys.map(key=><fieldset key={key} className="mb-4"><legend className="mb-1 text-sm font-semibold">{names[key]||key}</legend><div className="flex flex-wrap gap-2">{wardrobe[key].filter(option=>can(key,option)).map(option=>{
+          const owner=exclusiveOwner(key,option);
           const selected=option===(value[key]||presetDefaults[key]||wardrobe[key][0]);
           const swatch=option.startsWith('#');
-          return <button type="button" key={option} aria-label={(names[key]||key)+' '+option} aria-pressed={selected} title={option} style={swatch?{background:option}:undefined} className={'border text-xs transition hover:scale-105 '+(swatch?'h-8 w-8 rounded-full border-slate-300':'rounded-lg border-slate-200 px-3 py-2 dark:border-slate-700')+(selected?' ring-2 ring-indigo-500 ring-offset-1':'')} onClick={()=>{pick(key,option);if(key==='expression')setClose(true);}}>{swatch?'':option}</button>;
+          return <button type="button" key={option} aria-label={(names[key]||key)+' '+option} aria-pressed={selected} title={option} style={swatch?{background:option,color:'#fde68a'}:undefined} className={'border text-xs transition hover:scale-105 '+(swatch?'h-8 w-8 rounded-full border-slate-300':'rounded-lg border-slate-200 px-3 py-2 dark:border-slate-700')+(selected?' ring-2 ring-indigo-500 ring-offset-1':'')} onClick={()=>{pick(key,option);if(key==='expression')setClose(true);}}>{swatch?(owner?'★':''):(owner?<><span className="mr-1 text-amber-500">★</span>{option}<span className="ml-1 rounded bg-amber-100 px-1 text-[9px] font-black uppercase text-amber-800">{EXCLUSIVE_LABEL[owner as keyof typeof EXCLUSIVE_LABEL]}</span></>:option)}</button>;
         })}</div></fieldset>)}
       </div>
     </div>

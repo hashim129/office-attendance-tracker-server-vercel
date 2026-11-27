@@ -23,7 +23,7 @@ function mix(a,b,t){
   return mixCache.get(key);
 }
 const GOLD='#e2b33c';
-const LONG_SLEEVES=['Hoodie','Varsity','Suit','Kurta','Blazer','Sweater','Abaya'];
+const LONG_SLEEVES=['Hoodie','Varsity','Suit','Kurta','Blazer','Sweater','Abaya','Admin command jacket','CEO gold sherwani'];
 export const hasLongSleeves=(top)=>LONG_SLEEVES.includes(top);
 
 export function sculpt(head,torso,v){
@@ -147,6 +147,24 @@ export function sculpt(head,torso,v){
       part(head,cylinder,GOLD,0,.52,0,.24,.08,.24);
       for(let i=0;i<6;i++){const a=i/6*Math.PI*2;part(head,cone,GOLD,.22*Math.cos(a),.6,.22*Math.sin(a),.04,.1,.04);}
       oval(head,'#d23c5a',0,.53,.24,.03,.03,.02);
+    }else if(v.hat==='CEO royal crown'){
+      // Taller crown with a velvet cap and three jewels: CEO only.
+      oval(head,'#7a1f3d',0,.5,0,.22,.12,.22);
+      part(head,cylinder,GOLD,0,.5,0,.27,.1,.27);
+      for(let i=0;i<8;i++){const a=i/8*Math.PI*2;part(head,cone,GOLD,.25*Math.cos(a),.62,.25*Math.sin(a),.045,.16,.045);oval(head,'#fff3b0',.25*Math.cos(a),.71,.25*Math.sin(a),.022,.022,.022);}
+      oval(head,'#2f6fe0',-.12,.5,.235,.03,.03,.02);oval(head,'#d23c5a',0,.5,.27,.04,.04,.025);oval(head,'#1fa36b',.12,.5,.235,.03,.03,.02);
+      oval(head,GOLD,0,.68,0,.045,.045,.045);
+    }else if(v.hat==='Admin shield cap'){
+      // Navy cap with a glowing shield badge: Admin only.
+      oval(head,'#1e2a5a',0,.429,-.019,.354,.194,.32);
+      oval(head,'#1e2a5a',0,.385,.238,.289,.032,.203);
+      oval(head,'#8b5cf6',0,.47,.3,.075,.085,.025);
+      oval(head,'#e9d5ff',0,.475,.318,.035,.042,.012);
+    }else if(v.hat==='Accounts visor'){
+      // Green banker's visor with a gold band: Accounts only.
+      part(head,cylinder,'#0f7a55',0,.36,0,.36,.06,.33);
+      oval(head,'#16a36f',0,.36,.25,.3,.025,.2);
+      part(head,cylinder,GOLD,0,.395,0,.362,.015,.332);
     }else if(v.hat==='Party hat'){
       const c=part(head,cone,'#ff4fa3',.03,.67,0,.17,.36,.17,-.12);
       oval(head,'#ffd23f',.07,.86,0,.05,.05,.05); void c;
@@ -175,6 +193,25 @@ export function sculpt(head,torso,v){
   }else if(top==='Sweater'){
     oval(torso,mix(cloth,'#000000',.2),0,.02,0,.33,.06,.22);
     oval(torso,mix(cloth,'#000000',.2),0,.64,0,.15,.04,.14);
+  }else if(top==='Admin command jacket'){
+    // Deep purple jacket, silver zip and a shield badge: Admin only.
+    oval(torso,'#2e1f5e',0,.29,0,.335,.5,.22);
+    stroke(torso,'#c7c9d9',[[0,.6,.17],[0,.38,.222],[0,.05,.19]],.011);
+    oval(torso,'#8b5cf6',-.17,.42,.205,.055,.065,.02);oval(torso,'#ede9fe',-.17,.425,.222,.025,.03,.008);
+    for(const s of [-1,1])oval(torso,'#3d2a7a',s*.089,.53,.15,.07,.07,.05);
+  }else if(top==='CEO gold sherwani'){
+    // Long gold sherwani with buttons and a pocket square: CEO only.
+    oval(torso,'#b8892b',0,.05,0,.345,.62,.235);
+    stroke(torso,'#fff1c1',[[0,.62,.15],[0,.4,.225],[0,.0,.235],[0,-.3,.2]],.009);
+    for(const y of [.55,.45,.35,.25,.15])oval(torso,'#fff7d6',0,y,.228,.013,.013,.013);
+    oval(torso,'#7a1f3d',-.17,.44,.205,.045,.03,.02);
+    part(torso,cylinder,'#8a6418',0,.64,0,.135,.05,.13);
+  }else if(top==='Accounts ledger vest'){
+    // Shirt with a dark green waistcoat and a gold coin pin: Accounts only.
+    oval(torso,'#f4f1ea',0,.29,0,.325,.49,.215);
+    for(const s of [-1,1])oval(torso,'#0f5a40',s*.15,.27,.05,.19,.44,.18);
+    for(const y of [.4,.3,.2])oval(torso,GOLD,0,y,.218,.012,.012,.012);
+    oval(torso,GOLD,.17,.44,.2,.035,.035,.015);
   }else if(top==='Jersey'){
     for(const y of [.42,.3])oval(torso,'#ffffff',0,y,0,.325,.025,.215);
   }

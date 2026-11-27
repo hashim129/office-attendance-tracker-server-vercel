@@ -847,3 +847,25 @@ button:not(:disabled):active { transform: scale(0.97); }
 @keyframes universe-bubble-pop { 0% { opacity: 0; transform: translate(-50%, 6px) scale(.85); } 60% { opacity: 1; transform: translate(-50%, -2px) scale(1.04); } 100% { opacity: 1; transform: translate(-50%, 0) scale(1); } }
 .universe-bubble { animation: universe-bubble-pop .45s ease-out both; }
 @media (prefers-reduced-motion: reduce) { .universe-bubble { animation: none; } }
+
+/* Punch Clock, profile page and header menu motion (27 Nov) */
+@keyframes punch-rise { from { opacity: 0; transform: translateY(16px) scale(0.985); } to { opacity: 1; transform: none; } }
+@keyframes timeline-step-in { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+@keyframes header-menu-pop { from { opacity: 0; transform: translateY(-6px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes profile-float { 0%, 100% { transform: translateY(0) rotate(-1.5deg); } 50% { transform: translateY(-5px) rotate(1.5deg); } }
+.punch-rise, .profile-rise { animation: punch-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.profile-rise:nth-child(2) { animation-delay: 70ms; }
+.profile-rise:nth-child(3) { animation-delay: 140ms; }
+.profile-rise:nth-child(4) { animation-delay: 210ms; }
+.timeline-step { animation: timeline-step-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.header-menu-pop { transform-origin: top right; animation: header-menu-pop 0.22s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.header-menu-item { transition: background-color 0.15s ease, transform 0.15s ease; }
+.header-menu-item:hover { transform: translateX(3px); }
+.profile-float { animation: profile-float 4s ease-in-out infinite; }
+[data-punch-with-desk] button { transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease; }
+[data-punch-with-desk] button:not(:disabled):hover { transform: translateY(-1px); }
+[data-punch-with-desk] button:not(:disabled):active { transform: scale(0.98); }
+@media (prefers-reduced-motion: reduce) {
+  .punch-rise, .profile-rise, .timeline-step, .header-menu-pop, .profile-float { animation: none !important; }
+  .header-menu-item:hover, [data-punch-with-desk] button:not(:disabled):hover { transform: none; }
+}
