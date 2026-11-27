@@ -5,6 +5,7 @@ import { ActiveDesktopTab, AttendanceRecord } from '../../types';
 import { parseTimeToMinutes } from '../../lib/attendanceCalculations';
 import { CrmState } from '../../crm/useCrm';
 import { EmployeeAvatar } from './EmployeeIdentity';
+import { t, useLang } from '../../lib/i18n';
 
 // Every page has its own colours. Whole class names are written out so the style sheet always includes them.
 const GRADIENTS: Record<string, string> = {
@@ -103,6 +104,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 export const PageHero: React.FC<Props> = ({ tab, name, characterId, appearance, petId, employeeUniverseEnabled = false, isAdmin, crm, todayRecord, unreadDirectives = 0, onNavigate }) => {
   const hero = heroFor(tab, crm, isAdmin);
+  const lang = useLang();
   const heroRef = useRef<HTMLDivElement>(null);
   const [stuck, setStuck] = useState(false);
   const [now, setNow] = useState(() => new Date());
@@ -150,7 +152,7 @@ export const PageHero: React.FC<Props> = ({ tab, name, characterId, appearance, 
         >
           <div className="min-w-0 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-white/90 animate-pulse shrink-0" />
-            <p className="text-sm font-extrabold truncate min-w-[4rem]">{PAGE_TITLES[tab] || 'Dashboard'}</p>
+            <p className="text-sm font-extrabold truncate min-w-[4rem]">{t(PAGE_TITLES[tab] || 'Dashboard', lang)}</p>
             {((employeeUniverseEnabled && characterId) || hasProfilePicture(appearance)) && <EmployeeAvatar characterId={characterId} petId={petId} appearance={appearance} name={name} size="xs" />}
             <p className="hidden md:block text-xs text-white/80 truncate">· {greeting}, {first}</p>
           </div>

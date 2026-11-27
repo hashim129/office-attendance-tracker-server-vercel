@@ -18,6 +18,9 @@ interface LeaveManagementTabProps {
   leaves: LeaveRequest[];
   onApplyLeave: (leave: Omit<LeaveRequest, 'id' | 'appliedAt' | 'status'>) => Promise<void> | void;
   onReviewLeave: (leaveId: string, status: 'approved' | 'rejected', reviewNote?: string) => Promise<void> | void;
+  /** Leave days allowed per year (Admin sets it here) */
+  annualAllowance?: number;
+  onChangeAllowance?: (days: number) => void;
 }
 
 export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
@@ -26,6 +29,8 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
   leaves,
   onApplyLeave,
   onReviewLeave,
+  annualAllowance = 14,
+  onChangeAllowance,
 }) => {
   const isAdmin = currentUser.role === 'admin';
   const [isApplyModalOpen, setIsApplyModalOpen] = useState<boolean>(false);
@@ -106,6 +111,7 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
 
   return (
     <div className="space-y-6">
+        <LeaveBalance leaves={leaves} employees={employees} currentUser={currentUser} allowance={annualAllowance} canEdit={['admin', 'ceo'].includes(currentUser.role)} onChange={onChangeAllowance} />
       {/* Top Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -412,6 +418,35 @@ export const LeaveManagementTab: React.FC<LeaveManagementTabProps> = ({
             </div>
           </form>
         </Modal>
+      )}
+    </div>
+  );
+};
+
+/** "You have used X of Y leave days this year" (approved leave), and for Admin each person's balance. */
+const LeaveBalance: React.FC<{ leaves: LeaveRequest[]; employees: Employee[]; currentUser: Employee; allowance: number; canEdit: boolean; onChange?: (d: number) => void }> = ({ leaves, employees, currentUser, allowance, canEdit, onChange }) => {
+  const year = String(new Date().getFullYear());
+  const used = (id: string) => leaves.filter((l) => l.employeeId === id && l.status === 'approved' && l.startDate.slice(0, 4) === year).reduce((a, l) => a + (Number(l.totalDays) || 0), 0);
+  const mine = used(currentUser.id);
+  const left = Math.max(0, allowance - mine);
+  return (
+    <div className="mb-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4" data-leave-balance>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{left} of {allowance} leave days left in {year}</p>
+          <p className="text-xs text-slate-500">You have used {mine} day{mine === 1 ? '' : 's'} of approved leave this year.</p>
+        </div>
+        {canEdit && onChange && (
+          <label className="text-xs text-slate-600 dark:text-slate-300 inline-flex items-center gap-2">Days per year
+            <input type="number" min={0} max={60} defaultValue={allowance} className="w-16 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1" onBlur={(e) => { const n = Math.max(0, Math.min(60, Math.round(Number(e.target.value) || 0))); if (n !== allowance) onChange(n); }} />
+          </label>
+        )}
+      </div>
+      <div className="mt-2 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div className={`h-full ${left === 0 ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${allowance ? Math.min(100, (mine / allowance) * 100) : 0}%` }} /></div>
+      {canEdit && (
+        <details className="mt-2 text-xs"><summary className="cursor-pointer text-slate-500">Everyone’s balance</summary>
+          <div className="mt-2 grid gap-1 sm:grid-cols-2">{employees.filter((e) => e.isActive !== false).map((e) => <p key={e.id} className="flex justify-between gap-2"><span>{e.name}</span><span className="tabular-nums text-slate-500">{Math.max(0, allowance - used(e.id))} left · {used(e.id)} used</span></p>)}</div>
+        </details>
       )}
     </div>
   );

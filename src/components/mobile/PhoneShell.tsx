@@ -6,6 +6,7 @@ import { notificationDestination } from '../../crm/notificationTarget';
 import { crmCall } from '../../crm/crmApi';
 import { haptic, takeLaunchAction, takeSharedFile, setScreenSecure } from '../../lib/phoneApp';
 import './phoneShell.css';
+import { t, useLang } from '../../lib/i18n';
 
 /**
  * Phone layer on top of the normal app (phones and the Android app):
@@ -34,6 +35,7 @@ const isPhoneWidth = () => typeof window !== 'undefined' && window.matchMedia('(
 
 export const PhoneShell: React.FC<Props> = ({ currentUser, activeTab, onSelectTab, onOpenMore, onOpenRecord, unread, online, onRefresh, leaves, employees, onReviewLeave, blockScreenshots, latest = [] }) => {
   const [phone, setPhone] = useState(isPhoneWidth);
+  const lang = useLang();
   const [pull, setPull] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [shared, setShared] = useState<{ name: string; file: File } | null>(null);
@@ -176,12 +178,12 @@ export const PhoneShell: React.FC<Props> = ({ currentUser, activeTab, onSelectTa
           {tabs.map(({ tab, label, Icon, badge }) => (
             <button key={tab} type="button" className={activeTab === tab ? 'is-on' : ''} onClick={() => { if (activeTab !== tab) haptic('tap'); onSelectTab(tab); window.scrollTo({ top: 0 }); }} aria-current={activeTab === tab ? 'page' : undefined}>
               <span className="phone-tab-icon"><Icon className="w-5 h-5" />{badge ? <i>{badge > 99 ? '99+' : badge}</i> : null}</span>
-              <span>{label}</span>
+              <span>{t(label, lang)}</span>
             </button>
           ))}
           <button type="button" onClick={() => { haptic('tap'); onOpenMore(); }}>
             <span className="phone-tab-icon"><Menu className="w-5 h-5" /></span>
-            <span>More</span>
+            <span>{t('More', lang)}</span>
           </button>
         </nav>
       )}

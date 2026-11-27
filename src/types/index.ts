@@ -210,6 +210,7 @@ export interface OfficeSettings {
   allowAdminBypassIpLock?: boolean;
   faceScanPunchEnabled?: boolean; // High security: punches need a live face scan (off by default)
   blockScreenshots?: boolean;
+  annualLeaveDays?: number; // leave days allowed per person per year (default 14)
   phoneApprovalForAdmins?: boolean; // default on: Admin/CEO/Accounts approve computer sign-ins in the phone app
   staffSignInOfficeOnly?: boolean; // employees sign in on computers only from the office network // Phone app: no screenshots / screen recording on invoices, sales, receipts, purchases, payment tree
   faceEnrollRequired?: boolean; // Everyone must enroll their own face (through their own login) before punching

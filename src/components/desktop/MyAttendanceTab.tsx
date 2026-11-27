@@ -46,6 +46,7 @@ import {
   describeUnverifiedTime,
 } from '../../lib/attendanceCalculations';
 import { exportAttendanceToCsv } from '../../lib/exportUtils';
+import { downloadMonthlySummary } from '../../lib/monthlySummary';
 
 interface MyAttendanceTabProps {
   currentUser: Employee;
@@ -247,6 +248,11 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
     });
   }, [filteredRecords, userShift]);
 
+  const [summaryMonth, setSummaryMonth] = useState(() => {
+    // early in the month, default to last month's summary
+    const d = new Date(); if (d.getDate() <= 5) d.setMonth(d.getMonth() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
   const handleDownloadCsv = () => {
     exportAttendanceToCsv({
       records: filteredRecords,
@@ -260,6 +266,7 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
   };
 
   const todayStr = getTodayDateString();
+  const todayMonth = todayStr.slice(0, 7);
   const dayName = getDayName(todayStr);
 
   const myCeoDirectives = useMemo(() => {
@@ -341,7 +348,18 @@ export const MyAttendanceTab: React.FC<MyAttendanceTabProps> = ({
         </div>
 
         {/* Export & Print Timesheet Buttons */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="inline-flex items-center gap-1.5" data-month-summary>
+            <input type="month" value={summaryMonth} max={todayMonth} onChange={(e) => setSummaryMonth(e.target.value || todayMonth)} className="px-2 py-1.5 rounded-lg text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800" aria-label="Month" />
+            <button
+              onClick={() => void downloadMonthlySummary(currentUser, records, shifts, summaryMonth, settings.companyName || 'Bahaar Journeys')}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-colors cursor-pointer"
+              title="Monthly attendance and pay summary (PDF)"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Monthly summary (PDF)</span>
+            </button>
+          </span>
           <button
             onClick={handleDownloadCsv}
             className="flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 shadow-2xs transition-colors cursor-pointer"

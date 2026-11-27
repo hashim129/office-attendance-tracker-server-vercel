@@ -42,7 +42,7 @@ export function createMedia(h) {
     const row = await getOne('crm_company', 'media-config').catch(() => null);
     const d = parseJsonObj(row?.data, {});
     const platforms = Array.isArray(d.platforms) && d.platforms.length ? d.platforms : DEFAULT_PLATFORMS;
-    return { platforms, lastSummaryWeek: d.lastSummaryWeek || '' };
+    return { platforms, lastSummaryWeek: d.lastSummaryWeek || '', lastReportMonth: d.lastReportMonth || '' };
   }
   async function saveConfig(next) {
     await upsert('crm_company', { id: 'media-config', data: next, updated_at: new Date().toISOString() });
@@ -108,6 +108,15 @@ export function createMedia(h) {
       }
       await saveConfig({ ...cfg, lastSummaryWeek: thisWeek });
     }
+    // 1st of the month: last month's report is ready
+    const monthNow = today.slice(0, 7);
+    const cfg2 = await config();
+    if (today.slice(8, 10) === '01' && hour >= 10 && cfg2.lastReportMonth !== monthNow) {
+      const prev = new Date(Date.UTC(Number(monthNow.slice(0, 4)), Number(monthNow.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
+      const label = new Date(`${prev}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+      await notify(admins, 'media', `med-report-${prev}`, `The media report for ${label} is ready. Open the Posting Calendar → Monthly report (PDF).`);
+      await saveConfig({ ...cfg2, lastReportMonth: monthNow });
+    }
   }
 
   async function handle(action, body, me, isAdmin) {
@@ -119,11 +128,12 @@ export function createMedia(h) {
       const today = pktDate();
       const week = isDate(body.weekStart) ? weekStartOf(body.weekStart) : weekStartOf(today);
       const historyFrom = addDays(week, -7 * 7);
-      const [cfg, people, rows] = await Promise.all([config(), staff(), postsBetween(historyFrom, addDays(week, 6))]);
+      const [cfg, people, rows, ideaRow] = await Promise.all([config(), staff(), postsBetween(historyFrom, addDays(week, 6)), getOne('crm_company', 'media-ideas').catch(() => null)]);
       return {
         today, weekStart: week, config: { platforms: cfg.platforms }, kinds: MEDIA_KINDS, canManage: isAdmin,
         members: people.filter((e) => isMember(e) || e.role === 'admin' || e.role === 'ceo').map((e) => ({ id: e.id, name: e.name, media: isMember(e) })),
         posts: rows.map(mapMediaPost),
+        ideas: Array.isArray(parseJsonObj(ideaRow?.data, {}).items) ? parseJsonObj(ideaRow?.data, {}).items : [],
       };
     }
 
@@ -185,6 +195,31 @@ export function createMedia(h) {
       const rows = prev.map((r) => ({ ...r, id: id('med'), post_date: addDays(String(r.post_date).slice(0, 10), 7), status: 'planned', link: '', posted_at: null, posted_by: null, reminded: '', created_by: me.id, created_at: at, updated_at: at }));
       await upsert('crm_media_posts', rows);
       return { copied: rows.length };
+    }
+
+    // Ideas bank: post ideas waiting for a date
+    if (action === 'media_idea_add') {
+      const row = await getOne('crm_company', 'media-ideas').catch(() => null);
+      const items = Array.isArray(parseJsonObj(row?.data, {}).items) ? parseJsonObj(row?.data, {}).items : [];
+      const text = str(body.text, 300, { required: true, name: 'Idea' });
+      const platform = String(body.platform || '').slice(0, 30);
+      const next = [{ id: id('idea'), text, platform, by: me.id, byName: me.name || '', at: new Date().toISOString() }, ...items].slice(0, 200);
+      await upsert('crm_company', { id: 'media-ideas', data: { items: next }, updated_at: new Date().toISOString() });
+      return { ideas: next };
+    }
+    if (action === 'media_idea_remove') {
+      const row = await getOne('crm_company', 'media-ideas').catch(() => null);
+      const items = Array.isArray(parseJsonObj(row?.data, {}).items) ? parseJsonObj(row?.data, {}).items : [];
+      const next = items.filter((x) => x.id !== body.id);
+      await upsert('crm_company', { id: 'media-ideas', data: { items: next }, updated_at: new Date().toISOString() });
+      return { ideas: next };
+    }
+    // One month of posts (month view and the monthly report)
+    if (action === 'media_month') {
+      const m = /^\d{4}-\d{2}$/.test(String(body.month || '')) ? body.month : pktDate().slice(0, 7);
+      const last = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).toISOString().slice(0, 10);
+      const [cfg, people, rows] = await Promise.all([config(), staff(), postsBetween(`${m}-01`, last)]);
+      return { month: m, config: { platforms: cfg.platforms }, kinds: MEDIA_KINDS, members: people.filter((e) => isMember(e)).map((e) => ({ id: e.id, name: e.name })), posts: rows.map(mapMediaPost), today: pktDate() };
     }
 
     if (action === 'media_config_save') {
