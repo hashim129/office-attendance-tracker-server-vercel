@@ -989,6 +989,23 @@ export default async function handler(req, res) {
       await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(body.id)}`, { method: 'DELETE' });
       return res.status(200).json({ ok: true });
     }
+    // "What's new" walkthrough after each update: who has gone through it (so it shows once per person, on any device)
+    if (action === 'whatsnew_seen' || action === 'whatsnew_mine' || action === 'whatsnew_status') {
+      if (action === 'whatsnew_seen') {
+        const rid = String(body.id || '').replace(/[^0-9a-z-]/gi, '').slice(0, 40);
+        if (!rid) throw bad('Bad request.');
+        const row = await getOne('crm_company', `whatsnew-${rid}`).catch(() => null);
+        const d = parseJsonObj(row?.data, {});
+        if (!(d.seen || {})[me.id]) await upsert('crm_company', { id: `whatsnew-${rid}`, data: { ...d, seen: { ...(d.seen || {}), [me.id]: nowIso() } }, updated_at: nowIso() });
+        return res.status(200).json({ ok: true });
+      }
+      const rows = (await supabaseFetch('/crm_company?id=like.whatsnew-*&select=id,data')) || [];
+      if (action === 'whatsnew_mine') return res.status(200).json({ ok: true, seen: rows.filter((r) => (parseJsonObj(r.data, {}).seen || {})[me.id]).map((r) => r.id.slice('whatsnew-'.length)) });
+      if (!isAdmin) throw forbidden('Only Admin or the CEO can see this.');
+      const staff = await activeEmployees();
+      return res.status(200).json({ ok: true, releases: rows.map((r) => { const seen = parseJsonObj(r.data, {}).seen || {}; return { id: r.id.slice('whatsnew-'.length), seenCount: staff.filter((e) => seen[e.id]).length, total: staff.length, notSeen: staff.filter((e) => !seen[e.id]).map((e) => e.name) }; }) });
+    }
+
     // Personal daily task board (to do / doing / done)
     if (action === 'board_get' || action === 'board_save') {
       const key = `board-${me.id}`;

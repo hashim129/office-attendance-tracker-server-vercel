@@ -32,10 +32,16 @@ export const AnnouncementsAdmin: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const load = useCallback(() => crmCall<{ items: Ann[] }>('announcement_list').then((r) => setItems(r.items)).catch(() => null), []);
-  useEffect(() => { void load(); }, [load]);
+  const [wn, setWn] = useState<{ id: string; seenCount: number; total: number; notSeen: string[] } | null>(null);
+  useEffect(() => { void load(); crmCall<{ releases: { id: string; seenCount: number; total: number; notSeen: string[] }[] }>('whatsnew_status').then((r) => setWn(r.releases.sort((a, b) => b.id.localeCompare(a.id))[0] || null)).catch(() => null); }, [load]);
   return (
     <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3" data-announcements-admin>
       <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Announcements</p>
+      {wn && (
+        <p className="text-[11px] text-slate-600 dark:text-slate-300" data-whatsnew-status>
+          Latest update walkthrough ({wn.id}): gone through by {wn.seenCount} of {wn.total}.{wn.notSeen.length ? ` Not yet: ${wn.notSeen.join(', ')}.` : ' Everyone has seen it.'}
+        </p>
+      )}
       <div className="grid gap-2">
         <input className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs" placeholder="Title, e.g. Office closed on Friday" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
         <textarea className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs min-h-[60px]" placeholder="Message (optional)" value={body} maxLength={2000} onChange={(e) => setBody(e.target.value)} />

@@ -61,6 +61,7 @@ import { MyWeekCard } from './components/mobile/MyWeekCard';
 import { PhoneAppSettings } from './components/mobile/PhoneAppSettings';
 import { TaskBoard } from './components/mobile/TaskBoard';
 import { ThemePicker } from './components/common/ThemePicker';
+import { WhatsNewWalkthrough } from './components/common/WhatsNew';
 import { AnnouncementPopup } from './components/common/Announcements';
 import { updateWidget, haptic } from './lib/phoneApp';
 import { celebrate, once } from './lib/celebrate';
@@ -210,6 +211,8 @@ export default function App() {
   }, [currentUser?.id, currentUser?.isSuperAdmin]);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState<boolean>(false);
   const [forcedPinChange, setForcedPinChange] = useState<boolean>(false);
+  const [whatsNewOpen, setWhatsNewOpen] = useState(0);
+  useEffect(() => { const on = () => setWhatsNewOpen((n) => n + 1); window.addEventListener('open-whats-new', on); return () => window.removeEventListener('open-whats-new', on); }, []);
   const crm = useCrm(Boolean(currentUser), activeTab.startsWith('crm-') || activeTab === 'live-dashboard' || (betaEnabled && activeTab === 'clock'));
 
   // Password Modal
@@ -1280,6 +1283,7 @@ export default function App() {
             headerBetaEnabled={settings.headerBetaEnabled === true}
           />
 
+          {CRM_ENABLED && !forcedPinChange && <WhatsNewWalkthrough currentUser={currentUser} onNavigate={(t) => setActiveTab(t)} openRequest={whatsNewOpen} />}
           {CRM_ENABLED && <AnnouncementPopup trigger={(crm.badges.unreadLatest || []).filter((n) => String(n.refId || '').startsWith('ann-')).map((n) => n.refId).join(',') || currentUser.id} />}
           <PhoneShell
             currentUser={currentUser}
