@@ -1,5 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
+import { startPhoneTables } from './lib/phoneTables';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import './index.css';
 import './themes.css';
@@ -9,6 +10,8 @@ const normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
 const isCustomersRoute =
   normalizedPath === '/customers' || normalizedPath.startsWith('/customers/');
 
+const isFeedbackRoute = new URLSearchParams(window.location.search).has('feedback');
+const FeedbackPage = lazy(() => import('./customers/FeedbackPage'));
 const CustomersPortalPage = lazy(() => import('./customers/CustomersPortalPage'));
 const App = lazy(() => import('./App.tsx'));
 
@@ -25,7 +28,17 @@ function NeutralLoader() {
   );
 }
 
-if (isCustomersRoute) {
+if (isFeedbackRoute) {
+  document.title = 'Your trip feedback · Bahaar Journeys';
+  document.documentElement.classList.remove('dark');
+  createRoot(document.getElementById('root')!).render(
+    <ErrorBoundary fallbackTitle="Unable to load page" fallbackMessage="Please refresh the page and try again.">
+      <Suspense fallback={<NeutralLoader />}>
+        <FeedbackPage />
+      </Suspense>
+    </ErrorBoundary>,
+  );
+} else if (isCustomersRoute) {
   document.title = 'Loading...';
   document.documentElement.classList.remove('dark');
 
@@ -51,3 +64,5 @@ if (isCustomersRoute) {
 
   void import('./lib/faceScan').then((m) => m.preloadFaceEngine());
 }
+
+startPhoneTables();

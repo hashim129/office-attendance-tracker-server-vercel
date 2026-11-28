@@ -186,7 +186,7 @@ export const TasksView: React.FC<Props & { focusId?: string }> = ({ crm, employe
               getCreatedAt={(f) => f.createdAt} getCreatorId={(f) => f.createdBy} searchFields={followupSearch} searchHint="Subject or words in the follow-up"
               employees={employees} currentUser={currentUser} companyName={crm.data.company.name} landscape
             />
-            <button className={btnPrimary} onClick={() => { setEditing(null); setFormOpen(true); }}><Plus className="w-4 h-4" /> New follow-up</button>
+            <button className={btnPrimary} data-new-followup onClick={() => { setEditing(null); setFormOpen(true); }}><Plus className="w-4 h-4" /> New follow-up</button>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -349,6 +349,7 @@ export const TasksView: React.FC<Props & { focusId?: string }> = ({ crm, employe
 
       {/* ---------- Detailed View Modal ---------- */}
       <Modal
+        side
         isOpen={Boolean(viewing)}
         onClose={() => setViewingId(null)}
         title={viewing ? (viewing.customerId ? customerOf.get(viewing.customerId)?.customerName || 'Follow-up details' : KIND_LABEL[viewing.kind] || 'Follow-up') : 'Follow-up details'}

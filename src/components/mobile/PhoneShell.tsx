@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock3, FileText, ListChecks, Bell, Menu, WifiOff, RefreshCw, Paperclip, X } from 'lucide-react';
+import { Clock3, FileText, ListChecks, Bell, Menu, WifiOff, RefreshCw, Paperclip, X, Plus, Search, Receipt, UserPlus, FilePenLine, CalendarPlus } from 'lucide-react';
 import type { ActiveDesktopTab, Employee, LeaveRequest } from '../../types';
 import { pageEnabled } from '../../lib/pageAccess';
 import { notificationDestination } from '../../crm/notificationTarget';
@@ -154,6 +154,28 @@ export const PhoneShell: React.FC<Props> = ({ currentUser, activeTab, onSelectTa
     return () => { window.removeEventListener('touchstart', down); window.removeEventListener('touchmove', move); window.removeEventListener('touchend', up); };
   }, [phone, pull, onRefresh]);
 
+  const [addOpen, setAddOpen] = useState(false);
+  const canMoney = ['admin', 'ceo', 'accounts'].includes(currentUser.role) || Boolean(currentUser.salesAccess);
+  const quickAdd = ([
+    { key: 'invoice', label: 'New invoice', Icon: FileText, tab: 'crm-invoices' as ActiveDesktopTab },
+    { key: 'receipt', label: 'New receipt', Icon: Receipt, tab: 'crm-receipts' as ActiveDesktopTab },
+    { key: 'followup', label: 'New follow-up', Icon: CalendarPlus, tab: 'crm-tasks' as ActiveDesktopTab, selector: '[data-new-followup]' },
+    { key: 'customer', label: 'New customer', Icon: UserPlus, tab: 'crm-customers' as ActiveDesktopTab, selector: '[data-new-customer]' },
+    ...(canMoney ? [{ key: 'quote', label: 'New quotation', Icon: FilePenLine, tab: 'crm-quotes' as ActiveDesktopTab, selector: '[data-new-quote]' }] : []),
+  ]).filter((q) => pageEnabled(currentUser, q.tab));
+  const runQuickAdd = (q: (typeof quickAdd)[number]) => {
+    setAddOpen(false); haptic('tap');
+    if (q.key === 'invoice' || q.key === 'receipt') {
+      try { sessionStorage.setItem('bahaar_open_new', q.key); } catch { /* ignore */ }
+      if (activeTab === q.tab) onSelectTab('clock');
+      window.setTimeout(() => onSelectTab(q.tab), 30);
+      return;
+    }
+    onSelectTab(q.tab);
+    const click = (tries = 14) => { const el = document.querySelector<HTMLButtonElement>(q.selector!); if (el && !el.disabled) el.click(); else if (tries > 0) window.setTimeout(() => click(tries - 1), 250); };
+    window.setTimeout(() => click(), 120);
+  };
+
   const tabs: { tab: ActiveDesktopTab; label: string; Icon: typeof Clock3; badge?: number }[] = ([
     { tab: 'clock' as ActiveDesktopTab, label: 'Punch', Icon: Clock3 },
     { tab: 'crm-invoices' as ActiveDesktopTab, label: 'Invoices', Icon: FileText },
@@ -186,6 +208,31 @@ export const PhoneShell: React.FC<Props> = ({ currentUser, activeTab, onSelectTa
             <span>{t('More', lang)}</span>
           </button>
         </nav>
+      )}
+      {phone && quickAdd.length > 0 && (
+        <button type="button" className="phone-fab" aria-label="Quick add" data-quick-add onClick={() => { haptic('tap'); setAddOpen(true); }}>
+          <Plus className="w-6 h-6" />
+        </button>
+      )}
+      {addOpen && (
+        <div className="phone-sheet-backdrop" onClick={() => setAddOpen(false)}>
+          <div className="phone-sheet" role="dialog" aria-label="Quick add" onClick={(e) => e.stopPropagation()} data-quick-add-sheet>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t('Add something new', lang)}</p>
+              <button type="button" className="p-2 -m-2 text-slate-400" aria-label="Close" onClick={() => setAddOpen(false)}><X className="w-4 h-4" /></button>
+            </div>
+            <button type="button" className="mt-3 w-full flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-3 text-sm text-slate-500" onClick={() => { setAddOpen(false); window.dispatchEvent(new Event('open-quick-search')); }}>
+              <Search className="w-4 h-4" /> {t('Search customers, invoices, phone numbers…', lang)}
+            </button>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {quickAdd.map((q) => (
+                <button key={q.key} type="button" className="phone-quick" data-quick={q.key} onClick={() => runQuickAdd(q)}>
+                  <q.Icon className="w-5 h-5" /><span>{t(q.label, lang)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
       {loginAsk && (
         <div className="phone-sheet-backdrop">

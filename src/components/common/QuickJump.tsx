@@ -5,17 +5,23 @@ import { ActiveDesktopTab, Employee } from '../../types';
 interface QuickJumpProps {
   currentUser: Employee;
   crmEnabled: boolean;
-  onSelectTab: (tab: ActiveDesktopTab) => void;
+  onSelectTab: (tab: ActiveDesktopTab, refId?: string) => void;
+  /** CRM records already loaded in the app; searched on this device, nothing extra is downloaded. */
+  data?: { customers?: any[]; invoices?: any[]; receipts?: any[]; followups?: any[] };
 }
 
 interface Page {
   tab: ActiveDesktopTab;
   label: string;
   hint: string;
+  refId?: string;
+  group?: string;
 }
+const norm = (v: unknown) => String(v ?? '').toLowerCase();
+const digits = (v: unknown) => String(v ?? '').replace(/\D/g, '');
 
 /** Press Ctrl+K (or ⌘K) anywhere to jump straight to a page by typing a few letters. */
-export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, onSelectTab }) => {
+export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, onSelectTab, data }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
@@ -45,7 +51,12 @@ export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, o
         { tab: 'crm-notifications', label: 'Notifications', hint: 'Your alerts' },
         ...(['admin', 'ceo'].includes(currentUser.role) ? [{ tab: 'crm-portal' as const, label: 'Portal Control', hint: 'Customer portal settings' }] : []),
         { tab: 'crm-inventory', label: 'Inventory', hint: 'Office stock and requests' },
+        { tab: 'crm-overdue', label: 'Overdue invoices', hint: 'Balances past their due date' },
+        { tab: 'crm-groups', label: 'Group bookings', hint: 'Groups of customers travelling together' },
+        { tab: 'crm-feedback', label: 'Customer feedback', hint: 'Ratings after travel' },
       );
+      if (staff || currentUser.salesAccess) list.push({ tab: 'crm-quotes', label: 'Quotations', hint: 'Quotes you can turn into invoices' });
+      if (staff) list.push({ tab: 'crm-vendors', label: 'Vendor ledger', hint: 'What each vendor is owed' }, { tab: 'crm-cashbook', label: 'Cash & bank book', hint: 'Money in and out by day' });
     }
     if (staff) {
       list.push(
@@ -65,8 +76,19 @@ export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, o
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? pages.filter((p) => `${p.label} ${p.hint}`.toLowerCase().includes(q)) : pages;
-  }, [pages, query]);
+    if (!q) return pages;
+    const pageHits = pages.filter((p) => `${p.label} ${p.hint}`.toLowerCase().includes(q)).map((p) => ({ ...p, group: 'Pages' }));
+    if (!crmEnabled || q.length < 2 || !data) return pageHits;
+    const qd = digits(q);
+    const hit = (...vals: unknown[]) => vals.some((v) => norm(v).includes(q)) || (qd.length >= 4 && vals.some((v) => digits(v).includes(qd)));
+    const recs: Page[] = [];
+    for (const c of data.customers || []) if (hit(c.customerName, c.companyName, c.customerNumber)) recs.push({ tab: 'crm-customers', refId: c.id, label: c.customerName || 'Customer', hint: [c.companyName, c.customerNumber].filter(Boolean).join(' · ') || 'Customer', group: 'Customers' });
+    for (const i of data.invoices || []) if (hit(i.invoiceNo, i.customerName, i.customerPhone, i.crmId, i.queryCode)) recs.push({ tab: 'crm-invoices', refId: i.id, label: `${i.invoiceNo} · ${i.customerName}`, hint: `${i.kind === 'vendor' ? 'Vendor payable' : 'Invoice'} · ${i.currency} ${Number(i.total || 0).toLocaleString()}${i.balance > 0 ? ` · balance ${Number(i.balance).toLocaleString()}` : ''}`, group: 'Invoices' });
+    for (const r of data.receipts || []) if (hit(r.receiptNo, r.clientName, r.queryCode, r.referenceNo)) recs.push({ tab: 'crm-receipts', refId: r.id, label: `${r.receiptNo} · ${r.clientName}`, hint: `Receipt · ${r.currency} ${Number(r.amountReceived || 0).toLocaleString()} received`, group: 'Receipts' });
+    for (const f of data.followups || []) if (hit(f.subject, f.remarks)) recs.push({ tab: 'crm-tasks', refId: f.id, label: f.subject || String(f.remarks || 'Follow-up').slice(0, 60), hint: `Follow-up · ${f.status}`, group: 'Follow-ups' });
+    const byGroup: Record<string, number> = {};
+    return [...pageHits, ...recs.filter((r) => (byGroup[r.group!] = (byGroup[r.group!] || 0) + 1) <= 6)];
+  }, [pages, query, data, crmEnabled]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -79,8 +101,10 @@ export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, o
         setOpen(false);
       }
     };
+    const onOpen = () => { setOpen(true); setQuery(''); setIndex(0); };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('open-quick-search', onOpen);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('open-quick-search', onOpen); };
   }, []);
 
   useEffect(() => {
@@ -91,16 +115,16 @@ export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, o
 
   const go = (p?: Page) => {
     if (!p) return;
-    onSelectTab(p.tab);
+    onSelectTab(p.tab, p.refId);
     setOpen(false);
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh] px-4 bg-slate-900/50 backdrop-blur-[2px]" onMouseDown={() => setOpen(false)}>
+    <div className="fixed inset-0 z-[200] flex items-start justify-center pt-[8vh] sm:pt-[15vh] px-3 sm:px-4 bg-slate-900/50 backdrop-blur-[2px]" onMouseDown={() => setOpen(false)}>
       <div
         role="dialog"
-        aria-label="Jump to a page"
-        className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden"
+        aria-label="Search everything"
+        className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
@@ -114,20 +138,21 @@ export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, o
               else if (e.key === 'ArrowUp') { e.preventDefault(); setIndex((i) => Math.max(i - 1, 0)); }
               else if (e.key === 'Enter') { e.preventDefault(); go(shown[index]); }
             }}
-            placeholder="Where do you want to go?"
+            placeholder="Search a page, customer, invoice no., phone or receipt"
             className="flex-1 bg-transparent text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
           />
           <kbd className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-700 text-slate-500">Esc</kbd>
         </div>
-        <ul className="max-h-72 overflow-y-auto p-1.5">
+        <ul className="max-h-[60vh] sm:max-h-96 overflow-y-auto p-1.5">
           {shown.length === 0 && <li className="px-3 py-6 text-center text-xs text-slate-500">Nothing matches. Try another word.</li>}
           {shown.map((p, i) => (
-            <li key={p.tab}>
+            <li key={`${p.tab}-${p.refId || ''}`}>
+              {p.group && p.group !== shown[i - 1]?.group && <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">{p.group}</p>}
               <button
                 type="button"
                 onMouseEnter={() => setIndex(i)}
                 onClick={() => go(p)}
-                className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-left cursor-pointer ${i === index ? 'bg-blue-50 dark:bg-blue-950/50' : ''}`}
+                className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 sm:py-2 rounded-lg text-left cursor-pointer ${i === index ? 'bg-blue-50 dark:bg-blue-950/50' : ''}`}
               >
                 <span className="min-w-0">
                   <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">{p.label}</span>
@@ -138,7 +163,7 @@ export const QuickJump: React.FC<QuickJumpProps> = ({ currentUser, crmEnabled, o
             </li>
           ))}
         </ul>
-        <p className="px-4 py-2 text-[10px] text-slate-400 border-t border-slate-200 dark:border-slate-800">Tip: press Ctrl+K any time to open this.</p>
+        <p className="px-4 py-2 text-[10px] text-slate-400 border-t border-slate-200 dark:border-slate-800">Tip: press Ctrl+K any time to open this. Searches pages and the customers, invoices, receipts and follow-ups you can see.</p>
       </div>
     </div>
   );

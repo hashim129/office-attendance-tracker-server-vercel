@@ -3,6 +3,9 @@
 // Every call needs the signed-in person's token; what they may do is decided here from the database, never from the browser.
 import crypto from 'node:crypto';
 import { createMedia } from './_media.js';
+import { createBooks } from './_books.js';
+import { createPeople } from './_people.js';
+import { createStaff } from './_staff.js';
 import { sweepSmart } from './_smart.js';
 import { audit, clientIp } from './_audit.js';
 import { fxRates, toPkr } from './_fx.js';
@@ -855,6 +858,18 @@ async function ackRecord(kind, refId) {
 let mediaApi = null;
 const media = () => (mediaApi ||= createMedia({ supabaseFetch, upsert, getOne, notify, id, str, bad, forbidden, notFound, flagOf, parseJsonObj }));
 
+// Optional add-on modules (quotations & books, customer extras, staff extras). Each one only reads the
+// invoice / receipt / purchase rows; none of them changes how invoices, receipts or purchases are saved.
+let booksApi; let peopleApi; let staffApi;
+const addonHelpers = () => ({ supabaseFetch, upsert, getOne, notify, id, str, bad, forbidden, notFound, flagOf, parseJsonObj, activeEmployees, invoiceBook, fxRates, toPkr, canSeeInvoice, hasSalesAccess, audit });
+const books = () => (booksApi ||= createBooks(addonHelpers()));
+const people = () => (peopleApi ||= createPeople(addonHelpers()));
+const staffX = () => (staffApi ||= createStaff(addonHelpers()));
+/** Add-on reminders for the background timer (document expiry, overdue invoices, daily target nudge, feedback links). */
+export async function runAddonSweep() {
+  for (const m of [books, people, staffX]) { try { await m().sweep?.(); } catch (e) { console.error('addon sweep', e?.message); } }
+}
+
 /** Media reminders for the background timer (api/system.js). */
 export async function runMediaSweep() { return media().sweep(); }
 
@@ -877,7 +892,14 @@ export default async function handler(req, res) {
         : action.startsWith('invoice') ? 'crm-invoices'
         : action.startsWith('receipt') ? 'crm-receipts'
         : action.startsWith('portal') ? 'crm-portal'
-        : action.startsWith('notification') ? 'crm-notifications' : undefined;
+        : action.startsWith('notification') ? 'crm-notifications'
+        : action.startsWith('books_quote') ? 'crm-quotes'
+        : action === 'books_vendor_ledger' ? 'crm-vendors'
+        : action === 'books_cashbook' ? 'crm-cashbook'
+        : action === 'books_overdue' ? 'crm-overdue'
+        : action.startsWith('people_group') ? 'crm-groups'
+        : action === 'people_feedback_list' ? 'crm-feedback'
+        : action === 'staff_performance' ? 'staff-performance' : undefined;
       if (page && me.featureAccess?.[page] === false) throw forbidden('Your Super Admin has disabled access to this page.');
     }
     const isAdmin = me.role === 'admin' || me.role === 'ceo'; // the CEO has every administrator right in the CRM and Office sections
@@ -1054,6 +1076,13 @@ export default async function handler(req, res) {
     }
 
     // Media Team posting calendar
+    for (const [prefix, mod] of [['books_', books], ['people_', people], ['staff_', staffX]]) {
+      if (typeof action === 'string' && action.startsWith(prefix)) {
+        const out = await mod().handle(action, body, me, { isAdmin, seeAllCust, canSeeCust, canSales });
+        if (out === null || out === undefined) throw bad('Unknown action.');
+        return res.status(200).json({ ok: true, ...out });
+      }
+    }
     if (typeof action === 'string' && action.startsWith('media_')) {
       const out = await media().handle(action, body, me, isAdmin);
       if (out === null) throw bad('Unknown action.');

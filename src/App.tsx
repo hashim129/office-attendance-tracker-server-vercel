@@ -72,6 +72,9 @@ import { PunchClockTab } from './components/desktop/PunchClockTab';
 import { ChangePasswordModal } from './components/common/ChangePasswordModal';
 import { verifyAdminPin, rememberSession, takePendingToken, takeMustChangePin } from './lib/pinAuth';
 import { QuickJump } from './components/common/QuickJump';
+import { TargetNudgeSwitch } from './components/desktop/PerformanceView';
+import { ShortLeavePanel } from './components/desktop/ShortLeavePanel';
+const PerformanceView = lazy(() => import('./components/desktop/PerformanceView'));
 import { CRM_ENABLED } from './crm/config';
 import { useCrm } from './crm/useCrm';
 import { PageHero } from './components/common/PageHero';
@@ -173,10 +176,28 @@ export default function App() {
   const [faceRequest, setFaceRequest] = useState<{ employeeId: string; run: () => void } | null>(null);
   const [activeTab, setActiveTabState] = useState<ActiveDesktopTab>('clock');
   const [focusedRecordId, setFocusedRecordId] = useState<string | undefined>();
+  const activeTabRef = useRef<ActiveDesktopTab>('clock');
   const setActiveTab = (tab: ActiveDesktopTab, refId?: string) => {
     setFocusedRecordId(refId);
     setActiveTabState(tab);
+    // Each page change is a step in the browser history, so the phone's Back button returns to the previous page.
+    if (tab !== activeTabRef.current) {
+      try { window.history.pushState({ ...(window.history.state || {}), bahaarTab: tab }, ''); } catch { /* ignore */ }
+    }
+    activeTabRef.current = tab;
   };
+  useEffect(() => {
+    try { window.history.replaceState({ ...(window.history.state || {}), bahaarTab: 'clock' }, ''); } catch { /* ignore */ }
+    const onPop = (e: PopStateEvent) => {
+      const tab = (e.state && e.state.bahaarTab) as ActiveDesktopTab | undefined;
+      if (!tab) return;
+      activeTabRef.current = tab;
+      setFocusedRecordId(undefined);
+      setActiveTabState(tab);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
   useEffect(() => {
     const onSiteDisabled = () => { setSiteDisabled(true); setCurrentUser(null); };
     const onSiteEnabled = () => setSiteDisabled(false);
@@ -1336,6 +1357,7 @@ export default function App() {
                   onNavigate={setActiveTab}
                 />
                 <ErrorBoundary>
+                  <div key={activeTab} className="page-in">
                   <Suspense fallback={<TabLoader />}>
                 {activeTab === 'clock' && (
                 <>
@@ -1385,8 +1407,10 @@ export default function App() {
               }} />}
               {activeTab === 'employee-profile' && currentUser && <PhoneAppSettings />}
               {activeTab === 'employee-profile' && currentUser && <ThemePicker />}
+              {activeTab === 'employee-profile' && currentUser && CRM_ENABLED && <TargetNudgeSwitch currentUser={currentUser} />}
+              {activeTab === 'staff-performance' && currentUser && <PerformanceView currentUser={currentUser} companyName={crm.data.company?.name} />}
 
-              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications' || activeTab === 'crm-payment-tree' || activeTab === 'crm-media' || activeTab === 'crm-profit') && (
+              {CRM_ENABLED && (activeTab === 'crm-customers' || activeTab === 'crm-tasks' || activeTab === 'crm-meetings' || activeTab === 'crm-inventory' || activeTab === 'crm-sales' || activeTab === 'crm-purchases' || activeTab === 'crm-invoices' || activeTab === 'crm-receipts' || activeTab === 'crm-portal' || activeTab === 'crm-notifications' || activeTab === 'crm-payment-tree' || activeTab === 'crm-media' || activeTab === 'crm-profit' || activeTab === 'crm-quotes' || activeTab === 'crm-vendors' || activeTab === 'crm-cashbook' || activeTab === 'crm-overdue' || activeTab === 'crm-groups' || activeTab === 'crm-feedback') && (
                 <CrmPage section={activeTab} crm={crm} employees={statEmployees} currentUser={currentUser} onNavigate={setActiveTab} focusId={focusedRecordId} onClearFocus={() => setFocusedRecordId(undefined)} customerPortalBetaEnabled={settings.customerPortalBetaEnabled !== false} />
               )}
 
@@ -1416,6 +1440,7 @@ export default function App() {
                   onChangeAllowance={(days) => handleUpdateSettings({ ...settings, annualLeaveDays: days })}
                 />
               )}
+              {activeTab === 'leaves' && CRM_ENABLED && <ShortLeavePanel currentUser={currentUser} />}
 
               {/* Team Attendance & Office Presence (P/A) - Accessible by All Employees */}
               {activeTab === 'team-attendance' && (['admin', 'ceo'].includes(currentUser.role) || currentUser.teamPresenceAccess === true) && (
@@ -1507,11 +1532,12 @@ export default function App() {
               )}
               {currentUser.isSuperAdmin&&activeTab==='superadmin'&&<SuperAdminTab/>}
                   </Suspense>
+                  </div>
               </ErrorBoundary>
               {CRM_ENABLED && <LiveAlerts crm={crm} onOpen={setActiveTab} />}
               {CRM_ENABLED && <AccountsAckReminder crm={crm} onOpen={setActiveTab} />}
               {currentUser && <DirectivePopup comments={ceoComments} userId={currentUser.id} onRead={handleMarkCeoCommentRead} />}
-      <QuickJump currentUser={currentUser} crmEnabled={CRM_ENABLED} onSelectTab={setActiveTab} />
+      <QuickJump currentUser={currentUser} crmEnabled={CRM_ENABLED} onSelectTab={setActiveTab} data={crm.data as any} />
       {currentUser && settings.employeeUniverseBetaEnabled === true && (
         <Suspense fallback={null}><EmployeeUniverse
           chatEnabled={currentUser.isSuperAdmin === true || currentUser.featureAccess?.['employee-universe'] !== false}

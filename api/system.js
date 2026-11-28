@@ -56,6 +56,7 @@ export default async function handler(req, res) {
       await step('closed', () => sweepAutoClose(evaluateAttendancePresenceAndAutoClose));
       await step('media', () => import('./crm.js').then((m) => m.runMediaSweep()));
       await step('smart', () => import('./_smart.js').then((m) => m.sweepSmart()));
+      await step('addons', () => import('./crm.js').then((m) => m.runAddonSweep()));
       await step('backupWatch', () => backupWatch());
       await step('push', () => pushPending());
       const at = new Date().toISOString();

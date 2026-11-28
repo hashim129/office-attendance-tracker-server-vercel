@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useRef, useState } from 'react';
 import { t, useLang, setLang } from '../../lib/i18n';
 import { ThemePicker } from '../common/ThemePicker';
 import {
+  FilePenLine, BookOpenCheck, Wallet, AlarmClock, UsersRound, Star, Gauge,
   Clock,
   CalendarCheck,
   Users,
@@ -301,11 +302,17 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 { tab: 'crm-purchases' as const, label: 'Purchases', Icon: ShoppingBag, badge: 0 },
                 { tab: 'crm-receipts' as const, label: 'Receipts', Icon: ReceiptText, badge: crmBadges?.receiptNew || 0 },
                 { tab: 'crm-invoices' as const, label: 'Invoices', Icon: FileText, badge: crmBadges?.invoiceNew || 0 },
+                { tab: 'crm-quotes' as const, label: 'Quotations', Icon: FilePenLine, badge: 0 },
+                { tab: 'crm-overdue' as const, label: 'Overdue invoices', Icon: AlarmClock, badge: 0 },
+                { tab: 'crm-vendors' as const, label: 'Vendor ledger', Icon: BookOpenCheck, badge: 0 },
+                { tab: 'crm-cashbook' as const, label: 'Cash & bank book', Icon: Wallet, badge: 0 },
+                { tab: 'crm-groups' as const, label: 'Group bookings', Icon: UsersRound, badge: 0 },
+                { tab: 'crm-feedback' as const, label: 'Customer feedback', Icon: Star, badge: 0 },
                 { tab: 'crm-payment-tree' as const, label: 'Payment Tree', Icon: GitBranch, badge: 0 },
                 { tab: 'crm-profit' as const, label: 'Profit & Commission', Icon: Coins, badge: 0 },
                 { tab: 'crm-portal' as const, label: 'Portal Control', Icon: SlidersHorizontal, badge: 0 },
                 { tab: 'crm-notifications' as const, label: 'Notifications', Icon: BellRing, badge: crmBadges?.unreadTotal || 0 },
-              ]).filter((i) => canOpenPage(i.tab)).filter((i) => i.tab !== 'crm-sales' || ['admin', 'accounts', 'ceo'].includes(currentUser.role) || Boolean(currentUser.salesAccess)).filter((i) => (i.tab !== 'crm-payment-tree' && i.tab !== 'crm-profit') || ['admin', 'accounts', 'ceo'].includes(currentUser.role)).filter((i) => i.tab !== 'crm-portal' || (['admin', 'ceo'].includes(currentUser.role) && settings.customerPortalBetaEnabled !== false)).map(({ tab, label, Icon, badge }) => (
+              ]).filter((i) => canOpenPage(i.tab)).filter((i) => i.tab !== 'crm-sales' || ['admin', 'accounts', 'ceo'].includes(currentUser.role) || Boolean(currentUser.salesAccess)).filter((i) => (i.tab !== 'crm-payment-tree' && i.tab !== 'crm-profit' && i.tab !== 'crm-vendors' && i.tab !== 'crm-cashbook') || ['admin', 'accounts', 'ceo'].includes(currentUser.role)).filter((i) => (i.tab !== 'crm-quotes' && i.tab !== 'crm-groups') || ['admin', 'accounts', 'ceo'].includes(currentUser.role) || Boolean(currentUser.salesAccess)).filter((i) => i.tab !== 'crm-portal' || (['admin', 'ceo'].includes(currentUser.role) && settings.customerPortalBetaEnabled !== false)).map(({ tab, label, Icon, badge }) => (
                 <button
                   key={tab}
                   onClick={() => onSelectTab(tab)}
@@ -444,6 +451,17 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                 <FileSpreadsheet className="w-4 h-4 shrink-0" />
                 <span>{t('Executive Analytics & Stats', lang)}</span>
               </button>
+              <button
+                onClick={() => onSelectTab('staff-performance')}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
+                  activeTab === 'staff-performance'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                <Gauge className="w-4 h-4 shrink-0" />
+                <span>{t('Staff performance', lang)}</span>
+              </button>
             </div>
           </div>
         )}
@@ -523,6 +541,18 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               >
                 <FileSpreadsheet className="w-4 h-4 shrink-0" />
                 <span>{t('Reports & Payroll', lang)}</span>
+              </button>
+
+              <button
+                onClick={() => onSelectTab('staff-performance')}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 active:scale-[0.98] ${
+                  activeTab === 'staff-performance'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60'
+                }`}
+              >
+                <Gauge className="w-4 h-4 shrink-0" />
+                <span>{t('Staff performance', lang)}</span>
               </button>
 
               <button

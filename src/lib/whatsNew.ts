@@ -10,6 +10,26 @@ export interface WhatsNewRelease { id: string; date: string; title: string; step
 
 export const WHATS_NEW: WhatsNewRelease[] = [
   {
+    id: '2026-11-28b',
+    date: '28 November 2026',
+    title: 'Quotations, books, search and a new app icon',
+    steps: [
+      { title: 'Search everything', text: 'Press Ctrl+K (or the search box under the + button on phones) and type a name, phone number, invoice or receipt number. Pick a result to open that exact record.', where: 'Ctrl+K anywhere' },
+      { title: 'Quotations', text: 'Make a quotation, send it on WhatsApp or as a PDF, and mark it Approved when the customer agrees. Then press “Turn into invoice”: the invoice opens already filled in. Approved quotes not yet invoiced show on the Sales page.', where: 'Menu → Office → Quotations', tab: 'crm-quotes', who: 'sales' },
+      { title: 'Overdue invoices', text: 'Invoices past their due date with a balance still to be received, oldest first, with a one-tap WhatsApp reminder. You also get a morning notice for your own overdue invoices.', where: 'Menu → Office → Overdue invoices', tab: 'crm-overdue' },
+      { title: 'Vendor ledger and Cash & bank book', text: 'Vendor ledger shows what we booked with each vendor, what is paid and what is still owed, with a PDF statement. Cash & bank book shows money received and paid out day by day, with the closing balance.', where: 'Menu → Office', tab: 'crm-vendors', who: 'money' },
+      { title: 'Customer documents', text: 'Open a customer’s History to add passport, visa or CNIC copies with expiry dates. Red means expired, amber means it expires within 60 days; the customer’s owner is reminded 60, 30 and 7 days before.', where: 'Customers → History', tab: 'crm-customers' },
+      { title: 'Group bookings', text: 'Put customers travelling together in one group (e.g. “Umrah Dec batch”) and see all their invoices, amounts received and balances in one place. “Copy WhatsApp numbers” copies everyone’s number.', where: 'Menu → Office → Group bookings', tab: 'crm-groups', who: 'sales' },
+      { title: 'Feedback after travel', text: 'After the travel date, invoices show “Ask for feedback”. It sends the customer a short WhatsApp link to rate their trip. Ratings appear on the Customer feedback page.', where: 'Invoices · Menu → Office → Customer feedback', tab: 'crm-feedback' },
+      { title: 'Short leave and shift swap', text: 'Leaving early, coming late, or swapping a shift with a colleague? Ask on the Leave Requests page. For a swap your colleague accepts first, then Admin approves.', where: 'Leave Requests → Short leave & shift swap', tab: 'leaves' },
+      { title: 'Daily target nudge', text: 'If you have a sales target, a morning message tells you how much more you need this month. You can turn it off under My Profile.', where: 'My Profile', tab: 'employee-profile', who: 'sales' },
+      { title: 'Staff performance', text: 'One card per person for any month: days present, late days, hours, sales, profit, target reached and follow-up speed, with a PDF.', where: 'Menu → Staff performance', tab: 'staff-performance', who: 'admin' },
+      { title: 'Media: post performance', text: 'For posted posts, enter likes, views, comments and enquiries. Charts show which platform and type of post bring the most leads.', where: 'Posting Calendar → Performance', tab: 'crm-media', who: 'media' },
+      { title: 'Phones: + button and Back', text: 'The round + button above the bottom bar adds a new invoice, receipt, follow-up, customer or quotation. The phone’s Back button now returns to the previous page, and tables turn into easy-to-read cards.', who: 'phone' },
+      { title: 'Wide screens and a new icon', text: 'On laptops and tablets, an invoice, receipt or follow-up opens on the right while the list stays on the left. The phone app has a new icon, and on Android 13+ it matches your wallpaper colours (install the new app version).' },
+    ],
+  },
+  {
     id: '2026-11-28',
     date: '28 November 2026',
     title: 'New in the office app',
@@ -38,6 +58,7 @@ export function stepFor(step: WhatsNewStep, u: Employee, inPhoneApp: boolean): b
     case 'admin': return role === 'admin' || role === 'ceo' || u.isSuperAdmin === true;
     case 'money': return role === 'admin' || role === 'ceo' || role === 'accounts' || u.isSuperAdmin === true;
     case 'media': return role === 'admin' || role === 'ceo' || u.mediaTeam === true;
+    case 'sales': return role === 'admin' || role === 'ceo' || role === 'accounts' || u.salesAccess === true || u.isSuperAdmin === true;
     case 'phone': return true || inPhoneApp;
     default: return true;
   }

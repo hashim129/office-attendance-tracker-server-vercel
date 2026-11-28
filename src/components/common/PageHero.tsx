@@ -29,6 +29,13 @@ const GRADIENTS: Record<string, string> = {
   'crm-media': 'from-pink-500 via-rose-500 to-orange-400',
   'crm-profit': 'from-emerald-600 via-green-600 to-teal-600',
   'crm-portal': 'from-sky-600 via-blue-600 to-indigo-600',
+  'crm-quotes': 'from-sky-500 via-blue-600 to-indigo-600',
+  'crm-overdue': 'from-amber-500 via-orange-500 to-rose-500',
+  'crm-vendors': 'from-slate-600 via-cyan-700 to-teal-600',
+  'crm-cashbook': 'from-emerald-600 via-teal-600 to-sky-600',
+  'crm-groups': 'from-fuchsia-600 via-purple-600 to-indigo-600',
+  'crm-feedback': 'from-yellow-500 via-amber-500 to-orange-500',
+  'staff-performance': 'from-indigo-600 via-blue-600 to-emerald-500',
   'crm-notifications': 'from-rose-600 via-pink-600 to-orange-500',
   'live-dashboard': 'from-blue-600 via-indigo-600 to-violet-600',
 };
@@ -38,7 +45,7 @@ const PAGE_TITLES: Record<string, string> = {
   'my-attendance': 'My Attendance', 'team-attendance': 'Team Presence', leaves: 'Leave Requests', insights: 'Smart Insights',
   employees: 'Team Roster', shifts: 'Shifts', reports: 'Reports & Payroll', settings: 'Settings', 'crm-customers': 'Customers',
   'crm-tasks': 'Follow-ups & Tasks', 'crm-meetings': 'Meetings', 'crm-inventory': 'Inventory', 'crm-sales': 'Sales',
-  'crm-purchases': 'Purchases', 'crm-invoices': 'Invoices', 'crm-receipts': 'Receipts', 'crm-payment-tree': 'Payment Tree', 'crm-media': 'Posting Calendar', 'crm-profit': 'Profit & Commission', 'crm-portal': 'Portal Control', 'crm-notifications': 'Notifications', 'live-dashboard': 'Live Dashboard',
+  'crm-purchases': 'Purchases', 'crm-invoices': 'Invoices', 'crm-receipts': 'Receipts', 'crm-payment-tree': 'Payment Tree', 'crm-media': 'Posting Calendar', 'crm-profit': 'Profit & Commission', 'crm-portal': 'Portal Control', 'crm-quotes': 'Quotations', 'crm-overdue': 'Overdue invoices', 'crm-vendors': 'Vendor ledger', 'crm-cashbook': 'Cash & bank book', 'crm-groups': 'Group bookings', 'crm-feedback': 'Customer feedback', 'staff-performance': 'Staff performance', 'crm-notifications': 'Notifications', 'live-dashboard': 'Live Dashboard',
 };
 
 interface Hero { line: string; chips?: string[] }
@@ -72,12 +79,19 @@ function heroFor(tab: ActiveDesktopTab, crm: CrmState, isAdmin: boolean): Hero |
     case 'crm-purchases': return { line: 'Everything the office bought, tracked in one list.' };
     case 'crm-invoices': {
       const unpaid = data.invoices.filter((i) => i.status === 'unpaid').length;
-      return { line: unpaid ? `${plural(unpaid, 'invoice')} still waiting for payment.` : 'All invoices are settled. Lovely!', chips: badges.invoiceNew ? [`${badges.invoiceNew} new`] : [] };
+      return { line: unpaid ? `${plural(unpaid, 'invoice')} still have a balance to be received.` : 'All invoices are settled. Lovely!', chips: badges.invoiceNew ? [`${badges.invoiceNew} new`] : [] };
     }
     case 'crm-receipts': return { line: 'Money received, recorded and ready for Accounts.', chips: badges.receiptNew ? [`${badges.receiptNew} new`] : [] };
     case 'crm-payment-tree': return { line: 'Every invoice with its purchases, receipts and sales, linked in one tree.' };
     case 'crm-media': return { line: 'This week’s social media posts, platform by platform.' };
     case 'crm-profit': return { line: 'Who made how much profit this month, and the commission each person has earned.' };
+    case 'crm-quotes': return { line: 'Send a quote on WhatsApp, and turn it into an invoice in one tap when the customer says yes.' };
+    case 'crm-overdue': return { line: 'Invoices past their due date with a balance still to be received, oldest first.' };
+    case 'crm-vendors': return { line: 'Every vendor: what we booked, what we have paid and what is still owed.' };
+    case 'crm-cashbook': return { line: 'Money received and money paid out, day by day, with the closing balance.' };
+    case 'crm-groups': return { line: 'Customers travelling together, with their invoices and balances in one place.' };
+    case 'crm-feedback': return { line: 'How customers rated their trip after they came back.' };
+    case 'staff-performance': return { line: 'Attendance, sales, profit and follow-ups for each person, month by month.' };
     case 'live-dashboard': return { line: 'Who is in, who is late and how the month is going, all in one live view.' };
     case 'crm-portal': return { line: 'Banner, offers, animations, destinations and WhatsApp for your customers, all in one place.' };
     case 'crm-notifications': return { line: badges.unreadTotal ? `${plural(badges.unreadTotal, 'new notification')} for you.` : 'Nothing new. You are up to date!' };

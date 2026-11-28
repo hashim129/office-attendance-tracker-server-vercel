@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Opening screen: same blue as the sign-in page, so the app never flashes white before the logo drops in -->
+<!-- Opening screen: same blue as the launcher icon (#1D4ED8 to #0B2A6F) with a soft glow top-left.
+     The logo itself (drawable-nodpi/loading_logo.png) is added on top by MainActivity. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
-            <gradient android:angle="285" android:startColor="#0A1A4F" android:centerColor="#1438A8" android:endColor="#1D6FE0" android:type="linear" />
+            <gradient android:angle="315" android:startColor="#1D4ED8" android:endColor="#0B2A6F" android:type="linear" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:type="radial" android:centerX="0.1" android:centerY="0.05"
+                android:gradientRadius="90%p" android:startColor="#2EFFFFFF" android:endColor="#00FFFFFF" />
         </shape>
     </item>
 </layer-list>

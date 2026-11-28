@@ -3,6 +3,7 @@ import { isSupabaseConfigured, supabaseFetch } from './_supabase.js';
 import { pushNotificationRows } from './_push.js';
 import { setNoCacheHeaders } from './_cloud.js';
 import { isSiteDisabled } from './_session.js';
+import { publicFeedback } from './_people.js';
 
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
@@ -439,6 +440,15 @@ export default async function handler(req, res) {
 
   try {
     if (await isSiteDisabled()) return res.status(503).json({ ok: false, available: false, error: 'UNAVAILABLE', message: 'Service temporarily unavailable' });
+    // Feedback after travel (private link sent to the customer): works even when the portal beta is switched off.
+    if (req.method === 'POST') {
+      const fbBody = typeof req.body === 'string' ? parseJsonObj(req.body, {}) : parseJsonObj(req.body, {});
+      if (fbBody.action === 'feedback_get' || fbBody.action === 'feedback_submit') {
+        const out = await publicFeedback(fbBody, extractClientIp(req), { supabaseFetch, pushNotificationRows });
+        for (const [k, v] of Object.entries(out.headers || {})) res.setHeader(k, v);
+        return res.status(out.status).json(out.body);
+      }
+    }
     const settingsRows = await supabaseFetch('/settings?id=eq.current&select=data');
     const settingsData = parseJsonObj(settingsRows?.[0]?.data, {});
     if (settingsData.customerPortalBetaEnabled === false) {

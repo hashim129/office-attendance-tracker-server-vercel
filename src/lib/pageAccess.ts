@@ -7,7 +7,7 @@ export const PAGE_ACCESS_OPTIONS:{id:ActiveDesktopTab|'employee-universe';label:
   {id:'reports',label:'Reports'},{id:'settings',label:'Office Settings'},{id:'crm-customers',label:'Customers'},
   {id:'crm-tasks',label:'Tasks & Follow-ups'},{id:'crm-meetings',label:'Meetings'},{id:'crm-inventory',label:'Inventory'},
   {id:'crm-sales',label:'Sales'},{id:'crm-purchases',label:'Purchases'},{id:'crm-invoices',label:'Invoices'},
-  {id:'crm-receipts',label:'Receipts'},{id:'crm-portal',label:'Customer Portal'},{id:'crm-notifications',label:'CRM Notifications'},{id:'crm-media',label:'Posting Calendar (Media Team)'},{id:'crm-profit',label:'Profit & Commission'},
+  {id:'crm-receipts',label:'Receipts'},{id:'crm-portal',label:'Customer Portal'},{id:'crm-notifications',label:'CRM Notifications'},{id:'crm-media',label:'Posting Calendar (Media Team)'},{id:'crm-profit',label:'Profit & Commission'},{id:'crm-quotes',label:'Quotations'},{id:'crm-overdue',label:'Overdue invoices'},{id:'crm-vendors',label:'Vendor ledger'},{id:'crm-cashbook',label:'Cash & bank book'},{id:'crm-groups',label:'Group bookings'},{id:'crm-feedback',label:'Customer feedback'},{id:'staff-performance',label:'Staff performance'},
   {id:'employee-universe',label:'Employee Universe (chat & live office)'},
 ];
 export function pageEnabled(employee:Employee|undefined,page:ActiveDesktopTab){

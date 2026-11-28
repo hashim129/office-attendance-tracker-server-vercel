@@ -163,6 +163,20 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         return 'Posting Calendar';
       case 'crm-profit':
         return 'Profit & Commission';
+      case 'crm-quotes':
+        return 'Quotations';
+      case 'crm-overdue':
+        return 'Overdue invoices';
+      case 'crm-vendors':
+        return 'Vendor ledger';
+      case 'crm-cashbook':
+        return 'Cash & bank book';
+      case 'crm-groups':
+        return 'Group bookings';
+      case 'crm-feedback':
+        return 'Customer feedback';
+      case 'staff-performance':
+        return 'Staff performance';
       case 'crm-purchases':
         return 'Purchases · Vendor Bookings & Payables';
       case 'crm-invoices':

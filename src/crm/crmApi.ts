@@ -521,7 +521,7 @@ export class CrmError extends Error {
 }
 
 /** Calls the CRM server. The server decides what the signed-in person may see or do. */
-const READ_ACTIONS = new Set(['list', 'badges', 'media_list', 'portal_config_get', 'portal_overview']);
+const READ_ACTIONS = new Set(['list', 'badges', 'media_list', 'portal_config_get', 'portal_overview', 'books_quote_list', 'books_overdue', 'people_docs_list', 'people_group_list', 'people_feedback_list', 'staff_performance', 'staff_short_list', 'staff_media_stats_list', 'staff_nudge_get']);
 
 export async function crmCall<T = any>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
   const sessionToken = getSessionToken();

@@ -136,7 +136,7 @@ final class AppExtras {
         if (content == null) return;
         if (lockView != null && lockView.getParent() != null) return;
         FrameLayout v = new FrameLayout(a);
-        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{Color.parseColor("#0A1A4F"), Color.parseColor("#1438A8"), Color.parseColor("#1D6FE0")});
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{Color.parseColor("#0B2A6F"), Color.parseColor("#1A43B8"), Color.parseColor("#1D4ED8")});
         v.setBackground(bg);
         v.setClickable(true);
         LinearLayout col = new LinearLayout(a);
