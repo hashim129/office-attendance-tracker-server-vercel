@@ -13,7 +13,7 @@ import { downloadReportPdf } from '../lib/reportPdf';
 type Platform = { id: string; name: string; target: number; handle: string };
 type Post = {
   id: string; date: string; time: string; platform: string; kind: string; title: string; caption: string;
-  assignee: string | null; status: 'planned' | 'ready' | 'posted' | 'skipped'; link: string; notes: string; createdBy: string | null; postedAt: string | null;
+  assignee: string | null; status: 'planned' | 'ready' | 'posted' | 'skipped'; link: string; links?: string[]; notes: string; createdBy: string | null; postedAt: string | null;
 };
 type Idea = { id: string; text: string; platform: string; byName: string; at: string };
 type Data = { ideas?: Idea[]; today: string; weekStart: string; config: { platforms: Platform[] }; kinds: Record<string, string>; canManage: boolean; members: { id: string; name: string; media: boolean }[]; posts: Post[] };
@@ -35,7 +35,7 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Partial<Post> | null>(null);
   const [open, setOpen] = useState<Post | null>(null);
-  const [link, setLink] = useState('');
+  const [links, setLinks] = useState<string[]>(['']);
   const [targetsOpen, setTargetsOpen] = useState(false);
   const [targets, setTargets] = useState<Platform[]>([]);
   const [filter, setFilter] = useState<string>('all');
@@ -122,13 +122,14 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editing) return;
-    if (await run(() => crmCall('media_save', { post: editing }))) {
+    const payload = { ...editing, links: (editing.links || []).map((l) => l.trim()).filter(Boolean) };
+    if (await run(() => crmCall('media_save', { post: payload }))) {
       setEditing(null);
       if (fromIdea) { const idv = fromIdea; setFromIdea(null); await crmCall('media_idea_remove', { id: idv }).catch(() => null); await load(); }
     }
   };
   const setStatus = async (p: Post, status: Post['status']) => {
-    if (await run(() => crmCall('media_status', { id: p.id, status, link: status === 'posted' ? link.trim() : '' }))) { setOpen(null); setLink(''); }
+    if (await run(() => crmCall('media_status', { id: p.id, status, links: status === 'posted' ? links.map((l) => l.trim()).filter(Boolean) : [] }))) { setOpen(null); setLinks(['']); }
   };
 
   if (!data) {
@@ -144,7 +145,7 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
     const late = missed(p, today);
     const pf = plat.get(p.platform);
     return (
-      <button type="button" onClick={() => { setOpen(p); setLink(p.link || ''); }} data-media-post
+      <button type="button" onClick={() => { setOpen(p); setLinks(p.links && p.links.length ? p.links : ['']); }} data-media-post
         className={`w-full text-left rounded-lg border bg-white dark:bg-slate-900 px-2.5 py-2 transition-colors hover:border-slate-400 dark:hover:border-slate-500 ${late ? 'border-red-300 dark:border-red-900' : 'border-slate-200 dark:border-slate-800'}`}
         style={{ borderLeft: `3px solid ${colorOf(p.platform)}` }}>
         <div className="flex items-center justify-between gap-2 text-[10.5px] text-slate-500 dark:text-slate-400">
@@ -360,6 +361,7 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
             </div>
             <Field label="Title / idea"><input className={inputCls} value={editing.title || ''} onChange={(e) => setEditing({ ...editing, title: e.target.value })} placeholder="e.g. Umrah December packages reel" required maxLength={160} /></Field>
             <Field label="Caption (optional)"><textarea className={`${inputCls} min-h-[70px]`} value={editing.caption || ''} onChange={(e) => setEditing({ ...editing, caption: e.target.value })} maxLength={2200} /></Field>
+            <LinkInputs links={editing.links && editing.links.length ? editing.links : ['']} onChange={(v) => setEditing({ ...editing, links: v })} label="Link(s) of the live post (optional, adding one marks it posted)" />
             <div className="grid grid-cols-2 gap-3">
               <Field label="Who posts it">
                 <select className={inputCls} value={editing.assignee || ''} onChange={(e) => setEditing({ ...editing, assignee: e.target.value || null })}>
@@ -385,10 +387,14 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
             <p className="text-xs text-slate-500">By {open.assignee ? name.get(open.assignee) || 'Former employee' : 'anyone in the media team'}{missed(open, today) ? ' · This post was missed' : ''}</p>
             {open.caption && <p className="whitespace-pre-wrap rounded-lg bg-slate-50 dark:bg-slate-800 p-3 text-xs">{open.caption}</p>}
             {open.notes && <p className="text-xs text-slate-600 dark:text-slate-300">Notes: {open.notes}</p>}
-            {open.status === 'posted' && open.link && <a href={open.link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700"><ExternalLink className="w-3.5 h-3.5" /> Open the live post</a>}
+            {open.status === 'posted' && (open.links || []).length > 0 && (
+              <div className="flex flex-col gap-1" data-post-links>
+                {(open.links || []).map((l, k) => <a key={l} href={l} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 break-all"><ExternalLink className="w-3.5 h-3.5 shrink-0" /> {(open.links || []).length > 1 ? `Live post ${k + 1}` : 'Open the live post'} <span className="font-normal text-slate-400 truncate">{l.replace(/^https?:\/\//, '').slice(0, 40)}</span></a>)}
+              </div>
+            )}
             {open.status !== 'posted' && (
               <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3 space-y-2">
-                <Field label="Link of the live post"><div className="relative"><Link2 className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" /><input className={`${inputCls} pl-8`} value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://instagram.com/p/…" inputMode="url" /></div></Field>
+                <LinkInputs links={links} onChange={setLinks} />
                 <button className={`${btnPrimary} w-full`} disabled={busy} onClick={() => void setStatus(open, 'posted')} data-mark-posted><Check className="w-3.5 h-3.5" /> Mark as posted</button>
               </div>
             )}
@@ -428,3 +434,23 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
 };
 
 export default MediaCalendarView;
+
+/** One or more links (e.g. the same post on several pages, or a carousel in parts). */
+function LinkInputs({ links, onChange, label = 'Link(s) of the live post' }: { links: string[]; onChange: (v: string[]) => void; label?: string }) {
+  const list = links.length ? links : [''];
+  return (
+    <Field label={label}>
+      <div className="space-y-1.5" data-link-inputs>
+        {list.map((l, k) => (
+          <div key={k} className="flex gap-1.5">
+            <div className="relative flex-1"><Link2 className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-slate-400" />
+              <input className={`${inputCls} pl-8`} value={l} onChange={(e) => onChange(list.map((x, j) => (j === k ? e.target.value : x)))} placeholder="https://instagram.com/p/…" inputMode="url" />
+            </div>
+            {list.length > 1 && <button type="button" className="px-2 text-slate-400 hover:text-red-600" aria-label="Remove link" onClick={() => onChange(list.filter((_, j) => j !== k))}>×</button>}
+          </div>
+        ))}
+        {list.length < 12 && <button type="button" className="text-[11px] font-semibold text-blue-600" onClick={() => onChange([...list, ''])} data-add-link>+ Add another link</button>}
+      </div>
+    </Field>
+  );
+}

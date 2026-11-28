@@ -63,6 +63,8 @@ interface CoworkerPresenceItem {
 interface PunchClockTabProps {
   /** The personal Universe desk (small, shown on the left of the punch card) */
   desk?: React.ReactNode;
+  /** Shown right under the punch buttons (My week, My tasks today) */
+  belowPunch?: React.ReactNode;
   currentUser: Employee;
   allEmployees?: Employee[];
   shifts: ShiftSchedule[];
@@ -87,6 +89,7 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
   desk,
   currentUser,
   allEmployees = [],
+  belowPunch,
   shifts,
   records,
   onTimeIn,
@@ -989,201 +992,40 @@ export const PunchClockTab: React.FC<PunchClockTabProps> = ({
         </>
       )}
 
-      {/* Today's Team Live Presence Board (Today Only - Available to All Employees) */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-5 space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-900/50 flex items-center justify-center">
-                <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <span>Today's Team Live Presence</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                    {dayName}, {todayStr}
+      {belowPunch}
+
+      {/* Team Pulse: each person once, with one combined status (same as the Live Dashboard) */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs p-4 sm:p-5" data-team-pulse>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Team Pulse</h3>
+          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" /> LIVE</span>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {[...coworkerPresenceList]
+            .sort((a, b) => ({ in: 0, break: 0, offline: 1, absent: 2, out: 3 } as Record<string, number>)[a.status] - ({ in: 0, break: 0, offline: 1, absent: 2, out: 3 } as Record<string, number>)[b.status] || a.employee.name.localeCompare(b.employee.name))
+            .map((item) => {
+              const rec = item.record;
+              const sh = shifts.find((x) => x.id === item.employee.shiftId);
+              const late = Boolean(rec?.timeIn && sh && isLateArrival(rec.timeIn, sh));
+              const at = rec?.timeIn ? formatTime12h(rec.timeIn) : '';
+              const meta = item.status === 'in' || item.status === 'offline'
+                ? (late ? { label: `Arrived late at ${at}`, tone: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300' } : { label: `Working · in at ${at}`, tone: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300' })
+                : item.status === 'break' ? { label: `On a break · in at ${at}`, tone: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-300' }
+                : item.status === 'out' ? { label: `Finished at ${rec?.timeOut ? formatTime12h(rec.timeOut) : ''}${late ? ` · came late at ${at}` : ''}`, tone: 'border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300' }
+                : { label: 'Not in yet', tone: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300' };
+              return (
+                <div key={item.employee.id} className="flex items-center justify-between gap-2 rounded-xl border border-slate-100 dark:border-slate-800 px-3 py-2">
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-semibold text-slate-800 dark:text-slate-200">{item.employee.name}{item.employee.id === currentUser.id ? ' (you)' : ''}</span>
+                    {item.employee.designation && <span className="block truncate text-[10.5px] text-slate-400">{item.employee.designation}</span>}
                   </span>
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Live presence board for today. See who is online right now, who is offline, on a break, or finished for the day.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Filter Buttons */}
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <button
-              type="button"
-              onClick={() => setCoworkerFilter('all')}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
-                coworkerFilter === 'all'
-                  ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              All ({coworkerCounts.total})
-            </button>
-            <button
-              type="button"
-              onClick={() => setCoworkerFilter('in')}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
-                coworkerFilter === 'in'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Online ({coworkerCounts.in})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setCoworkerFilter('offline')}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
-                coworkerFilter === 'offline'
-                  ? 'bg-slate-700 text-white'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-slate-400" />
-              <span>Offline ({coworkerCounts.offline})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setCoworkerFilter('break')}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
-                coworkerFilter === 'break'
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 hover:bg-amber-100'
-              }`}
-            >
-              <Coffee className="w-3 h-3 text-amber-500" />
-              <span>Break ({coworkerCounts.break})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setCoworkerFilter('out')}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
-                coworkerFilter === 'out'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 hover:bg-blue-100'
-              }`}
-            >
-              <LogOut className="w-3 h-3 text-blue-500" />
-              <span>Shift Ended ({coworkerCounts.out})</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setCoworkerFilter('absent')}
-              className={`px-2.5 py-1 rounded-lg font-semibold transition-colors cursor-pointer ${
-                coworkerFilter === 'absent'
-                  ? 'bg-rose-600 text-white'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
-              }`}
-            >
-              Absent / Not In ({coworkerCounts.absent})
-            </button>
-          </div>
-        </div>
-
-        {/* Search coworker bar */}
-        <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
-          <input
-            type="text"
-            value={coworkerSearch}
-            onChange={(e) => setCoworkerSearch(e.target.value)}
-            placeholder="Search coworker by name, department, or employee ID..."
-            className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-          />
-        </div>
-
-        {/* Coworker Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[380px] overflow-y-auto pr-1">
-          {filteredCoworkers.map(({ employee: emp, record: rec, status, elapsedMins }: CoworkerPresenceItem) => {
-            const isMe = emp.id === currentUser.id;
-            return (
-              <div
-                key={emp.id}
-                className={`p-3 rounded-xl border transition-all ${
-                  isMe
-                    ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-300 dark:border-blue-700 shadow-2xs'
-                    : 'bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/80'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-2xs">
-                      {emp.name.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
-                        <span>{emp.name}</span>
-                        {isMe && (
-                          <span className="text-[9px] font-black uppercase px-1 rounded bg-blue-600 text-white">
-                            You
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                        {emp.department || emp.designation || 'Staff'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Status Badge */}
-                  {status === 'in' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/90 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 shrink-0">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <span>Online</span>
-                    </span>
-                  )}
-                  {status === 'offline' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 shrink-0">
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                      <span>Offline</span>
-                    </span>
-                  )}
-                  {status === 'break' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/90 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 shrink-0">
-                      <Coffee className="w-3 h-3 text-amber-600" />
-                      <span>Break</span>
-                    </span>
-                  )}
-                  {status === 'out' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950/90 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-700 shrink-0">
-                      <span>Out</span>
-                    </span>
-                  )}
-                  {status === 'absent' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0">
-                      <span>Absent</span>
-                    </span>
-                  )}
+                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10.5px] font-semibold ${meta.tone}`}>{meta.label}</span>
                 </div>
-
-                {/* Sub info / Timestamps for today */}
-                <div className="mt-2.5 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[10px] font-mono text-slate-600 dark:text-slate-400">
-                  {rec?.timeIn ? (
-                    <>
-                      <span>In: {formatTime12h(rec.timeIn)}</span>
-                      {status === 'in' || status === 'offline' ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                          {formatMinutesToHoursMinutes(elapsedMins)}
-                        </span>
-                      ) : status === 'out' && rec.timeOut ? (
-                        <span>Out: {formatTime12h(rec.timeOut)}</span>
-                      ) : (
-                        <span>{status === 'break' ? 'On Break' : ''}</span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="text-slate-400 italic">Not punched in today</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       </div>
 

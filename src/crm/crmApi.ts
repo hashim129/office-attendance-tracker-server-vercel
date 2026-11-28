@@ -226,6 +226,7 @@ export interface CrmInvoice {
   crmId: string;
   queryCode: string;
   invoiceNo: string;
+  saleBy?: string | null;
   createdBy: string;
   customerName: string;
   customerPhone: string;

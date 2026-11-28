@@ -88,7 +88,14 @@ const BarChart: React.FC<{ groups: { label: string; sale: number; cost: number }
 
 const emptyForm = { saleType: '' as '' | SaleType, otherType: '', customerName: '', vendorName: '', packageDetails: '', paxName: '', currency: '', costAmount: '', saleAmount: '', queryCode: '', psfProfit: '' };
 
+type SalesSummary = { currency: string; invoices: number; sales: number; costOfSales: number; receivable: number; payables: number; profit: number; profitInvoices: number; leftOut: number; leftOutValue: number };
+
 export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, employees, currentUser, portalEnabled = false }) => {
+  const [summary, setSummary] = useState<SalesSummary[] | null>(null);
+  const summaryKey = `${crm.data.sales.length}-${crm.data.sales.reduce((a, x) => a + (x.updatedAt ? Date.parse(x.updatedAt) % 1000 : 0), 0)}`;
+  useEffect(() => {
+    crmCall<{ currencies: SalesSummary[] }>('sales_summary').then((r) => setSummary(r.currencies)).catch(() => setSummary([]));
+  }, [summaryKey]);
   const [after, setAfter] = useState<AfterCreateInfo | null>(null);
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const canReview = isAdmin || currentUser.role === 'accounts';
@@ -249,40 +256,45 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
             <div className={`${cardCls} p-6 text-center text-xs text-slate-500`}>No sales yet. Totals and charts appear here as soon as the first invoice is generated.</div>
           ) : (
             <>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {stats.map((c) => (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3" data-sales-summary>
+                {(summary || []).map((c) => (
                   <div key={c.currency} className={`${cardCls} p-4`}>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{c.currency}</span>
+                      <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{c.currency} · {c.invoices} invoice{c.invoices === 1 ? '' : 's'}</span>
                       <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live</span>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Receivables</p>
+                        <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Sales</p>
+                        <p className="text-base font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">{money(c.sales, c.currency)}</p>
+                        <p className="text-[10px] text-slate-400">total of all invoices</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Cost of sales</p>
+                        <p className="text-base font-bold font-mono tabular-nums text-slate-700 dark:text-slate-300">{money(c.costOfSales, c.currency)}</p>
+                        <p className="text-[10px] text-slate-400">payables locked against invoices</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Current receivable</p>
                         <p className="text-base font-bold font-mono tabular-nums text-blue-600 dark:text-blue-400">{money(c.receivable, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">all sales · not yet received: {money(c.receivableOpen, c.currency)}</p>
+                        <p className="text-[10px] text-slate-400">invoice balances after amounts received</p>
                       </div>
                       <div>
-                        <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Payables</p>
-                        <p className="text-base font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400">{money(c.payable, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">all sales · not yet paid to vendors: {money(c.payableOpen, c.currency)}</p>
+                        <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Current payables</p>
+                        <p className="text-base font-bold font-mono tabular-nums text-amber-600 dark:text-amber-400">{money(c.payables, c.currency)}</p>
+                        <p className="text-[10px] text-slate-400">payables on invoices, after part payments</p>
                       </div>
-                      <div>
-                        <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Expected profit</p>
-                        <p className="text-sm font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">{money(c.expectedProfit, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">sale − cost, all sales</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Profit earned</p>
-                        <p className="text-sm font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400">{money(c.realisedProfit, c.currency)}</p>
-                        <p className="text-[10px] text-slate-400">sales received</p>
+                      <div className="col-span-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-2.5">
+                        <p className="text-[10px] uppercase tracking-wider font-semibold text-emerald-800 dark:text-emerald-300">Profit</p>
+                        <p className="text-lg font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400">{money(c.profit, c.currency)}</p>
+                        <p className="text-[10px] text-emerald-800/80 dark:text-emerald-300/80">sale invoice less its locked payables · from {c.profitInvoices} invoice{c.profitInvoices === 1 ? '' : 's'}{c.leftOut ? ` · ${c.leftOut} invoice${c.leftOut === 1 ? '' : 's'} (${money(c.leftOutValue, c.currency)}) left out until a payable is locked against them` : ''}</p>
                       </div>
                     </div>
-                    {c.pendingCount > 0 && <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-2">{c.pendingCount} coupon{c.pendingCount > 1 ? 's' : ''} waiting for review · {money(c.pendingValue, c.currency)}</p>}
                   </div>
                 ))}
+                {summary === null && <div className={`${cardCls} p-4`}><div className="skeleton h-24 rounded-lg" /></div>}
               </div>
-              <p className="text-[10px] text-slate-400 px-1">Profit = sale amount − cost amount. Receivables and payables count every sale as soon as its invoice is created (cancelled ones are left out). Each currency is kept separate (no conversion).</p>
+              <p className="text-[10px] text-slate-400 px-1">Sales = total of every invoice (cancelled left out). Cost of sales = payables (purchases) locked against an invoice. Profit counts only invoices that have their payable locked. Each currency is kept separate.</p>
 
               <div className={`${cardCls} p-4 space-y-4`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">

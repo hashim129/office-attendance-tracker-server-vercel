@@ -1336,6 +1336,7 @@ export default function App() {
                 {activeTab === 'clock' && (
                 <>
                 <PunchClockTab
+                  belowPunch={<div className="grid gap-4 lg:grid-cols-2" data-below-punch><MyWeekCard records={records} employeeId={currentUser.id} shift={shifts.find((sh) => sh.id === currentUser.shiftId)} business={CRM_ENABLED ? crm.data.business : null} /><TaskBoard /></div>}
                   desk={currentUser && settings.employeeUniverseBetaEnabled === true ? <PersonalDesk compact employee={currentUser} record={records.find(r=>r.employeeId===currentUser.id && r.date===getTodayDateString())} settings={settings} online={isNetworkOnline}/> : null}
                   onRecheckNetwork={handleRecheckNetwork}
                   currentUser={currentUser}
@@ -1356,8 +1357,6 @@ export default function App() {
                   onMarkCeoCommentRead={handleMarkCeoCommentRead}
                   onOpenChangePassword={() => setIsChangePasswordOpen(true)}
                 />
-                <div className="mt-4"><MyWeekCard records={records} employeeId={currentUser.id} shift={shifts.find((sh) => sh.id === currentUser.shiftId)} business={CRM_ENABLED ? crm.data.business : null} /></div>
-                <div className="mt-4"><TaskBoard /></div>
                 </>
               )}
 
