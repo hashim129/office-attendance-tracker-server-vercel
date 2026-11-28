@@ -8,6 +8,8 @@ interface ModalProps {
   subtitle?: string;
   children: React.ReactNode;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl' | 'full';
+  /** On wide screens (tablets in landscape, laptops) open as a panel on the right so the list stays visible on the left. */
+  side?: boolean;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -17,7 +19,13 @@ export const Modal: React.FC<ModalProps> = ({
   subtitle,
   children,
   maxWidth = 'md',
+  side = false,
 }) => {
+  useEffect(() => {
+    if (!side || !isOpen) return undefined;
+    document.documentElement.classList.add('has-side-panel');
+    return () => document.documentElement.classList.remove('has-side-panel');
+  }, [side, isOpen]);
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -45,14 +53,14 @@ export const Modal: React.FC<ModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-auto animate-in fade-in duration-150"
+      className={`fixed inset-0 z-50 flex items-start sm:items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-auto animate-in fade-in duration-150 ${side ? 'side-panel' : ''}`}
       role="dialog"
       aria-modal="true"
       data-app-modal
       // Tapping outside never closes a popup: forms would lose everything typed. Use Close / Back or Esc.
     >
       <div
-        className={`w-full ${maxWidthClass} bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden max-h-[92vh] my-auto`}
+        className={`side-panel-box w-full ${maxWidthClass} bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden max-h-[92vh] my-auto`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

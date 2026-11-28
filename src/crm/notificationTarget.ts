@@ -24,5 +24,12 @@ export function notificationDestination(category: string, refId?: string | null)
   if (ref.startsWith('ann-')) return 'crm-notifications';
   if (ref.startsWith('leave-')) return 'leaves';
   if (ref.startsWith('att-')) return 'clock';
+  if (ref.startsWith('slv-')) return 'leaves';
+  if (ref.startsWith('quote-')) return 'crm-quotes';
+  if (ref.startsWith('books-overdue-')) return 'crm-overdue';
+  if (ref.startsWith('grp-')) return 'crm-groups';
+  if (ref.startsWith('fb-') || ref.startsWith('fbinv-')) return 'crm-feedback';
+  if (ref.startsWith('cdoc-')) return 'crm-customers';
+  if (ref.startsWith('mstat-')) return 'crm-media';
   return (notificationTarget as Record<string, ActiveDesktopTab>)[category] || 'crm-notifications';
 }

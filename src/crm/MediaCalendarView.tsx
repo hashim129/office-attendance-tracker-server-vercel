@@ -1,3 +1,4 @@
+import { MediaPerformance } from './MediaPerformance';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Copy, ExternalLink, Target, Check, Trash2, Pencil, Link2 } from 'lucide-react';
 import type { Employee } from '../types';
@@ -39,7 +40,7 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
   const [targetsOpen, setTargetsOpen] = useState(false);
   const [targets, setTargets] = useState<Platform[]>([]);
   const [filter, setFilter] = useState<string>('all');
-  const [view, setView] = useState<'week' | 'month'>('week');
+  const [view, setView] = useState<'week' | 'month' | 'performance'>('week');
   const [monthData, setMonthData] = useState<{ month: string; posts: Post[] } | null>(null);
   const [ideaText, setIdeaText] = useState('');
   const [fromIdea, setFromIdea] = useState<string | null>(null);
@@ -179,7 +180,7 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
             <button className="p-2" aria-label="Next week" onClick={() => void load(addDays(week, 7))}><ChevronRight className="w-4 h-4" /></button>
           </div>
           <div className="inline-flex rounded-lg border border-slate-300 dark:border-slate-700 overflow-hidden text-xs font-semibold" data-view-toggle>
-            {(['week', 'month'] as const).map((v) => <button key={v} className={`px-3 py-2 ${view === v ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''}`} onClick={() => { setView(v); if (v === 'month') void loadMonth(week.slice(0, 7)); }}>{v === 'week' ? 'Week' : 'Month'}</button>)}
+            {(['week', 'month', 'performance'] as const).map((v) => <button key={v} className={`px-3 py-2 ${view === v ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : ''}`} onClick={() => { setView(v); if (v === 'month') void loadMonth(week.slice(0, 7)); }}>{v === 'week' ? 'Week' : v === 'month' ? 'Month' : 'Performance'}</button>)}
           </div>
           {data.canManage && <button className={btnGhost} onClick={() => { setTargets(data.config.platforms.map((p) => ({ ...p }))); setTargetsOpen(true); }}><Target className="w-3.5 h-3.5" /> Targets</button>}
           {weekPosts.length === 0 && <button className={btnGhost} disabled={busy} onClick={() => void run(() => crmCall('media_copy_week', { weekStart: week }))} data-copy-week><Copy className="w-3.5 h-3.5" /> Copy last week</button>}
@@ -187,6 +188,7 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
         </div>
       </div>
       {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
+      {view === 'performance' ? <MediaPerformance currentUser={currentUser} /> : <>
 
       {/* this week against targets */}
       <div className={`${cardCls} p-4`}>
@@ -288,7 +290,7 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
         <div className={`${cardCls} p-4`}>
           <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Media team record</p>
           <p className="text-xs text-slate-500">Last 8 weeks. Tap a name to see only their posts.</p>
-          <table className="mt-3 w-full text-xs">
+          <table className="phone-cards mt-3 w-full text-xs">
             <thead><tr className="text-left text-slate-500"><th className="py-1 font-medium">Name</th><th className="font-medium text-right">Posted</th><th className="font-medium text-right">On time</th><th className="font-medium text-right">Missed</th></tr></thead>
             <tbody>
               {people.map((m) => (
@@ -429,6 +431,7 @@ export const MediaCalendarView: React.FC<{ currentUser: Employee }> = ({ current
           </div>
         </div>
       </Modal>
+      </>}
     </div>
   );
 };

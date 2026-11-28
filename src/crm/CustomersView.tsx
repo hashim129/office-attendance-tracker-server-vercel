@@ -168,7 +168,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
             getCreatedAt={(c) => c.createdAt} getCreatorId={(c) => c.createdBy} searchFields={customerSearch} searchHint="Customer no., name or destination"
             employees={employees} currentUser={currentUser} companyName={crm.data.company.name} landscape
           />
-          <button className={btnPrimary} onClick={() => openForm()}><Plus className="w-4 h-4" /> Add customer</button>
+          <button className={btnPrimary} data-new-customer onClick={() => openForm()}><Plus className="w-4 h-4" /> Add customer</button>
         </div>
       </div>
 
@@ -346,7 +346,7 @@ export const CustomersView: React.FC<Props> = ({ crm, employees, currentUser }) 
           <p className="p-8 text-center text-xs text-slate-500">{customers.length ? 'No customer matches your search.' : 'No customers yet. Use “Add customer” to enter the first one.'}</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="phone-cards w-full text-xs">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50">
                   <th className="px-4 py-2.5 font-bold">Customer</th>

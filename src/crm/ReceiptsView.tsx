@@ -304,7 +304,7 @@ export const ReceiptsView: React.FC<Props & { focusId?: string; portalEnabled?: 
       )}
 
       {/* ---------- view */}
-      <Modal isOpen={Boolean(view)} onClose={() => setView(null)} title={view ? `Receipt ${view.receiptNo}` : ''} subtitle="Sent to the Accounts office" maxWidth="2xl">
+      <Modal side isOpen={Boolean(view)} onClose={() => setView(null)} title={view ? `Receipt ${view.receiptNo}` : ''} subtitle="Sent to the Accounts office" maxWidth="2xl">
         {view && (
           <div className="space-y-3 text-xs">
             <div className="flex flex-wrap gap-2">

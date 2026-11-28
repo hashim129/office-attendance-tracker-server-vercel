@@ -88,9 +88,9 @@ public class MainActivity extends Activity {
         createChannel();
 
         FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(Color.parseColor("#1438A8"));
+        root.setBackgroundColor(Color.parseColor("#1A43B8"));
         web = new WebView(this);
-        web.setBackgroundColor(Color.parseColor("#1438A8"));
+        web.setBackgroundColor(Color.parseColor("#1A43B8"));
         root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         web.setVerticalScrollBarEnabled(false);
         web.setHorizontalScrollBarEnabled(false);

@@ -96,6 +96,8 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
   useEffect(() => {
     crmCall<{ currencies: SalesSummary[] }>('sales_summary').then((r) => setSummary(r.currencies)).catch(() => setSummary([]));
   }, [summaryKey]);
+  const [quotesOpen, setQuotesOpen] = useState<{ currency: string; approvedOpen: number; count: number }[]>([]);
+  useEffect(() => { crmCall<{ currencies: { currency: string; approvedOpen: number; count: number }[] }>('books_quote_summary').then((r) => setQuotesOpen((r.currencies || []).filter((c) => c.count > 0))).catch(() => setQuotesOpen([])); }, []);
   const [after, setAfter] = useState<AfterCreateInfo | null>(null);
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'ceo'; // the CEO has every administrator right here
   const canReview = isAdmin || currentUser.role === 'accounts';
@@ -294,6 +296,13 @@ export const SalesView: React.FC<Props & { portalEnabled?: boolean }> = ({ crm, 
                 ))}
                 {summary === null && <div className={`${cardCls} p-4`}><div className="skeleton h-24 rounded-lg" /></div>}
               </div>
+              {quotesOpen.length > 0 && (
+                <div className={`${cardCls} p-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs`} data-quotes-open>
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">Approved quotations not yet invoiced:</span>
+                  {quotesOpen.map((q) => <span key={q.currency} className="text-slate-600 dark:text-slate-300">{q.currency} <b className="tabular-nums">{Math.round(q.approvedOpen).toLocaleString()}</b> ({q.count})</span>)}
+                  <span className="text-slate-400">Turn them into invoices on the Quotations page.</span>
+                </div>
+              )}
               <p className="text-[10px] text-slate-400 px-1">Sales = total of every invoice (cancelled left out). Cost of sales = payables (purchases) locked against an invoice. Profit counts only invoices that have their payable locked. Each currency is kept separate.</p>
 
               <div className={`${cardCls} p-4 space-y-4`}>

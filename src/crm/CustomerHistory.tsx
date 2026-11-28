@@ -1,3 +1,4 @@
+import { CustomerDocs } from './CustomerDocs';
 import React, { useEffect, useState } from 'react';
 import { Modal } from '../components/common/Modal';
 import { crmCall } from './crmApi';
@@ -28,8 +29,9 @@ export const CustomerHistory: React.FC<{ customer: CrmCustomer | null; onClose: 
   ].sort((a, b) => b.at.localeCompare(a.at)) : [];
   const totals = h ? Object.entries(h.invoices.filter((i) => i.status !== 'cancelled').reduce<Record<string, { t: number; b: number }>>((m, i) => { const x = m[i.currency] || { t: 0, b: 0 }; x.t += i.total; x.b += i.status === 'paid' ? 0 : i.balance; m[i.currency] = x; return m; }, {})) : [];
   return (
-    <Modal isOpen={Boolean(customer)} onClose={onClose} title={customer ? `${customer.customerName} · history` : ''} subtitle={customer?.customerNumber || undefined} maxWidth="lg">
+    <Modal side isOpen={Boolean(customer)} onClose={onClose} title={customer ? `${customer.customerName} · history` : ''} subtitle={customer?.customerNumber || undefined} maxWidth="lg">
       <div data-customer-history>
+        {customer && <div className="mb-4"><CustomerDocs customerId={customer.id} customerName={customer.customerName} /></div>}
         {err && <p className="text-xs text-red-600">{err}</p>}
         {!h && !err && <div className="space-y-2"><div className="skeleton h-10 rounded-lg" /><div className="skeleton h-10 rounded-lg" /></div>}
         {h && (

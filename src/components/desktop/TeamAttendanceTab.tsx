@@ -1061,7 +1061,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
       {/* Roster Table */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
         <div className="overflow-x-auto pb-1">
-          <table className={`w-full ${canManage ? 'min-w-[1060px]' : 'min-w-[780px]'} text-left text-xs border-collapse`}>
+          <table className={`phone-cards w-full ${canManage ? 'min-w-[1060px]' : 'min-w-[780px]'} text-left text-xs border-collapse`}>
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 <th className="py-3 px-3">Employee</th>
@@ -1873,7 +1873,7 @@ export const TeamAttendanceTab: React.FC<TeamAttendanceTabProps> = ({
                   No employees currently fall under this category for {effectiveDate}.
                 </div>
               ) : (
-                <table className="w-full min-w-[780px] text-left text-xs border-collapse">
+                <table className="phone-cards w-full min-w-[780px] text-left text-xs border-collapse">
                   <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
                     <tr>
                       <th className="py-2 px-3">#</th>

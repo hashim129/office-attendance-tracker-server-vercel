@@ -45,7 +45,7 @@ export const SecurityPanel: React.FC = () => {
           <input className="w-full sm:w-56 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs" placeholder="Search name or action" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <div className="mt-3 max-h-96 overflow-y-auto">
-          <table className="w-full text-xs">
+          <table className="phone-cards w-full text-xs">
             <thead className="sticky top-0 bg-white dark:bg-slate-900"><tr className="text-left text-slate-500"><th className="py-1 font-medium">When</th><th className="font-medium">Who</th><th className="font-medium">What</th><th className="font-medium hidden sm:table-cell">IP</th></tr></thead>
             <tbody>
               {shown.map((i) => (

@@ -1,3 +1,4 @@
+import { sendFeedbackRequest } from './FeedbackView';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { canEditFinancialRecord } from '../lib/financePermissions.js';
 import { Plus, Trash2, FileDown, Share2, Eye, Pencil, Building2, FileText, X, Lock, Info, ChevronDown, ChevronsUpDown, UserPlus } from 'lucide-react';
@@ -463,13 +464,26 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
     return blankForm(kind, crm.data.company.ntn || '');
   };
 
+  const fromQuote = useRef<string | null>(null);
   // Opened from the phone app's "New invoice" shortcut
   useEffect(() => {
     let flag = '';
     try { flag = sessionStorage.getItem('bahaar_open_new') || ''; } catch { /* ignore */ }
     if (flag !== 'invoice') return;
     try { sessionStorage.removeItem('bahaar_open_new'); } catch { /* ignore */ }
-    setForm(blankForm('customer', crm.data.company.ntn || ''));
+    const base = blankForm('customer', crm.data.company.ntn || '');
+    // "Turn into invoice" on an approved quotation: start the invoice with the quote's customer and lines.
+    let q: any = null;
+    try { q = JSON.parse(sessionStorage.getItem('bahaar_quote_prefill') || 'null'); sessionStorage.removeItem('bahaar_quote_prefill'); } catch { /* ignore */ }
+    if (q && typeof q === 'object') {
+      const cur = /^[A-Z]{3}$/.test(String(q.currency || '')) ? String(q.currency) : base.currency;
+      const lines = (Array.isArray(q.lines) ? q.lines : []).filter((l: any) => l && l.description).map((l: any) => ({ ...blankLine(cur), description: String(l.description).slice(0, 300), unitPrice: l.unitPrice === undefined || l.unitPrice === null ? '' : String(l.unitPrice), units: String(l.units || 1) }));
+      fromQuote.current = typeof q.quoteId === 'string' ? q.quoteId : null;
+      setForm({ ...base, currency: cur, vendors: [blankVendor(cur)], customerName: String(q.customerName || ''), customerPhone: String(q.customerPhone || ''), travelDate: /^\d{4}-\d{2}-\d{2}$/.test(String(q.travelDate || '')) ? q.travelDate : '', discount: q.discount ? String(q.discount) : '', notes: String(q.notes || ''), sections: [{ title: 'Package', key: uid(), locked: false, lines: lines.length ? lines : [blankLine(cur)] }] });
+      window.setTimeout(() => setNotice(`Started from quotation ${q.quoteNo || ''}. Check the details and press Save.`), 0);
+      return;
+    }
+    setForm(base);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // Cards start folded so the page stays short; people open the ones they need.
@@ -906,6 +920,10 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
       try { localStorage.removeItem(keyFor(form)); } catch { /* ignore */ }
       savedOk.current = true;
       if (wasNew) createdNow.current = r.invoice.id;
+      if (wasNew && fromQuote.current) {
+        const qid = fromQuote.current; fromQuote.current = null;
+        void crmCall('books_quote_converted', { id: qid, invoiceId: r.invoice.id, invoiceNo: r.invoice.invoiceNo }).catch(() => null);
+      }
       await crm.refresh();
       if (close) {
         setForm(null);
@@ -1264,6 +1282,13 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                               className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
                               Payment reminder
                             </a>
+                          )}
+                          {!vendorSide && i.status !== 'cancelled' && i.travelDate && i.travelDate.slice(0, 10) <= new Date().toISOString().slice(0, 10) && (
+                            <button type="button" data-ask-feedback title="Send the customer a short WhatsApp link to rate their trip"
+                              onClick={(ev) => { ev.stopPropagation(); void sendFeedbackRequest({ id: i.id, customerName: i.customerName, customerPhone: i.customerPhone }).catch((e: any) => window.alert(e?.message || 'Could not make the feedback link.')); }}
+                              className="phone-tiny inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                              Ask for feedback
+                            </button>
                           )}
                           {showVisa && <Pill tone={visaTone(vStatus)}>Visa: {VISA_STATUS_LABEL[vStatus]}</Pill>}
                           {showHotel && <Pill tone={visaTone(hStatus)}>Hotel: {HOTEL_STATUS_LABEL[hStatus]}{savedHotelName ? ` (${savedHotelName.slice(0, 24)})` : ''}</Pill>}
@@ -2283,7 +2308,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
       <PortalInvoiceModal invoice={portalFor} settings={portalFor ? crm.data.portalInvoices?.[portalFor.id] : undefined} onClose={() => setPortalFor(null)} onSaved={() => void crm.refresh()} />
 
       {/* ---------- preview */}
-      <Modal isOpen={Boolean(view)} onClose={() => setView(null)} title={view ? `${view.kind === 'vendor' ? 'Vendor payable' : 'Invoice'} ${view.invoiceNo}` : ''} subtitle={view?.kind === 'vendor' ? 'Digital copy for our records — not for the customer' : 'Preview — the PDF has the same layout'} maxWidth="4xl">
+      <Modal side isOpen={Boolean(view)} onClose={() => setView(null)} title={view ? `${view.kind === 'vendor' ? 'Vendor payable' : 'Invoice'} ${view.invoiceNo}` : ''} subtitle={view?.kind === 'vendor' ? 'Digital copy for our records — not for the customer' : 'Preview — the PDF has the same layout'} maxWidth="4xl">
         {view && (
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">

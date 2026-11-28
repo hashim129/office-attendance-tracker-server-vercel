@@ -678,7 +678,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
       {/* Reports Table */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
         <div className="overflow-x-auto pb-1">
-          <table className="w-full min-w-[1040px] text-left text-xs border-collapse">
+          <table className="phone-cards w-full min-w-[1040px] text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 <th className="py-3 px-4">Date & Day</th>

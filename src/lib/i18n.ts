@@ -6,7 +6,7 @@ const UR: Record<string, string> = {
   'Punch Clock': 'حاضری', 'Live Dashboard': 'لائیو ڈیش بورڈ', 'My Attendance & Stats': 'میری حاضری', 'Team Presence (P/A)': 'ٹیم کی حاضری',
   'Leave Requests': 'چھٹی کی درخواست', Customers: 'کسٹمرز', 'Follow-ups & Tasks': 'فالو اپ اور کام', Meetings: 'میٹنگز', 'Customer Portal': 'کسٹمر پورٹل',
   'Posting Calendar': 'پوسٹنگ کیلنڈر', Sales: 'سیلز', Purchases: 'خریداری', Receipts: 'رسیدیں', Invoices: 'انوائس', 'Payment Tree': 'ادائیگی کا خاکہ',
-  'Profit & Commission': 'منافع اور کمیشن', 'Portal Control': 'پورٹل کنٹرول', Notifications: 'اطلاعات', Inventory: 'سامان',
+  'Profit & Commission': 'منافع اور کمیشن', Quotations: 'کوٹیشنز', 'Overdue invoices': 'واجب الادا انوائسز', 'Vendor ledger': 'وینڈر کھاتہ', 'Cash & bank book': 'کیش اور بینک بک', 'Group bookings': 'گروپ بکنگز', 'Customer feedback': 'کسٹمر کی رائے', 'Staff performance': 'عملے کی کارکردگی', 'Add something new': 'نیا شامل کریں', 'New invoice': 'نئی انوائس', 'New receipt': 'نئی رسید', 'New follow-up': 'نیا فالو اپ', 'New customer': 'نیا کسٹمر', 'New quotation': 'نئی کوٹیشن', 'Portal Control': 'پورٹل کنٹرول', Notifications: 'اطلاعات', Inventory: 'سامان',
   'Attendance Verification': 'حاضری کی تصدیق', 'Smart Insights': 'جائزہ', 'Reports & Payroll': 'رپورٹس اور تنخواہ', 'Team Presence & Roster Stats': 'ٹیم کی حاضری',
   'Smart Insights & Graphs': 'جائزہ اور گراف', 'Executive Analytics & Stats': 'ایگزیکٹو جائزہ', 'Team Roster & Logs': 'ٹیم کا ریکارڈ', 'Employees Directory': 'ملازمین',
   'Shift Schedules': 'شفٹیں', 'Office & Server Settings': 'دفتر کی سیٹنگز', 'Super Admin Console': 'سپر ایڈمن',

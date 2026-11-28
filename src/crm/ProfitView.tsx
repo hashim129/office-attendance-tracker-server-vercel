@@ -53,7 +53,7 @@ export const ProfitView: React.FC<{ currentUser: Employee; companyName: string }
             ))}
           </div>
           <div className={`${cardCls} overflow-x-auto`}>
-            <table className="w-full text-xs" data-profit-table>
+            <table className="phone-cards w-full text-xs" data-profit-table>
               <thead><tr className="text-left text-slate-500 border-b border-slate-100 dark:border-slate-800"><th className="p-3 font-medium">Employee</th><th className="p-3 font-medium text-right">Invoices</th><th className="p-3 font-medium text-right">Sales</th><th className="p-3 font-medium text-right">Cost</th><th className="p-3 font-medium text-right">Profit</th><th className="p-3 font-medium text-right">Received</th><th className="p-3 font-medium text-right">Commission</th></tr></thead>
               <tbody>
                 {d.people.map((p) => (

@@ -919,3 +919,34 @@ button, a, [role="button"], input[type="checkbox"], label { touch-action: manipu
 .skeleton { background: linear-gradient(90deg, rgb(241 245 249) 25%, rgb(226 232 240) 37%, rgb(241 245 249) 63%); background-size: 400% 100%; animation: skeleton 1.3s ease infinite; }
 .dark .skeleton { background: linear-gradient(90deg, rgb(30 41 59) 25%, rgb(51 65 85) 37%, rgb(30 41 59) 63%); background-size: 400% 100%; }
 @keyframes skeleton { from { background-position: 100% 50%; } to { background-position: 0 50%; } }
+
+/* ---------- Page change: a short fade and lift (off for people who turn motion down) ---------- */
+.page-in { animation: page-in 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .page-in { animation: none; } }
+
+/* ---------- Wide screens: record details open as a panel on the right, list stays on the left ---------- */
+@media (min-width: 1024px) {
+  .side-panel { inset: 0 0 0 auto !important; width: min(620px, 46vw); padding: 0 !important; background: transparent !important; backdrop-filter: none !important; align-items: stretch !important; overflow: hidden !important; }
+  .side-panel .side-panel-box { max-width: none !important; height: 100vh; max-height: 100vh !important; margin: 0 !important; border-radius: 0 !important; border-width: 0 0 0 1px !important; box-shadow: -18px 0 40px -20px rgba(15, 23, 42, 0.35) !important; animation: side-in 0.24s cubic-bezier(0.22, 1, 0.36, 1); }
+  html.has-side-panel main { padding-right: calc(min(620px, 46vw) + 16px) !important; transition: padding-right 0.2s ease; }
+}
+@keyframes side-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* ---------- Phones: wide tables turn into stacked cards (labels come from the table header) ---------- */
+@media (max-width: 639px) {
+  table.phone-cards, table.phone-cards > tbody, table.phone-cards > tfoot, table.phone-cards tr, table.phone-cards td { display: block; width: 100%; min-width: 0 !important; }
+  table.phone-cards > thead { display: none; }
+  table.phone-cards tr { margin: 0 0 8px; padding: 8px 12px; border: 1px solid rgb(226 232 240); border-radius: 12px; background: #fff; }
+  .dark table.phone-cards tr { border-color: rgb(51 65 85); background: rgb(15 23 42); }
+  table.phone-cards td { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0 !important; border: 0 !important; text-align: right; white-space: normal !important; }
+  table.phone-cards td::before { content: attr(data-label); flex: none; max-width: 45%; text-align: left; font-weight: 600; color: rgb(100 116 139); }
+  table.phone-cards td[data-label='']::before { display: none; }
+  table.phone-cards td[data-label=''] { justify-content: flex-start; text-align: left; }
+  table.phone-cards td:first-child { font-weight: 700; }
+  .overflow-x-auto:has(> table.phone-cards) { overflow-x: visible; }
+
+  /* bigger touch targets on phones */
+  main button[class*='rounded']:not(.phone-tiny), main select, main input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']) { min-height: 38px; }
+  main input, main select, main textarea { font-size: 16px; } /* stops the phone zooming in when typing */
+}
