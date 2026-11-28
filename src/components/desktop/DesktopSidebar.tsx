@@ -2,7 +2,7 @@ import React, { useLayoutEffect, useRef, useState } from 'react';
 import { t, useLang, setLang } from '../../lib/i18n';
 import { ThemePicker } from '../common/ThemePicker';
 import {
-  FilePenLine, BookOpenCheck, Wallet, AlarmClock, UsersRound, Star, Gauge,
+  FilePenLine, BookOpenCheck, Wallet, AlarmClock, UsersRound, Star,
   Clock,
   CalendarCheck,
   Users,
