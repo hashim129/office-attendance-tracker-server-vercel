@@ -124,7 +124,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           <div key={i} className="nav-pill absolute left-3 right-3 pointer-events-none" style={{ top: p.top, height: p.height, background: `linear-gradient(135deg, ${p.g1}, ${p.g2})`, boxShadow: `0 10px 22px -10px color-mix(in srgb, ${p.g1} 75%, transparent), inset 0 1px 0 rgba(255,255,255,0.3)` }} aria-hidden="true" />
         ))}
         <div className="space-y-6">
-          <div className="flex items-center justify-between px-3 -mb-3" data-lang-toggle>
+          <div className="flex items-center justify-between gap-2 px-3 pt-1 pb-3 mb-1 border-b border-slate-200/70 dark:border-slate-800" data-lang-toggle>
             <ThemePicker compact />
             <button type="button" onClick={() => setLang(lang === 'ur' ? 'en' : 'ur')} className="rounded-md border border-slate-200 dark:border-slate-700 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800" title="Menu language">
               {lang === 'ur' ? 'English' : 'اردو'}

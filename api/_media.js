@@ -22,7 +22,7 @@ const isTime = (v) => v === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(String(v));
 
 export const mapMediaPost = (r) => ({
   id: r.id, date: String(r.post_date).slice(0, 10), time: r.post_time || '', platform: r.platform, kind: r.kind, title: r.title || '', caption: r.caption || '',
-  assignee: r.assignee || null, status: r.status, link: r.link || '', notes: r.notes || '', createdBy: r.created_by || null,
+  assignee: r.assignee || null, status: r.status, link: r.link || '', links: String(r.link || '').split(/\s+/).filter(Boolean), notes: r.notes || '', createdBy: r.created_by || null,
   postedAt: r.posted_at || null, postedBy: r.posted_by || null, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
@@ -33,6 +33,15 @@ export function isMissed(p, nowMs = Date.now()) {
   const d = String(p.post_date ?? p.date).slice(0, 10);
   if (d < today) return true;
   return false;
+}
+
+
+const URL_RE = /^https?:\/\/\S+\.\S+/;
+/** One or more live-post links (one per platform repost, carousel parts, etc.). */
+function cleanLinks(list, str, bad) {
+  const arr = (Array.isArray(list) ? list : String(list || '').split(/\s+/)).map((x) => str(x, 500, { name: 'Link' }).trim()).filter(Boolean);
+  for (const l of arr) if (!URL_RE.test(l)) throw bad(`“${l.slice(0, 60)}” is not a link. Paste the full address starting with https://`);
+  return [...new Set(arr)].slice(0, 12);
 }
 
 export function createMedia(h) {
@@ -157,6 +166,12 @@ export function createMedia(h) {
         notes: str(x.notes, 600, { name: 'Notes' }), assignee, updated_at: at,
       };
       if (existing && existing.post_date !== x.date) row.reminded = '';
+      // links typed in the form: the post is done
+      if (x.links !== undefined) {
+        const links = cleanLinks(x.links, str, bad);
+        row.link = links.join('\n');
+        if (links.length && row.status !== 'posted') { row.status = 'posted'; row.posted_at = at; row.posted_by = me.id; }
+      }
       await upsert('crm_media_posts', row);
       if (assignee && assignee !== me.id && (!existing || existing.assignee !== assignee)) {
         await notify([assignee], 'media', row.id, `${me.name || 'Admin'} gave you a post: ${row.title} on ${row.post_date}${row.post_time ? ` at ${row.post_time}` : ''}.`, me.id);
@@ -169,8 +184,9 @@ export function createMedia(h) {
       if (!existing) throw notFound('Post not found.');
       const status = String(body.status || '');
       if (!STATUSES.includes(status)) throw bad('Choose a status.');
-      const link = str(body.link, 500, { name: 'Link' });
-      if (status === 'posted' && !/^https?:\/\/\S+\.\S+/.test(link)) throw bad('Paste the link of the live post, so it can be checked.');
+      const links = cleanLinks(body.links !== undefined ? body.links : body.link, str, bad);
+      const link = links.join('\n');
+      if (status === 'posted' && !links.length) throw bad('Paste the link of the live post, so it can be checked.');
       const at = new Date().toISOString();
       const row = { ...existing, status, link: status === 'posted' ? link : existing.link, updated_at: at,
         posted_at: status === 'posted' ? (existing.posted_at || at) : null, posted_by: status === 'posted' ? me.id : null };

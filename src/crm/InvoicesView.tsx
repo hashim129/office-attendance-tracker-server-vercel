@@ -36,6 +36,8 @@ interface FormSection { title: string; key: string; locked: boolean; lines: Form
 interface FormVendor { id?: string; name: string; description: string; unitPrice: string; units: string; amount: string; currency: string; bank: string }
 interface FormState {
   id?: string;
+  /** optional: another employee who made the sale (gets the sale, profit and target credit) */
+  saleBy?: string;
   kind: 'customer' | 'vendor';
   invoiceNo?: string;
   /** one box: "CRM ID / Query Code" */
@@ -182,7 +184,7 @@ const blankLine = (currency: string, taxable = false): FormLine => ({ descriptio
 const newSection = (title: string, currency: string): FormSection => ({ title, key: uid(), locked: false, lines: [blankLine(currency, isServiceTitle(title))] });
 const blankVendor = (currency: string): FormVendor => ({ name: '', description: '', unitPrice: '', units: '', amount: '', currency, bank: '' });
 const blankForm = (kind: 'customer' | 'vendor' = 'customer', companyNtn = ''): FormState => ({
-  kind, crmId: '', customerName: '', customerPhone: '', reference: '', ntn: companyNtn, showNtn: true, vendors: kind === 'customer' ? [blankVendor('PKR')] : [], invoiceDate: today(), dueDate: '', travelDate: '', currency: 'PKR',
+  kind, saleBy: '', crmId: '', customerName: '', customerPhone: '', reference: '', ntn: companyNtn, showNtn: true, vendors: kind === 'customer' ? [blankVendor('PKR')] : [], invoiceDate: today(), dueDate: '', travelDate: '', currency: 'PKR',
   sections: [{ title: '', key: uid(), locked: false, lines: [blankLine('PKR')] }], taxLabel: 'Tax', taxRate: kind === 'vendor' ? '' : '6', discount: '', advancePaid: '', notes: '', payments: [],
   paymentApproved: false, paymentApprovedDate: '', paymentReceived: false, travelerNames: '',
   visaEnabled: false, visaStatus: 'not_started', visaInProgressDate: '', visaIssuedDate: '',
@@ -226,7 +228,7 @@ function compute(f: FormState) {
 function toForm(inv: CrmInvoice, companyNtn = ''): FormState {
   const kind = inv.kind || 'customer';
   return {
-    id: inv.id, kind, invoiceNo: inv.invoiceNo, crmId: crmQueryOf(inv), customerName: inv.customerName, customerPhone: inv.customerPhone,
+    id: inv.id, kind, saleBy: inv.saleBy || '', invoiceNo: inv.invoiceNo, crmId: crmQueryOf(inv), customerName: inv.customerName, customerPhone: inv.customerPhone,
     ntn: inv.ntn === null || inv.ntn === undefined ? companyNtn : inv.ntn, showNtn: inv.showNtn !== false,
     vendors: kind === 'customer' ? ((inv.vendors || []).length ? inv.vendors.map((v, vi) => ({
       id: v.id || `legacy-${vi}`,
@@ -1255,6 +1257,7 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
                           </span>
                           <Pill tone="blue">CRM / Query: {crmQueryOf(i) || '—'}</Pill>
                           <span className="text-sm font-bold text-slate-900 dark:text-slate-100 break-words">{i.customerName}</span>
+                          {i.saleBy && <Pill tone="blue">Sale by {empName.get(i.saleBy) || 'colleague'}</Pill>}
                           <Pill tone={statusTone(i.status)}>{i.status === 'paid' ? (vendorSide ? 'Paid' : 'Received') : i.status === 'cancelled' ? 'Cancelled' : (vendorSide ? 'Unpaid' : 'Not received')}</Pill>
                           {!vendorSide && i.status === 'unpaid' && i.balance > 0 && (
                             <a href={paymentReminderLink(i, crm.data.company.name)} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} data-payment-reminder title="Send the customer a polite WhatsApp reminder of the balance"
@@ -2343,6 +2346,14 @@ export const InvoicesView: React.FC<Props & { focusId?: string }> = ({ crm, empl
               )}
               <Field label="Due date (optional)"><input className={inputCls} type="date" value={form.dueDate} onChange={(e) => patch({ dueDate: e.target.value })} /></Field>
               {form.kind === 'customer' && <Field label="Travel date (optional)" hint="Customers see a countdown to this date on the portal"><input className={inputCls} type="date" value={form.travelDate} onChange={(e) => patch({ travelDate: e.target.value })} /></Field>}
+              {form.kind === 'customer' && (
+                <Field label="Sale done by (optional)" hint="If you are entering this for a colleague, pick them: the sale, profit and target go to them">
+                  <select className={inputCls} value={form.saleBy || ''} onChange={(e) => patch({ saleBy: e.target.value })} data-sale-by>
+                    <option value="">{form.id ? `${empName.get(allInvoices.find((x) => x.id === form.id)?.createdBy || '') || 'The person who created it'} (creator)` : `Me (${currentUser.name})`}</option>
+                    {employees.filter((e) => e.isActive !== false && !e.isSuperAdmin && e.id !== (form.id ? allInvoices.find((x) => x.id === form.id)?.createdBy : currentUser.id)).sort((a, b) => a.name.localeCompare(b.name)).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                </Field>
+              )}
             </div>
 
             {form.kind === 'customer' && <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-3">

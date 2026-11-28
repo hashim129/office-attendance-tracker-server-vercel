@@ -496,10 +496,10 @@ const paymentsOf = (r) => {
 const logEntry = (me, action, text, reason = '') => ({ id: id('log'), at: nowIso(), by: me.id, byName: me.name || '', action, text: String(text || '').slice(0, 600), reason: String(reason || '').slice(0, 600) });
 const withLog = (row, entry) => ({ ...row, edit_log: [...asArray(row.edit_log), entry].slice(-300) });
 const taggedIds = (r) => asArray(r?.tagged).map((t) => t && t.id).filter(Boolean);
-const canSeeInvoice = (r, me, staff) => Boolean(r) && (staff || r.created_by === me.id || taggedIds(r).includes(me.id));
+const canSeeInvoice = (r, me, staff) => Boolean(r) && (staff || r.created_by === me.id || r.sale_by === me.id || taggedIds(r).includes(me.id));
 const mapInvoice = (r, visaProgress = null) => ({
   editLog: asArray(r.edit_log), tagged: asArray(r.tagged),
-  id: r.id, kind: r.kind === 'vendor' ? 'vendor' : 'customer', crmId: r.crm_id || '', queryCode: r.query_code || '', invoiceNo: r.invoice_no, createdBy: r.created_by, customerName: r.customer_name, customerPhone: r.customer_phone || '',
+  id: r.id, kind: r.kind === 'vendor' ? 'vendor' : 'customer', crmId: r.crm_id || '', queryCode: r.query_code || '', invoiceNo: r.invoice_no, createdBy: r.created_by, saleBy: r.sale_by || null, customerName: r.customer_name, customerPhone: r.customer_phone || '',
   customerAddress: r.customer_address || '', customerNtn: r.customer_ntn || '', reference: r.reference || '',
   invoiceDate: r.invoice_date, dueDate: r.due_date || null, travelDate: r.travel_date || null, currency: r.currency, sections: asArray(r.sections),
   taxLabel: r.tax_label || 'Tax', taxRate: num(r.tax_rate), discount: num(r.discount), advancePaid: num(r.advance_paid), payments: paymentsOf(r),
@@ -525,6 +525,54 @@ const mapSale = (r) => ({
 });
 // Every customer invoice is that employee's sale: kept in step automatically (no manual coupons any more).
 // Sale = invoice total (receivable until the invoice is received), cost = vendor payables in the same currency.
+/**
+ * Money per customer invoice (cancelled ones left out):
+ *   sale = invoice total · receivable = what is still to come in (balance)
+ *   locked payables = purchases linked to the invoice (cost of sales) · open payables = their unpaid items
+ *   profit only counts invoices that have a payable locked against them.
+ */
+async function invoiceBook(fx) {
+  const [invs, purchases] = await Promise.all([
+    supabaseFetch('/crm_invoices?select=id,kind,invoice_no,customer_name,currency,total,balance,status,created_by,sale_by,created_at&limit=5000'),
+    getAllPurchases(),
+  ]);
+  const byInv = new Map();
+  for (const pu of purchases) {
+    if (!pu.invoiceId || pu.status === 'cancelled' || pu.deleted) continue;
+    const list = byInv.get(pu.invoiceId) || [];
+    list.push(pu);
+    byInv.set(pu.invoiceId, list);
+  }
+  const conv = (amount, from, to) => {
+    if (!from || from === to) return num(amount);
+    const a = toPkr(amount, from, fx);
+    if (a === null) return null;
+    return to === 'PKR' ? a : (fx?.rates?.[to] ? a * fx.rates[to] : null);
+  };
+  return (invs || []).filter((i) => (i.kind || 'customer') !== 'vendor' && i.status !== 'cancelled').map((i) => {
+    const linked = byInv.get(i.id) || [];
+    let cost = 0; let open = 0; let unconverted = false;
+    for (const pu of linked) {
+      const items = asArray(pu.items);
+      for (const it of items) {
+        const v = conv(it.payable, it.currency || pu.currency, i.currency);
+        if (v === null) { unconverted = true; continue; }
+        cost += v;
+        if (pu.status !== 'paid' && (!it.paidByMethod || it.paidByMethod === 'unpaid')) open += v;
+      }
+      if (!items.length) { const v = conv(pu.totalPayable, pu.currency, i.currency); if (v !== null) { cost += v; if (pu.status !== 'paid') open += v; } }
+    }
+    const total = num(i.total);
+    const balance = i.status === 'paid' ? 0 : num(i.balance);
+    return {
+      id: i.id, no: i.invoice_no, customer: i.customer_name, currency: i.currency, total, balance, received: Math.max(0, total - balance),
+      by: i.sale_by || i.created_by, createdAt: i.created_at, paid: i.status === 'paid',
+      hasPayable: linked.length > 0, cost: r2(cost), openPayable: r2(open), unconverted,
+      profit: linked.length > 0 ? r2(total - cost) : null,
+    };
+  });
+}
+
 const autoSaleId = (invId) => `sale-${invId}`;
 async function syncSaleFromInvoice(inv) {
   if (!inv || inv.kind === 'vendor') return;
@@ -536,7 +584,7 @@ async function syncSaleFromInvoice(inv) {
   const pax = asArray(inv.travelers).map((t) => String(t?.name || '').trim()).filter(Boolean);
   const at = new Date().toISOString();
   const row = {
-    id: sid, coupon_no: String(inv.invoice_no), created_by: inv.created_by,
+    id: sid, coupon_no: String(inv.invoice_no), created_by: inv.sale_by || inv.created_by,
     sale_type: 'others', other_type: 'Invoice',
     customer_name: String(inv.customer_name || '').slice(0, 160) || '—',
     vendor_name: (asArray(inv.vendors).map((v) => v?.name).filter(Boolean).join(', ') || '—').slice(0, 160),
@@ -857,32 +905,49 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // Profit & commission per employee for one month, in PKR (foreign currencies at today's rate).
+    // Sales page totals (per currency): sales, cost of sales, receivables, payables, profit.
+    if (action === 'sales_summary') {
+      const viewer = isAdmin || me.role === 'accounts' || me.role === 'ceo';
+      const fx = await fxRates();
+      const book = (await invoiceBook(fx)).filter((b) => viewer || b.by === me.id);
+      const cur = new Map();
+      for (const b of book) {
+        const c = cur.get(b.currency) || { currency: b.currency, invoices: 0, sales: 0, costOfSales: 0, receivable: 0, payables: 0, profit: 0, profitInvoices: 0, leftOut: 0, leftOutValue: 0 };
+        c.invoices += 1; c.sales += b.total; c.receivable += b.balance; c.costOfSales += b.cost; c.payables += b.openPayable;
+        if (b.hasPayable) { c.profit += b.profit; c.profitInvoices += 1; } else { c.leftOut += 1; c.leftOutValue += b.total; }
+        cur.set(b.currency, c);
+      }
+      const round = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' ? r2(v) : v]));
+      return res.status(200).json({ ok: true, currencies: [...cur.values()].map(round).sort((a, b) => b.sales - a.sales) });
+    }
+
+    // Profit & commission per employee for one month, in PKR (foreign currencies at the day's rate).
+    // Same rules as the Sales page: profit only from invoices with a payable locked against them.
     if (action === 'profit_report') {
       const viewer = isAdmin || me.role === 'accounts' || me.role === 'ceo';
       const month = /^\d{4}-\d{2}$/.test(String(body.month || '')) ? body.month : new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 7);
-      const [fx, salesRows, comRow, staff] = await Promise.all([fxRates(), getAll('crm_sales'), getOne('crm_company', 'commission').catch(() => null), activeEmployees()]);
+      const [fx, comRow, staff] = await Promise.all([fxRates(), getOne('crm_company', 'commission').catch(() => null), activeEmployees()]);
       const pct = parseJsonObj(parseJsonObj(comRow?.data, {}).people, {});
-      const inMonth = (x) => new Date(Date.parse(x.created_at) + 5 * 3600e3).toISOString().slice(0, 7) === month;
-      const rows = salesRows.filter((x) => x.status === 'approved' && inMonth(x) && (viewer || x.created_by === me.id));
+      const inMonth = (iso) => new Date(Date.parse(iso) + 5 * 3600e3).toISOString().slice(0, 7) === month;
+      const book = (await invoiceBook(fx)).filter((b) => inMonth(b.createdAt) && (viewer || b.by === me.id));
       const per = new Map();
       const missing = new Set();
-      for (const x of rows) {
-        const sale = toPkr(x.sale_amount, x.currency, fx); const cost = toPkr(x.cost_amount, x.currency, fx);
-        if (sale === null || cost === null) { missing.add(x.currency); continue; }
-        const p = per.get(x.created_by) || { id: x.created_by, count: 0, sales: 0, cost: 0, profit: 0, receivedProfit: 0, receivable: 0 };
-        p.count += 1; p.sales += sale; p.cost += cost; p.profit += sale - cost;
-        if (x.payment_status === 'paid') p.receivedProfit += sale - cost; else p.receivable += sale;
-        per.set(x.created_by, p);
+      for (const b of book) {
+        const sale = toPkr(b.total, b.currency, fx); const cost = toPkr(b.cost, b.currency, fx); const bal = toPkr(b.balance, b.currency, fx);
+        if (sale === null || cost === null) { missing.add(b.currency); continue; }
+        const p = per.get(b.by) || { id: b.by, count: 0, sales: 0, cost: 0, profit: 0, receivedProfit: 0, receivable: 0, leftOut: 0 };
+        p.count += 1; p.sales += sale; p.receivable += bal || 0;
+        if (b.hasPayable) { p.cost += cost; p.profit += sale - cost; if (b.paid) p.receivedProfit += sale - cost; } else p.leftOut += 1;
+        per.set(b.by, p);
       }
       const r2x = (n) => Math.round(n);
       const people = [...per.values()].map((p) => {
         const c = Number(pct[p.id]) || 0;
         return { ...p, name: staff.find((e) => e.id === p.id)?.name || 'Former employee', sales: r2x(p.sales), cost: r2x(p.cost), profit: r2x(p.profit), receivedProfit: r2x(p.receivedProfit), receivable: r2x(p.receivable), commissionPct: c, commission: r2x(Math.max(0, p.receivedProfit) * c / 100) };
       }).sort((a, b) => b.profit - a.profit);
-      if (!viewer && !people.length) people.push({ id: me.id, name: me.name, count: 0, sales: 0, cost: 0, profit: 0, receivedProfit: 0, receivable: 0, commissionPct: Number(pct[me.id]) || 0, commission: 0 });
+      if (!viewer && !people.length) people.push({ id: me.id, name: me.name, count: 0, sales: 0, cost: 0, profit: 0, receivedProfit: 0, receivable: 0, leftOut: 0, commissionPct: Number(pct[me.id]) || 0, commission: 0 });
       const sum = (k) => people.reduce((a, p) => a + p[k], 0);
-      return res.status(200).json({ ok: true, month, people, totals: { count: sum('count'), sales: sum('sales'), cost: sum('cost'), profit: sum('profit'), receivedProfit: sum('receivedProfit'), receivable: sum('receivable'), commission: sum('commission') }, rates: { date: fx.date, USD: fx.rates?.USD ? Math.round(100 / fx.rates.USD) / 100 : null, AED: fx.rates?.AED ? Math.round(100 / fx.rates.AED) / 100 : null, SAR: fx.rates?.SAR ? Math.round(100 / fx.rates.SAR) / 100 : null }, missingRates: [...missing], canEdit: isAdmin, staff: viewer ? staff.filter((e) => e.role !== 'superadmin').map((e) => ({ id: e.id, name: e.name, commissionPct: Number(pct[e.id]) || 0 })) : [] });
+      return res.status(200).json({ ok: true, month, people, totals: { count: sum('count'), sales: sum('sales'), cost: sum('cost'), profit: sum('profit'), receivedProfit: sum('receivedProfit'), receivable: sum('receivable'), commission: sum('commission'), leftOut: sum('leftOut') }, rates: { date: fx.date, USD: fx.rates?.USD ? Math.round(100 / fx.rates.USD) / 100 : null, AED: fx.rates?.AED ? Math.round(100 / fx.rates.AED) / 100 : null, SAR: fx.rates?.SAR ? Math.round(100 / fx.rates.SAR) / 100 : null }, missingRates: [...missing], canEdit: isAdmin, staff: viewer ? staff.filter((e) => e.role !== 'superadmin').map((e) => ({ id: e.id, name: e.name, commissionPct: Number(pct[e.id]) || 0 })) : [] });
     }
     if (action === 'commission_save') {
       if (!isAdmin) throw forbidden('Only Admin or the CEO can set commission.');
@@ -1905,6 +1970,11 @@ export default async function handler(req, res) {
         const previous = asArray(existing?.vendors).find((p, pi) => (p.id || `legacy-${pi}`) === v.id);
         return { name, description, unitPrice, units, amount, currency: vCur, bank, id: previous?.id || id('vendor'), posted: Boolean(previous?.posted), postedAt: previous?.postedAt || null, postedBy: previous?.postedBy || null };
       }).filter(Boolean);
+      // "Sale done by": optional, another active employee gets the sale, profit and target credit
+      if (x.saleBy && !vendorBill) {
+        const who = (await activeEmployees()).find((e) => e.id === String(x.saleBy));
+        if (!who) throw bad('Choose who made this sale from the list.');
+      }
       const at = nowIso();
       const base = {
         customer_name: str(x.customerName, 160, { required: true, name: vendorBill ? 'Vendor name' : 'Customer name' }), customer_phone: str(x.customerPhone, 60, { name: 'Phone' }),
@@ -1918,6 +1988,7 @@ export default async function handler(req, res) {
         payment_received_at: existing ? (existing.created_by === me.id && existing.status === 'unpaid' ? (x.paymentReceived ? (existing.payment_received_at || at) : null) : existing.payment_received_at) : (x.paymentReceived ? at : null),
         payment_received_by: existing ? (existing.created_by === me.id && existing.status === 'unpaid' ? (x.paymentReceived ? me.id : null) : existing.payment_received_by) : (x.paymentReceived ? me.id : null),
         payment_received_auto: existing ? Boolean(existing.payment_received_auto) : false,
+        sale_by: vendorBill ? null : x.saleBy === undefined ? (existing?.sale_by || null) : (x.saleBy && String(x.saleBy) !== String(existing?.created_by || me.id) ? String(x.saleBy).slice(0, 80) : null),
       };
       if (existing && !canEditFinancialRecord(me.role, me.id, existing.created_by, 'invoice', existing.status)) {
         throw forbidden('You can only edit your own unpaid invoices.');
@@ -2046,6 +2117,9 @@ export default async function handler(req, res) {
         const merged = { ...existing, ...base, updated_at: at };
         const row = withLog({ ...merged, ...settlePatch(merged, existing, me, at) }, logEntry(me, 'edit', what || 'Details updated', editReason));
         await saveInvoiceRow(row);
+      if (row.sale_by && row.sale_by !== me.id && (!existing || existing.sale_by !== row.sale_by)) {
+        await notify([row.sale_by], 'invoice', row.id, `${me.name || 'A colleague'} recorded invoice ${row.invoice_no} (${row.customer_name}) as your sale. It counts towards your sales and target.`, me.id).catch(() => null);
+      }
         await syncReceiptLinks(row.id, paymentsAdded, paymentsRemoved);
         if (visaOp === 'delete') {
           await supabaseFetch(`/crm_company?id=eq.${encodeURIComponent(`visa-${row.id}`)}`, { method: 'DELETE' });
@@ -2059,6 +2133,7 @@ export default async function handler(req, res) {
       const fresh = { id: id('inv'), kind, invoice_no: String(invoiceNo), created_by: me.id, status: 'unpaid', created_at: at, updated_at: at, ...base, edit_log: [logEntry(me, 'create', `Created (total ${currency} ${total})`)], tagged: [] };
       const row = { ...fresh, ...settlePatch(fresh, null, me, at) };
       await saveInvoiceRow(row);
+      if (row.sale_by && row.sale_by !== me.id) await notify([row.sale_by], 'invoice', row.id, `${me.name || 'A colleague'} recorded invoice ${row.invoice_no} (${row.customer_name}) as your sale. It counts towards your sales and target.`, me.id).catch(() => null);
       await syncReceiptLinks(row.id, paymentsAdded, paymentsRemoved);
       if (visaOp === 'upsert' && visaObj) {
         await upsert('crm_company', { id: `visa-${row.id}`, data: visaObj, updated_at: visaObj.updatedAt });
